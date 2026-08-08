@@ -26,3 +26,25 @@ func TestAPIKeyScopeEnforcement(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPOriginValidation(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   bool
+	}{
+		{"", true},
+		{"https://weekly.internal", true},
+		{"http://weekly.internal", true},
+		{"https://attacker.example", false},
+		{"file:///tmp/test", false},
+	}
+	for _, test := range tests {
+		r := httptest.NewRequest(http.MethodPost, "https://weekly.internal/mcp", nil)
+		if test.origin != "" {
+			r.Header.Set("Origin", test.origin)
+		}
+		if got := validMCPOrigin(r); got != test.want {
+			t.Errorf("origin %q: got %v, want %v", test.origin, got, test.want)
+		}
+	}
+}

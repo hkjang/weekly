@@ -20,6 +20,33 @@ func main() {
 		panic(err)
 	}
 	defer reader.Close()
+	for _, file := range reader.File {
+		if file.Name == "ppt/presentation.xml" {
+			stream, openErr := file.Open()
+			if openErr != nil {
+				panic(openErr)
+			}
+			decoder := xml.NewDecoder(stream)
+			for {
+				token, tokenErr := decoder.Token()
+				if tokenErr == io.EOF {
+					break
+				}
+				if tokenErr != nil {
+					panic(tokenErr)
+				}
+				if start, ok := token.(xml.StartElement); ok && start.Name.Local == "sldSz" {
+					fmt.Print("slide-size")
+					for _, attribute := range start.Attr {
+						fmt.Printf(" %s=%s", attribute.Name.Local, attribute.Value)
+					}
+					fmt.Println()
+					break
+				}
+			}
+			stream.Close()
+		}
+	}
 	files := make([]*zip.File, 0)
 	for _, file := range reader.File {
 		if strings.HasPrefix(file.Name, "ppt/slides/slide") && strings.HasSuffix(file.Name, ".xml") && !strings.Contains(file.Name, "_rels") {

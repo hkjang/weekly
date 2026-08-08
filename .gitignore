@@ -1,6 +1,6 @@
 .env
 .DS_Store
-weekly
+/weekly
 coverage.out
 frontend/node_modules/
 frontend/dist/

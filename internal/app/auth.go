@@ -207,7 +207,8 @@ func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "OIDC_STATE_ERROR", "로그인 요청을 시작할 수 없습니다.")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "weekly_oidc_state", Value: tokenHash(state), Path: "/api/v1/auth/oidc/callback", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, MaxAge: 600})
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	http.SetCookie(w, &http.Cookie{Name: "weekly_oidc_state", Value: tokenHash(state), Path: "/api/v1/auth/oidc/callback", HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 600})
 	redirectURL := cfg.RedirectURL
 	if redirectURL == "" {
 		scheme := "http"

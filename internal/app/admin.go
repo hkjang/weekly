@@ -20,6 +20,7 @@ type settingDefinition struct {
 var settingDefinitions = map[string]settingDefinition{
 	"service.name":              {Validate: bounded(1, 80)},
 	"service.notice":            {Validate: bounded(0, 500)},
+	"service.timezone":          {Validate: validTimezone},
 	"workflow.enabled":          {Validate: booleanValue},
 	"workflow.week_start":       {Validate: oneOf("MONDAY", "SUNDAY")},
 	"auth.local_enabled":        {Validate: booleanValue},
@@ -144,7 +145,11 @@ func (a *App) testOIDC(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 502, "OIDC_DISCOVERY_FAILED", "Keycloak OIDC Discovery 연결에 실패했습니다: "+err.Error())
 		return
 	}
-	var metadata struct{ Issuer, AuthorizationEndpoint, TokenEndpoint string }
+	var metadata struct {
+		Issuer                string `json:"issuer"`
+		AuthorizationEndpoint string `json:"authorization_endpoint"`
+		TokenEndpoint         string `json:"token_endpoint"`
+	}
 	if err := provider.Claims(&metadata); err != nil {
 		writeError(w, 502, "OIDC_METADATA_FAILED", "OIDC 메타데이터를 읽을 수 없습니다.")
 		return
@@ -391,4 +396,12 @@ func validOptionalURL(v string) bool {
 }
 func validRole(role string) bool {
 	return role == "USER" || role == "TEAM_LEADER" || role == "ORG_MANAGER" || role == "ADMIN"
+}
+
+func validTimezone(value string) bool {
+	if len(value) < 1 || len(value) > 120 {
+		return false
+	}
+	_, err := time.LoadLocation(value)
+	return err == nil
 }

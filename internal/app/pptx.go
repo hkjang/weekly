@@ -54,7 +54,7 @@ func (a *App) loadPPTXTemplateInfo(ctx context.Context) (pptxTemplateView, error
 	if errors.Is(err, pgx.ErrNoRows) {
 		if len(a.defaultPPTX) > 0 {
 			sum := sha256.Sum256(a.defaultPPTX)
-			return pptxTemplateView{Source: "reference", OriginalName: "1월5주간업무보고_AI엔지니어링.pptx", SizeBytes: int64(len(a.defaultPPTX)), SHA256: fmt.Sprintf("%x", sum), Placeholders: []string{"AUTO:TEAM", "AUTO:THIS_WEEK_DATES", "AUTO:NEXT_WEEK_DATES", "AUTO:THIS_WEEK_ITEMS", "AUTO:NEXT_WEEK_ITEMS"}}, nil
+			return pptxTemplateView{Source: "reference", OriginalName: a.defaultPPTXName, SizeBytes: int64(len(a.defaultPPTX)), SHA256: fmt.Sprintf("%x", sum), Placeholders: []string{"AUTO:TEAM", "AUTO:THIS_WEEK_DATES", "AUTO:NEXT_WEEK_DATES", "AUTO:THIS_WEEK_ITEMS", "AUTO:NEXT_WEEK_ITEMS"}}, nil
 		}
 		body, buildErr := defaultPPTX()
 		if buildErr != nil {
@@ -554,6 +554,96 @@ func defaultPPTX() ([]byte, error) {
 		return nil, err
 	}
 	return output.Bytes(), nil
+}
+
+// referenceStylePPTX recreates the supplied AI Engineering weekly report format without
+// requiring the source binary in a Git checkout. It uses the same 9,906,000 x 6,858,000
+// canvas, four slides, team label, and two-column actual/plan table geometry.
+func referenceStylePPTX() ([]byte, error) {
+	contentTypes := strings.Replace(defaultContentTypes, `</Types>`, `<Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide3.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide4.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`, 1)
+	presentation := strings.Replace(defaultPresentation, `<p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst>`, `<p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="257" r:id="rId6"/><p:sldId id="258" r:id="rId7"/><p:sldId id="259" r:id="rId8"/></p:sldIdLst>`, 1)
+	presentation = strings.Replace(presentation, `<p:sldSz cx="12192000" cy="6858000" type="screen16x9"/>`, `<p:sldSz cx="9906000" cy="6858000"/>`, 1)
+	presentationRels := strings.Replace(defaultPresentationRels, `</Relationships>`, `<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/><Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide3.xml"/><Relationship Id="rId8" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide4.xml"/></Relationships>`, 1)
+	appProps := strings.Replace(defaultAppProps, `<Slides>1</Slides>`, `<Slides>4</Slides>`, 1)
+	files := map[string]string{
+		"[Content_Types].xml":                          contentTypes,
+		"_rels/.rels":                                  defaultRootRels,
+		"docProps/app.xml":                             appProps,
+		"docProps/core.xml":                            defaultCoreProps,
+		"ppt/presentation.xml":                         presentation,
+		"ppt/_rels/presentation.xml.rels":              presentationRels,
+		"ppt/presProps.xml":                            defaultPresProps,
+		"ppt/viewProps.xml":                            defaultViewProps,
+		"ppt/tableStyles.xml":                          defaultTableStyles,
+		"ppt/slideLayouts/slideLayout1.xml":            defaultSlideLayout,
+		"ppt/slideLayouts/_rels/slideLayout1.xml.rels": defaultSlideLayoutRels,
+		"ppt/slideMasters/slideMaster1.xml":            defaultSlideMaster,
+		"ppt/slideMasters/_rels/slideMaster1.xml.rels": defaultSlideMasterRels,
+		"ppt/theme/theme1.xml":                         defaultTheme,
+	}
+	for index := 1; index <= 4; index++ {
+		files[fmt.Sprintf("ppt/slides/slide%d.xml", index)] = generatedReferenceSlide(index)
+		files[fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", index)] = defaultSlideRels
+	}
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		entry, err := writer.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := io.WriteString(entry, files[name]); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func generatedReferenceSlide(_ int) string {
+	headerActual := "추진실적 (2026.1.26 ~ 2026.1.30)"
+	headerPlan := "추진계획 (2026.2.2 ~ 2026.2.6)"
+	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>` +
+		generatedReferenceLabel(2, "Team", 8171160, 304608, 1534394, 292388, "AI엔지니어링 파트", 1300, true, "r") +
+		`<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Weekly actual and plan table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="272480" y="764704"/><a:ext cx="9433050" cy="5616625"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr><a:noFill/><a:tableStyleId>{9B8FA427-CB96-4E00-B161-538A03E3D982}</a:tableStyleId></a:tblPr><a:tblGrid><a:gridCol w="4716525"/><a:gridCol w="4716525"/></a:tblGrid><a:tr h="267825">` +
+		generatedReferenceHeaderCell(headerActual) + generatedReferenceHeaderCell(headerPlan) +
+		`</a:tr><a:tr h="5348800">` + generatedReferenceContentCell() + generatedReferenceContentCell() + `</a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>` +
+		generatedReferenceLabel(4, "Footer", 272480, 6470000, 3500000, 260000, "주간업무 추진실적 및 계획", 1100, true, "l") +
+		`</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
+}
+
+func generatedReferenceLabel(id int, name string, x, y, cx, cy int, text string, size int, bold bool, align string) string {
+	boldValue := "0"
+	if bold {
+		boldValue = "1"
+	}
+	return fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="%d" name="%s"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr anchor="t"><a:spAutoFit/></a:bodyPr><a:lstStyle/><a:p><a:pPr algn="%s"><a:buNone/></a:pPr><a:r><a:rPr lang="ko-KR" sz="%d" b="%s"><a:solidFill><a:schemeClr val="dk1"/></a:solidFill><a:latin typeface="Arial"/><a:ea typeface="Arial"/></a:rPr><a:t>%s</a:t></a:r><a:endParaRPr lang="ko-KR" sz="%d" b="%s"/></a:p></p:txBody></p:sp>`, id, name, x, y, cx, cy, align, size, boldValue, escapeXML(text), size, boldValue)
+}
+
+func generatedReferenceHeaderCell(text string) string {
+	return `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r><a:rPr b="1" lang="ko-KR" sz="1300"><a:solidFill><a:schemeClr val="dk1"/></a:solidFill><a:latin typeface="Arial"/><a:ea typeface="Arial"/></a:rPr><a:t>` + escapeXML(text) + `</a:t></a:r><a:endParaRPr b="1" sz="1300"/></a:p></a:txBody>` + generatedReferenceCellProperties(true) + `</a:tc>`
+}
+
+func generatedReferenceContentCell() string {
+	return `<a:tc>` + referenceTextBody(nil, "current") + generatedReferenceCellProperties(false) + `</a:tc>`
+}
+
+func generatedReferenceCellProperties(header bool) string {
+	fill := `<a:noFill/>`
+	anchor := "t"
+	if header {
+		fill = `<a:solidFill><a:srgbClr val="D8D8D8"><a:alpha val="50196"/></a:srgbClr></a:solidFill>`
+		anchor = "ctr"
+	}
+	line := `<a:solidFill><a:srgbClr val="7F7F7F"/></a:solidFill><a:prstDash val="solid"/>`
+	return `<a:tcPr marT="46800" marB="46800" marR="43200" marL="43200" anchor="` + anchor + `"><a:lnL w="12700">` + line + `</a:lnL><a:lnR w="12700">` + line + `</a:lnR><a:lnT w="12700">` + line + `</a:lnT><a:lnB w="12700">` + line + `</a:lnB>` + fill + `</a:tcPr>`
 }
 
 const defaultContentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/><Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/><Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`

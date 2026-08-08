@@ -62,7 +62,7 @@ export default function App() {
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage notify={notify} />}
-        {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} notify={notify} />}
+        {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage />}
         {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}
         {page === 'admin' && isAdmin && <AdminPage notify={notify} onSettingsChanged={refreshSession} />}

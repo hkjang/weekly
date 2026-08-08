@@ -118,6 +118,41 @@ func TestSuppliedReferencePPTXRendering(t *testing.T) {
 	}
 }
 
+func TestGeneratedReferenceStylePPTX(t *testing.T) {
+	template, err := referenceStylePPTX()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := &reportView{Items: []reportItem{
+		{Category: "플랫폼", Title: "OIDC", CurrentResult: "연동 완료", NextPlan: "운영 검증"},
+		{Category: "배포", Title: "오프라인", CurrentResult: "이미지 생성", NextPlan: "반입 시험"},
+	}}
+	result, err := renderReferencePPTX(template, report, "AI엔지니어링 파트", time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatePPTXXML(t, result)
+	text := pptxXMLText(t, result)
+	for _, expected := range []string{"추진실적 (2026.8.3 ~ 2026.8.7)", "추진계획 (2026.8.10 ~ 2026.8.14)", "연동 완료", "반입 시험"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated reference is missing %q", expected)
+		}
+	}
+	reader, err := zip.NewReader(bytes.NewReader(result), int64(len(result)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	slides := 0
+	for _, file := range reader.File {
+		if isSlideXML(file.Name) {
+			slides++
+		}
+	}
+	if slides != 4 {
+		t.Fatalf("got %d slides, want 4", slides)
+	}
+}
+
 func pptxXMLText(t *testing.T, body []byte) string {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))

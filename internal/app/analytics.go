@@ -21,7 +21,7 @@ type analyticsOverviewView struct {
 func (a *App) analyticsOverview(w http.ResponseWriter, r *http.Request) {
 	week := strings.TrimSpace(r.URL.Query().Get("weekStart"))
 	if week == "" {
-		week = currentWeekStart(time.Now(), a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
+		week = currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
 	}
 	result, err := a.analyticsOverviewData(r.Context(), currentPrincipal(r.Context()), week)
 	if err != nil {

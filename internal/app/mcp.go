@@ -151,7 +151,7 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 	case "weekly_submission_overview":
 		week := strings.TrimSpace(asString(params.Arguments["weekStart"]))
 		if week == "" {
-			week = currentWeekStart(time.Now(), a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
+			week = currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
 		}
 		data, err = a.analyticsOverviewContext(r.Context(), p, week)
 	case "weekly_reports_search":

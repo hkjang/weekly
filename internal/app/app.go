@@ -24,20 +24,22 @@ type BuildInfo struct {
 }
 
 type Options struct {
-	Logger      *slog.Logger
-	Web         fs.FS
-	Build       BuildInfo
-	DefaultPPTX []byte
+	Logger          *slog.Logger
+	Web             fs.FS
+	Build           BuildInfo
+	DefaultPPTX     []byte
+	DefaultPPTXName string
 }
 
 type App struct {
-	db          *pgxpool.Pool
-	logger      *slog.Logger
-	web         fs.FS
-	build       BuildInfo
-	box         *secretBox
-	mux         *http.ServeMux
-	defaultPPTX []byte
+	db              *pgxpool.Pool
+	logger          *slog.Logger
+	web             fs.FS
+	build           BuildInfo
+	box             *secretBox
+	mux             *http.ServeMux
+	defaultPPTX     []byte
+	defaultPPTXName string
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
@@ -54,7 +56,19 @@ func New(ctx context.Context, options Options) (*App, error) {
 		db.Close()
 		return nil, err
 	}
-	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: options.DefaultPPTX}
+	defaultPPTX := options.DefaultPPTX
+	defaultPPTXName := options.DefaultPPTXName
+	if len(defaultPPTX) == 0 {
+		defaultPPTX, err = referenceStylePPTX()
+		if err != nil {
+			db.Close()
+			return nil, fmt.Errorf("create built-in PPTX template: %w", err)
+		}
+		defaultPPTXName = "Weekly-AI엔지니어링-4슬라이드-기본.pptx"
+	} else if defaultPPTXName == "" {
+		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
+	}
+	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName}
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
 		return nil, err
@@ -172,7 +186,7 @@ type apiError struct {
 
 type envelope struct {
 	Success bool      `json:"success"`
-	Data    any       `json:"data,omitempty"`
+	Data    any       `json:"data"`
 	Error   *apiError `json:"error,omitempty"`
 	TraceID string    `json:"traceId"`
 }

@@ -15,7 +15,7 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN cp "/src/1월5주간업무보고_AI엔지니어링.pptx" /src/cmd/weekly/templates/reference.pptx
+RUN if [ -f "/src/1월5주간업무보고_AI엔지니어링.pptx" ]; then cp "/src/1월5주간업무보고_AI엔지니어링.pptx" /src/cmd/weekly/templates/reference.pptx; fi
 COPY --from=frontend /src/frontend/dist/ ./cmd/weekly/web/
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILD_TIME}" \

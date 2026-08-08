@@ -63,7 +63,7 @@ type reportListItem struct {
 
 func (a *App) currentReport(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
-	week := currentWeekStart(time.Now(), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
+	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
 	var id int64
 	err := a.db.QueryRow(r.Context(), `SELECT id FROM weekly_reports WHERE user_id=$1 AND week_start=$2`, p.ID, week).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -153,7 +153,7 @@ func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	week := currentWeekStart(time.Now(), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
+	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
 	if input.WeekStart != "" {
 		parsed, err := time.Parse("2006-01-02", input.WeekStart)
 		if err != nil {
@@ -284,7 +284,7 @@ func (a *App) submitReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "INVALID_STATUS", "현재 상태에서는 제출할 수 없습니다.")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET status=$1,submitted_at=now(),updated_at=now(),version=version+1 WHERE id=$2`, target, id); err == nil {
+	if _, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET status=$1,submitted_at=now(),reviewed_at=NULL,reviewed_by=NULL,updated_at=now(),version=version+1 WHERE id=$2`, target, id); err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status) VALUES($1,$2,$3,$4)`, id, p.ID, previous, target)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
@@ -394,7 +394,7 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.summary,r.version,r.submitted_at,r.updated_at
 		FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1`
 	args := []any{}
-	if !teamOnly && p.Role == "USER" {
+	if !teamOnly {
 		args = append(args, p.ID)
 		query += fmt.Sprintf(" AND r.user_id=$%d", len(args))
 	} else if p.Role != "ADMIN" {
@@ -480,6 +480,14 @@ func currentWeekStart(now time.Time, start string) time.Time {
 	date := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	offset := (7 + int(date.Weekday()) - int(weekday)) % 7
 	return date.AddDate(0, 0, -offset)
+}
+
+func (a *App) serviceLocation(ctx context.Context) *time.Location {
+	location, err := time.LoadLocation(a.setting(ctx, "service.timezone", "Asia/Seoul"))
+	if err != nil {
+		return time.UTC
+	}
+	return location
 }
 
 func validateItems(items []reportItem) error {

@@ -13,7 +13,9 @@ npm run build
 rm -rf "$project_dir/cmd/weekly/web"
 mkdir -p "$project_dir/cmd/weekly/web" "$project_dir/dist"
 cp -R "$project_dir/frontend/dist/." "$project_dir/cmd/weekly/web/"
-cp "$project_dir/1월5주간업무보고_AI엔지니어링.pptx" "$project_dir/cmd/weekly/templates/reference.pptx"
+if [ -f "$project_dir/1월5주간업무보고_AI엔지니어링.pptx" ]; then
+  cp "$project_dir/1월5주간업무보고_AI엔지니어링.pptx" "$project_dir/cmd/weekly/templates/reference.pptx"
+fi
 
 cd "$project_dir"
 CGO_ENABLED=0 go build -trimpath \
