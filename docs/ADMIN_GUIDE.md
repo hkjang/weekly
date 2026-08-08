@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.1.0-ENTERPRISE  
+- **문서 버전**: v0.2.0-ENTERPRISE
 - **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자  
 - **문서 개요**: Weekly 단일 컨테이너 환경변수 부트스트랩, Keycloak OIDC SSO 연동, RBAC 권한 매핑, PPTX 템플릿 등록 및 감사 로그 운영  
 
@@ -18,7 +18,7 @@ WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
 ```
 
 > **중요 (Volume Backup Notice)**:  
-> `/var/lib/weekly` 볼륨은 반드시 정기 백업해야 합니다. 해당 볼륨에는 Keycloak Client Secret 암호화 키와 사용자가 등록한 PPTX 템플릿 파일이 저장되며, 분실 시 암호화된 설정 복호화가 불가능합니다.
+> `/var/lib/weekly` 볼륨은 반드시 정기 백업해야 합니다. 해당 볼륨에는 Keycloak/AI 비밀값 암호화 키, 사용자가 등록한 PPTX 템플릿과 보관 중인 Import 원본이 저장되며, 분실 시 암호화된 설정 복호화가 불가능합니다.
 
 ---
 
@@ -56,3 +56,27 @@ WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
 
 - **키 회전**: 관리자는 사내 보안 위협 시 [전체 개인 키 즉시 폐기] 기능을 실행하여 발급된 모든 API/MCP 키를 일괄 무효화할 수 있습니다.
 - **감사 로그 (Audit Trail)**: 보고서 작성, 승인, 반려, OIDC 설정 변경 및 템플릿 업로드 내역이 DB 감사 로그 테이블에 영구 보존됩니다.
+
+---
+
+## 5. AI Gateway 및 Import 정책
+
+`관리자 설정 ➔ AI · Import`에서 다음 값을 관리합니다. 런타임 환경변수는 추가하지 않습니다.
+
+| 설정 | 의미 | 기본값 |
+|---|---|---:|
+| AI 사용 | 사용자 AI 작성·PPTX 분석 허용 | 꺼짐 |
+| Endpoint | OpenAI 호환 Chat Completions 전체 URL | 없음 |
+| Model | Gateway가 제공하는 모델 식별자 | 없음 |
+| API Key | 선택형 Bearer 토큰, 암호화 저장 | 없음 |
+| Timeout | 한 번의 AI 호출 제한 시간(초) | 90 |
+| 최대 입력 문자 | 정규화 입력 상한 | 50,000 |
+| 작업당 파일 수 | 다중 업로드 상한 | 20 |
+| 파일당 크기 | PPTX 한 개 상한(MB) | 25 |
+| 원본 보존일 | 확정·건너뜀·실패 원본 보존기간 | 365 |
+
+Endpoint와 Model을 먼저 저장하고 `AI 연결 시험`으로 JSON Schema Structured Output 지원 여부를 확인한 다음 AI 사용을 켭니다. API Key 입력란을 비워 저장하면 기존 비밀값이 유지됩니다. 내부 Gateway가 인증을 요구하지 않는 경우 API Key는 비워둘 수 있습니다.
+
+원본 보존기간이 지나면 해당 PPTX 바이너리만 상태 볼륨에서 삭제됩니다. 파일 해시, 추출 텍스트, 구조화 결과, 연결된 보고서와 감사 기록은 PostgreSQL에 남습니다. 실패 파일의 재분석이 필요하면 보존기간 만료 전에 수행해야 합니다.
+
+보안상 AI에는 PPTX 파일 자체가 아니라 서버에서 추출·정규화한 텍스트만 전달됩니다. 데이터 반출 정책상 외부 AI 호출이 허용되지 않는 환경에서는 사내망 OpenAI 호환 Gateway를 사용하십시오.

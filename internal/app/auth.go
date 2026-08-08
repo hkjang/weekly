@@ -143,7 +143,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	workflow := a.settingBool(r.Context(), "workflow.enabled", false)
-	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "build": a.build})
+	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "build": a.build})
 }
 
 func (a *App) authProviders(w http.ResponseWriter, r *http.Request) {

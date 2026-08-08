@@ -183,7 +183,7 @@ func (a *App) mcpToolError(response jsonRPCResponse, message string) jsonRPCResp
 }
 
 func (a *App) mcpSearchReports(r *http.Request, p *principal, week, status string) ([]reportListItem, error) {
-	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.summary,r.version,r.submitted_at,r.updated_at FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1`
+	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,r.submitted_at,r.updated_at FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1`
 	args := []any{}
 	if p.Role == "USER" {
 		args = append(args, p.ID)
@@ -213,7 +213,7 @@ func (a *App) mcpSearchReports(r *http.Request, p *principal, week, status strin
 	for rows.Next() {
 		var item reportListItem
 		var weekDate time.Time
-		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.DisplayName, &weekDate, &item.Status, &item.Summary, &item.Version, &item.SubmittedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.DisplayName, &weekDate, &item.Status, &item.SourceType, &item.Summary, &item.Version, &item.SubmittedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.WeekStart = weekDate.Format("2006-01-02")

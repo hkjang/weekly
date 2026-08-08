@@ -12,6 +12,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate release metadata
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$(cat VERSION)" = "$version" || { printf '::error::VERSION과 태그가 일치하지 않습니다.\n'; exit 1; }
+          test -s ".github/release-notes/${GITHUB_REF_NAME}.md" || { printf '::error::상세 릴리즈 본문이 없습니다.\n'; exit 1; }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify source
+        run: |
+          go test ./...
+          go vet ./...
+          npm --prefix frontend ci
+          npm --prefix frontend run lint
       - uses: docker/setup-buildx-action@v3
       - name: Build offline image
         env:
@@ -34,8 +54,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes_source=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -s "$notes_source" ]; then
+            printf '::error::상세 릴리즈 본문이 없습니다: %s\n' "$notes_source"
+            exit 1
+          fi
+          cp "$notes_source" release/release-notes.md
+          asset_name=$(basename "$OFFLINE_ASSET")
+          asset_size=$(stat -c '%s' "$OFFLINE_ASSET")
+          {
+            printf '\n## 오프라인 배포 자산\n\n'
+            printf -- '- 파일: `%s`\n' "$asset_name"
+            printf -- '- 크기: `%s bytes`\n' "$asset_size"
+            printf -- '- SHA-256: `%s`\n' "$OFFLINE_SHA256"
+            printf '\n```bash\nsha256sum %s\ngzip -dc %s | docker load\n```\n' "$asset_name" "$asset_name"
+          } >> release/release-notes.md
           gh release create "${GITHUB_REF_NAME}" "$OFFLINE_ASSET" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --generate-notes \
-            --notes "오프라인 이미지 SHA-256: \`$OFFLINE_SHA256\`"
+            --title "Weekly ${GITHUB_REF_NAME}" \
+            --notes-file release/release-notes.md

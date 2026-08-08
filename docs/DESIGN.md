@@ -44,6 +44,7 @@ flowchart LR
   B[Browser] -->|same-origin| W[Weekly Go API + React SPA]
   W --> P[(PostgreSQL)]
   W --> K[Keycloak OIDC]
+  W --> AI[OpenAI 호환 사내 AI Gateway]
   C[MCP / API Client] -->|Bearer personal key| W
   A[Administrator] -->|settings UI| W
   W --> V[(Weekly state volume)]
@@ -64,6 +65,8 @@ Go 바이너리가 React 빌드 결과를 embed하여 단일 프로세스로 제
 - `audit_logs`: 보안·업무 변경 감사
 - `api_request_metrics`: 시간 단위 API 요청 집계
 - `pptx_templates`: 템플릿 파일 메타데이터
+- `import_jobs`, `import_files`: PPTX 분석 작업, 원본 해시, 추출/AI 결과, 확정 보고 연결
+- `weekly_reports.source_type/source_ref`: 수동·AI 텍스트·PPTX Import 등 데이터 출처
 
 마이그레이션은 바이너리에 포함되며 프로세스 시작 시 트랜잭션으로 순서대로 적용한다.
 
@@ -89,10 +92,28 @@ flowchart LR
 
 업로드한 Open XML 패키지의 모든 Part를 복사하고 `ppt/slides/slide*.xml`의 독립 토큰 텍스트만 치환한다. 이 방식은 템플릿의 레이아웃과 리소스를 재생성하지 않으므로 기준 규격을 보존한다.
 
-## 8. 확장 지점
+## 8. AI 작성과 PPTX Import 파이프라인
+
+```mermaid
+flowchart LR
+  TXT[자유 텍스트] --> A[Structured Output 호출]
+  PPT[PPTX 업로드] --> Z[ZIP/Open XML 제한 검증]
+  Z --> E[슬라이드·표 셀 순서 추출]
+  E --> D[결정적 날짜 파서]
+  D --> A
+  A --> J[JSON Schema·도메인 검증]
+  J --> P[사용자 미리보기·수정]
+  P -->|명시적 확정| R[(WeeklyReport + Items)]
+```
+
+AI는 DB Entity와 연결되지 않고 검증된 DTO만 반환한다. 자유 텍스트 결과는 편집기 적용 후 일반 저장 절차를 거치고, PPTX는 비동기 Import Job의 미리보기에서 사용자가 주차·항목과 충돌 전략을 확정해야 저장된다. 파일명·슬라이드 본문 날짜를 정규식으로 먼저 찾으며, 결정적 날짜가 없을 때만 AI 날짜를 후보로 사용한다.
+
+다중 업로드는 API 프로세스 내부 Worker와 PostgreSQL 잠금으로 처리한다. 동일 사용자 파일의 SHA-256을 비교해 중복을 표시하고, 동일 사용자·주차 충돌은 생성·병합·교체·건너뛰기 전략을 요구한다. 원본, 정규화 텍스트, AI 응답과 확정 보고의 연결을 분리해 재현성과 감사를 확보한다.
+
+## 9. 확장 지점
 
 - Jira Issue ID와 `report_items`의 관계 테이블
-- AI 생성 결과 전용 테이블과 사용자 확정 상태
+- 공급자별 AI Responses/Chat 어댑터와 사내 모델 평가
 - 알림 Outbox와 사내 메일/메신저 어댑터
 - 조직 템플릿과 주차 마감 스케줄러
 - OpenTelemetry exporter 및 장기 분석 저장소

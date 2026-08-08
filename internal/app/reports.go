@@ -38,6 +38,7 @@ type reportView struct {
 	DisplayName string          `json:"displayName"`
 	WeekStart   string          `json:"weekStart"`
 	Status      string          `json:"status"`
+	SourceType  string          `json:"sourceType"`
 	Summary     string          `json:"summary"`
 	Version     int             `json:"version"`
 	SubmittedAt *time.Time      `json:"submittedAt"`
@@ -55,6 +56,7 @@ type reportListItem struct {
 	DisplayName string     `json:"displayName"`
 	WeekStart   string     `json:"weekStart"`
 	Status      string     `json:"status"`
+	SourceType  string     `json:"sourceType"`
 	Summary     string     `json:"summary"`
 	Version     int        `json:"version"`
 	SubmittedAt *time.Time `json:"submittedAt"`
@@ -106,9 +108,9 @@ func (a *App) writeReport(w http.ResponseWriter, r *http.Request, id int64) {
 func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 	result := &reportView{Items: []reportItem{}, Comments: []reportComment{}}
 	var week time.Time
-	err := a.db.QueryRow(ctx, `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.summary,r.version,r.submitted_at,r.reviewed_at,r.created_at,r.updated_at
+	err := a.db.QueryRow(ctx, `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,r.submitted_at,r.reviewed_at,r.created_at,r.updated_at
 		FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, id).
-		Scan(&result.ID, &result.UserID, &result.Username, &result.DisplayName, &week, &result.Status, &result.Summary, &result.Version, &result.SubmittedAt, &result.ReviewedAt, &result.CreatedAt, &result.UpdatedAt)
+		Scan(&result.ID, &result.UserID, &result.Username, &result.DisplayName, &week, &result.Status, &result.SourceType, &result.Summary, &result.Version, &result.SubmittedAt, &result.ReviewedAt, &result.CreatedAt, &result.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -146,9 +148,10 @@ func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	var input struct {
-		WeekStart string       `json:"weekStart"`
-		Summary   string       `json:"summary"`
-		Items     []reportItem `json:"items"`
+		WeekStart  string       `json:"weekStart"`
+		Summary    string       `json:"summary"`
+		SourceType string       `json:"sourceType"`
+		Items      []reportItem `json:"items"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -173,7 +176,8 @@ func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var id int64
-	err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,summary) VALUES($1,$2,$3) RETURNING id`, p.ID, week, trimLength(input.Summary, 10000)).Scan(&id)
+	sourceType := editableSourceType(input.SourceType)
+	err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,summary,source_type) VALUES($1,$2,$3,$4) RETURNING id`, p.ID, week, trimLength(input.Summary, 10000), sourceType).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "weekly_reports_user_id_week_start_key") {
 			writeError(w, http.StatusConflict, "REPORT_EXISTS", "해당 주차 보고서가 이미 있습니다.")
@@ -207,9 +211,10 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	p := currentPrincipal(r.Context())
 	var input struct {
-		Summary string       `json:"summary"`
-		Version int          `json:"version"`
-		Items   []reportItem `json:"items"`
+		Summary    string       `json:"summary"`
+		Version    int          `json:"version"`
+		SourceType string       `json:"sourceType"`
+		Items      []reportItem `json:"items"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -228,8 +233,10 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	command, err := tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,version=version+1,updated_at=now()
-		WHERE id=$2 AND user_id=$3 AND version=$4 AND status IN ('DRAFT','REVISION_REQUESTED')`, trimLength(input.Summary, 10000), id, p.ID, input.Version)
+	command, err := tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,
+		source_type=CASE WHEN upper(trim($2))='AI_TEXT' THEN 'AI_TEXT' ELSE source_type END,
+		version=version+1,updated_at=now()
+		WHERE id=$3 AND user_id=$4 AND version=$5 AND status IN ('DRAFT','REVISION_REQUESTED')`, trimLength(input.Summary, 10000), input.SourceType, id, p.ID, input.Version)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 		return
@@ -391,7 +398,7 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 	p := currentPrincipal(r.Context())
 	week := strings.TrimSpace(r.URL.Query().Get("weekStart"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.summary,r.version,r.submitted_at,r.updated_at
+	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,r.submitted_at,r.updated_at
 		FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1`
 	args := []any{}
 	if !teamOnly {
@@ -425,7 +432,7 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 	for rows.Next() {
 		var item reportListItem
 		var weekDate time.Time
-		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.DisplayName, &weekDate, &item.Status, &item.Summary, &item.Version, &item.SubmittedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.DisplayName, &weekDate, &item.Status, &item.SourceType, &item.Summary, &item.Version, &item.SubmittedAt, &item.UpdatedAt); err != nil {
 			writeError(w, 500, "QUERY_FAILED", "보고서 목록을 조회할 수 없습니다.")
 			return
 		}
@@ -488,6 +495,13 @@ func (a *App) serviceLocation(ctx context.Context) *time.Location {
 		return time.UTC
 	}
 	return location
+}
+
+func editableSourceType(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "AI_TEXT") {
+		return "AI_TEXT"
+	}
+	return "MANUAL"
 }
 
 func validateItems(items []reportItem) error {

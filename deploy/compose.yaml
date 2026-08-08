@@ -1,10 +1,17 @@
 services:
   weekly:
-    image: weekly:0.1.0
+    image: weekly:0.2.0
     container_name: weekly
     restart: unless-stopped
     ports:
       - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=536870912,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       WEEKLY_POSTGRES_DSN: ${WEEKLY_POSTGRES_DSN:?required}
       WEEKLY_BOOTSTRAP_ADMIN: ${WEEKLY_BOOTSTRAP_ADMIN:?required}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Weekly - Air-Gapped Weekly Progress & Work Report Platform | Single Docker Container</title>
-    <meta name="description" content="Weekly is an enterprise-ready, air-gapped weekly report management platform built with Go & React/TypeScript. Features individual reporting, team approval workflows, PPTX export, Keycloak OIDC, and Analytics MCP.">
+    <meta name="description" content="Weekly is an air-gapped weekly report platform built with Go and React. It includes AI-assisted drafting, historical PPTX import, approvals, PPTX export, Keycloak OIDC, and Analytics MCP.">
     <meta name="keywords" content="weekly report, air-gapped reporting, on-premise weekly progress, PPTX export, Keycloak OIDC, Analytics MCP, Weekly">
     <meta name="author" content="Weekly">
     <meta name="robots" content="index, follow">
@@ -47,7 +47,7 @@
       "name": "Weekly",
       "operatingSystem": "Linux, Docker",
       "applicationCategory": "BusinessApplication",
-      "softwareVersion": "0.1.0",
+      "softwareVersion": "0.2.0",
       "description": "Enterprise-ready air-gapped weekly work report management platform built with Go and React/TypeScript.",
       "url": "https://github.com/hkjang/weekly",
       "downloadUrl": "https://github.com/hkjang/weekly",
@@ -60,6 +60,8 @@
         "Report -> ReportItem Data Model (This week, Next week, Issues, Progress)",
         "Configurable Team Approval Workflow (Draft -> Submitted -> Approved)",
         "Layout-preserving PPTX Template Token Substitution",
+        "Reviewable AI structuring for pasted weekly notes",
+        "Historical PPTX parsing, date detection, deduplication, and import",
         "Keycloak OIDC SSO (PKCE) & RBAC Hierarchies",
         "Streamable HTTP Analytics MCP Server Integration",
         "Single Air-Gapped Docker Image Delivery"
@@ -208,6 +210,16 @@
                         <h3 class="feature-title">Single Air-Gapped Container</h3>
                         <p class="feature-desc">Go backend and React frontend assets bundled into a single non-root Docker container for air-gapped deployment.</p>
                     </article>
+                    <article class="feature-card glass-panel">
+                        <div class="feature-icon">✨</div>
+                        <h3 class="feature-title">Reviewable AI Drafting</h3>
+                        <p class="feature-desc">Turn pasted notes into structured accomplishments, plans, and issues, then edit and explicitly apply them before saving.</p>
+                    </article>
+                    <article class="feature-card glass-panel">
+                        <div class="feature-icon">📥</div>
+                        <h3 class="feature-title">Historical PPTX Import</h3>
+                        <p class="feature-desc">Safely parse Open XML text and tables, review detected dates and confidence, handle duplicates, and confirm historical reports.</p>
+                    </article>
                 </div>
             </div>
         </section>
@@ -231,7 +243,7 @@
 
                     <div class="glass-panel">
                         <h3>📘 User Guide</h3>
-                        <p style="color: var(--text-muted); margin: 8px 0 16px; font-size: 0.9rem;">Individual reporting, approval requests, PPTX export, and MCP client usage manual.</p>
+                        <p style="color: var(--text-muted); margin: 8px 0 16px; font-size: 0.9rem;">Individual reporting, AI drafting, historical PPTX import, approvals, PPTX export, and MCP usage.</p>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                             <a href="USER_GUIDE.pdf" target="_blank" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.82rem;">📄 Download PDF</a>
                             <a href="USER_GUIDE.html" target="_blank" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.82rem;">🌐 HTML View</a>
@@ -241,7 +253,7 @@
 
                     <div class="glass-panel">
                         <h3>🔧 Admin Guide</h3>
-                        <p style="color: var(--text-muted); margin: 8px 0 16px; font-size: 0.9rem;">Bootstrap environment variables, Keycloak OIDC, RBAC mapping, PPTX template upload, and audit logs.</p>
+                        <p style="color: var(--text-muted); margin: 8px 0 16px; font-size: 0.9rem;">Bootstrap variables, Keycloak OIDC, AI Gateway, import policies, PPTX templates, and audit logs.</p>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                             <a href="ADMIN_GUIDE.pdf" target="_blank" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.82rem;">📄 Download PDF</a>
                             <a href="ADMIN_GUIDE.html" target="_blank" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.82rem;">🌐 HTML View</a>
@@ -281,7 +293,7 @@
                     <div class="deploy-card glass-panel">
                         <h4>🐳 Single Docker Archive Load</h4>
                         <p>Import the single .tar.gz package from GitHub Release into your offline network.</p>
-<pre><code>gzip -dc weekly-v0.1.0-linux-amd64-docker.tar.gz | docker load
+<pre><code>gzip -dc weekly-v0.2.0-linux-amd64-docker.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 
 # Configure environment variables in deploy/.env

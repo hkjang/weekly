@@ -9,8 +9,9 @@ import TeamPage from './pages/TeamPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import ProfilePage from './pages/ProfilePage'
 import AdminPage from './pages/AdminPage'
+import ImportPage from './pages/ImportPage'
 
-type Page = 'dashboard' | 'current' | 'history' | 'team' | 'analytics' | 'profile' | 'admin'
+type Page = 'dashboard' | 'current' | 'history' | 'import' | 'team' | 'analytics' | 'profile' | 'admin'
 
 export default function App() {
   const [providers, setProviders] = useState<Providers>()
@@ -44,6 +45,7 @@ export default function App() {
         <Nav active={page === 'dashboard'} icon="⌂" onClick={() => navigate('dashboard')}>대시보드</Nav>
         <Nav active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>
         <Nav active={page === 'history'} icon="◷" onClick={() => navigate('history')}>과거 보고</Nav>
+        <Nav active={page === 'import'} icon="⇧" onClick={() => navigate('import')}>PPTX 가져오기</Nav>
         {canTeam && <><span className="nav-label">조직</span><Nav active={page === 'team'} icon="♙" onClick={() => navigate('team')}>팀 주간보고</Nav><Nav active={page === 'analytics'} icon="▥" onClick={() => navigate('analytics')}>보고 분석</Nav></>}
         {isAdmin && <><span className="nav-label">관리</span><Nav active={page === 'admin'} icon="⚙" onClick={() => navigate('admin')}>관리자 설정</Nav></>}
       </nav>
@@ -60,8 +62,9 @@ export default function App() {
       {session.notice && <div className="notice">{session.notice}</div>}
       <div className="page-content">
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
-        {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} notify={notify} />}
+        {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage notify={notify} />}
+        {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage />}
         {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}

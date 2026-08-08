@@ -40,6 +40,7 @@ type App struct {
 	mux             *http.ServeMux
 	defaultPPTX     []byte
 	defaultPPTXName string
+	importWake      chan struct{}
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
@@ -68,13 +69,14 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName}
+	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1)}
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
 		return nil, err
 	}
 	a.routes()
 	go a.maintenance(ctx)
+	go a.importWorker(ctx)
 	return a, nil
 }
 
@@ -106,6 +108,12 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/reports/{id}/comments", a.requireAuth(a.csrf(http.HandlerFunc(a.addComment))))
 	a.mux.Handle("GET /api/v1/reports/{id}/export.pptx", a.requireAuth(http.HandlerFunc(a.exportReportPPTX)))
 	a.mux.Handle("GET /api/v1/team/reports", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.teamReports)))
+	a.mux.Handle("POST /api/v1/ai/reports/parse-text", a.requireAuth(a.csrf(http.HandlerFunc(a.parseAIText))))
+	a.mux.Handle("POST /api/v1/import/pptx", a.requireAuth(a.csrf(http.HandlerFunc(a.uploadImportPPTX))))
+	a.mux.Handle("GET /api/v1/import/history", a.requireAuth(http.HandlerFunc(a.listImportJobs)))
+	a.mux.Handle("GET /api/v1/import/{id}", a.requireAuth(http.HandlerFunc(a.getImportJob)))
+	a.mux.Handle("POST /api/v1/import/{id}/analyze", a.requireAuth(a.csrf(http.HandlerFunc(a.retryImportJob))))
+	a.mux.Handle("POST /api/v1/import/{id}/confirm", a.requireAuth(a.csrf(http.HandlerFunc(a.confirmImportJob))))
 
 	a.mux.Handle("GET /api/v1/keys", a.requireAuth(http.HandlerFunc(a.listKeys)))
 	a.mux.Handle("POST /api/v1/keys", a.requireAuth(a.csrf(http.HandlerFunc(a.createKey))))
@@ -115,6 +123,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/admin/settings", a.requireRole("ADMIN")(http.HandlerFunc(a.adminSettings)))
 	a.mux.Handle("PUT /api/v1/admin/settings", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateSettings))))
 	a.mux.Handle("POST /api/v1/admin/settings/oidc/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testOIDC))))
+	a.mux.Handle("POST /api/v1/admin/settings/ai/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testAI))))
 	a.mux.Handle("GET /api/v1/admin/users", a.requireRole("ADMIN")(http.HandlerFunc(a.adminUsers)))
 	a.mux.Handle("POST /api/v1/admin/users", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.createUser))))
 	a.mux.Handle("PUT /api/v1/admin/users/{id}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateUser))))
@@ -234,6 +243,7 @@ func (a *App) maintenance(ctx context.Context) {
 			_, _ = a.db.Exec(ctx, `DELETE FROM user_sessions WHERE expires_at < now(); DELETE FROM oidc_login_states WHERE expires_at < now()`)
 			retention := a.settingInt(ctx, "analytics.retention_days", 90)
 			_, _ = a.db.Exec(ctx, `DELETE FROM api_request_metrics WHERE bucket < now() - ($1 || ' days')::interval`, retention)
+			a.cleanupImportSources(ctx)
 		}
 	}
 }

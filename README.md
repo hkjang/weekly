@@ -26,6 +26,8 @@
 - 제출률, 이슈, 진척도와 최근 24시간 API 성능 분석
 - REST API와 읽기 전용 Streamable HTTP MCP 서버
 - 관리자가 등록한 원본 PPTX 규격을 보존하는 주간보고 내보내기
+- 자유 텍스트를 검증 가능한 보고 항목으로 바꾸는 AI 작성 미리보기
+- 과거 PPTX의 주차·표·업무를 비동기 분석하고 확인 후 적재하는 Import
 - 로그인 화면과 프로필 컨텍스트 메뉴의 빌드 버전 표시
 - 프론트엔드 정적 자산을 포함한 단일 오프라인 Docker 이미지
 
@@ -34,7 +36,7 @@
 GitHub Release에서 `weekly-v<VERSION>-linux-amd64-docker.tar.gz` 하나만 반입합니다.
 
 ```bash
-gzip -dc weekly-v0.1.0-linux-amd64-docker.tar.gz | docker load
+gzip -dc weekly-v0.2.0-linux-amd64-docker.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # deploy/.env의 세 값을 운영 환경에 맞게 변경
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -48,9 +50,9 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 | `WEEKLY_BOOTSTRAP_ADMIN` | 최초 관리자 아이디 |
 | `WEEKLY_BOOTSTRAP_ADMIN_PASSWORD` | 최초 관리자 비밀번호, 12자 이상 |
 
-최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. 서비스 이름, 공지, 워크플로, OIDC, 세션, 키 유효기간, 분석 보존기간과 PPTX 템플릿은 모두 관리자 화면에서 관리합니다.
+최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. 서비스 이름, 공지, 워크플로, OIDC, AI Gateway, Import 제한·보존기간, 세션, 키 유효기간, 분석 보존기간과 PPTX 템플릿은 모두 관리자 화면에서 관리합니다.
 
-> `/var/lib/weekly` 볼륨은 반드시 백업하십시오. OIDC Client Secret 암호화용 인스턴스 키와 사용자 PPTX 템플릿이 저장됩니다. 이 볼륨을 잃으면 암호화된 설정을 복호화할 수 없습니다.
+> `/var/lib/weekly` 볼륨은 반드시 백업하십시오. OIDC/AI 비밀값 암호화용 인스턴스 키, 사용자 PPTX 템플릿과 보관 중인 Import 원본이 저장됩니다. 이 볼륨을 잃으면 암호화된 설정을 복호화할 수 없습니다.
 
 ## Keycloak OIDC 설정
 
@@ -90,6 +92,23 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 
 `{{THIS_WEEK}}`와 `{{NEXT_WEEK}}`는 필수이며, 각 토큰은 PowerPoint에서 하나의 독립된 텍스트 상자/텍스트 런으로 둬야 합니다. 등록 시 ZIP 구조와 필수 구성요소를 검증합니다. 보고서 화면과 과거/팀 보고 화면의 `PPTX 다운로드`에서 결과를 받습니다.
 
+## AI 작성과 과거 PPTX 가져오기
+
+관리자가 `관리자 설정 → AI · Import`에서 OpenAI 호환 Chat Completions 전체 Endpoint, 모델, API Key(선택)를 저장하고 연결 시험을 통과시킨 뒤 AI 기능을 켭니다. 예를 들어 Endpoint는 `http://ai-gateway.internal/v1/chat/completions`처럼 호출 가능한 전체 주소를 입력합니다. AI 관련 값도 환경변수로 받지 않으므로 기존 세 환경변수 원칙은 유지됩니다.
+
+작성자는 보고서 편집 화면의 텍스트 영역에 이번 주 한 일, 다음 주 할 일과 이슈를 자유롭게 붙여 넣고 `AI 분석`을 실행합니다. 서버는 엄격한 JSON Schema Structured Output으로 결과를 검증하며, 사용자는 항목과 신뢰도를 확인·수정한 후 `병합` 또는 `교체`를 선택해 편집기에 적용합니다. 적용만으로 DB에 저장되지 않고 기존 저장 버튼을 눌러야 반영됩니다.
+
+`PPTX 가져오기`에서는 여러 과거 파일을 올릴 수 있습니다. 서버가 먼저 안전하게 Open XML의 슬라이드·표 셀을 추출하고 파일명과 본문에서 날짜를 결정적으로 찾은 다음, 정규화한 텍스트만 AI에 전달합니다. 분석 결과는 비동기 작업으로 제공되며 사용자가 주차와 항목을 고친 뒤 아래 전략으로 확정합니다.
+
+| 전략 | 동작 |
+|---|---|
+| 새로 생성 | 동일 주차 보고가 없을 때 과거 보고를 생성 |
+| 병합 | 동일 분류·제목 항목에 내용을 합치고 나머지는 추가 |
+| 교체 | 기존 주차 항목 전체를 분석 결과로 교체 |
+| 건너뛰기 | 분석 이력만 남기고 보고서는 생성하지 않음 |
+
+동일 사용자의 같은 SHA-256 파일은 중복으로 표시합니다. 확정된 보고는 `PPTX_IMPORT`, AI 작성 후 저장된 보고는 `AI_TEXT` 출처가 기록됩니다. 원본 파일은 `import.retention_days` 이후 제거하되 해시, 추출 결과, AI 응답, 연결 보고서와 감사 이력은 DB에 보존됩니다.
+
 ## API와 MCP
 
 REST API 기본 경로는 `/api/v1`이며 응답 규격은 다음과 같습니다.
@@ -128,11 +147,11 @@ cd .. && go test ./...
 
 ## 릴리즈
 
-`v*` 태그를 푸시하면 GitHub Actions가 `linux/amd64` 서비스 이미지를 빌드하고 `docker save | gzip` 형식의 단일 `.tar.gz` 자산만 GitHub Release에 올립니다.
+`v*` 태그를 푸시하면 GitHub Actions가 `linux/amd64` 서비스 이미지를 빌드하고 `docker save | gzip` 형식의 단일 `.tar.gz` 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 로컬에서는 `make offline`으로 같은 형식의 파일을 만들 수 있습니다.

@@ -1,7 +1,7 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.1.0 ~ v2.0-VISION  
-- **작성일자**: 2026년 8월 8일  
+- **문서 버전**: v0.2.0 ~ v2.0-VISION
+- **작성일자**: 2026년 8월 9일
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)  
 
 ---
@@ -15,8 +15,9 @@ Weekly 플랫폼은 오프라인망 기반 수집 및 PPTX 자동화를 시작�
                           [Weekly 단계별 마일스톤 아키텍처]
 ========================================================================================
  [Phase 1: v0.1.0] (완료) ➔ Single Container, PPTX Zip Engine, Keycloak OIDC, MCP 1.0
+ [Phase 1.5: v0.2.0] (완료) ➔ AI Text Draft, Historical PPTX Import, Structured Output
  [Phase 2: v0.5.0] (진행) ➔ Multi-PPTX Template Mapping, Team Analytics & Slack/Teams Alert
- [Phase 3: v1.0.0] (2026 Q4) ➔ AI Natural Language Report Draft Engine & MCP 2.0
+ [Phase 3: v1.0.0] (2026 Q4) ➔ Source-system Agent Automation & MCP 2.0
  [Phase 4: v2.0.0] (2027)    ➔ Enterprise Autonomous Progress Copilot & Executive BI
 ========================================================================================
 ```
@@ -31,12 +32,19 @@ Weekly 플랫폼은 오프라인망 기반 수집 및 PPTX 자동화를 시작�
 - **Keycloak OIDC & RBAC**: PKCE 지원 및 4단계 조직 계층 RBAC 권한 분리.
 - **Analytics MCP 1.0**: Streamable HTTP MCP 서버로 submission_overview, reports_search 도구 탑재.
 
-### 2.2 Phase 2: v0.5.0 고도화 & 팀 단위 분석 알림 (2026 Q3)
+### 2.2 Phase 1.5: v0.2.0 AI 구조화 및 과거 자료 전환 (완료)
+
+- **자유 텍스트 AI 초안**: 붙여 넣은 메모를 Structured Output으로 변환하고 사용자 검토 후 적용.
+- **과거 PPTX Import**: Open XML 파싱, 주차 감지, SHA-256 중복 확인, 비동기 분석 및 병합·교체 확정.
+- **사내 AI Gateway**: 관리자 UI에서 OpenAI 호환 Endpoint, 모델, 암호화 API Key와 운영 제한 관리.
+
+### 2.3 Phase 2: v0.5.0 고도화 & 팀 단위 분석 알림 (2026 Q3)
 - **다중 PPTX 템플릿**: 사업부별/부서별 서로 다른 PPTX 양식 동적 선택 지정.
 - **미제출자 자동 알림**: 금요일 오후 미제출 임직원 대상 Slack/Teams/사내 메일 자동 알림.
 
-### 2.3 Phase 3: v1.0.0 AI 대화형 주간보고 작성 (2026 Q4)
-- **NL-to-Report Draft (MCP 2.0)**: AI 에이전트에 "이번 주 내 커밋 내역과 결재 문서 보고서 초안 작성해줘" 질의 시 `ReportItem` 형태 자동 초안 생성.
+### 2.4 Phase 3: v1.0.0 소스 시스템 기반 AI 에이전트 자동화 (2026 Q4)
+
+- **Source-to-Report Agent (MCP 2.0)**: 사용자 동의하에 커밋·결재·Jira 같은 시스템에서 근거를 수집해 `ReportItem` 후보와 출처 링크를 생성.
 
 ---
 
