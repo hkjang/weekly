@@ -9,4 +9,7 @@ release/
 *.tar.gz
 *.log
 .weekly-data/
-cmd/weekly/templates/*.pptx
+*.pptx
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
