@@ -5,9 +5,9 @@ export interface BuildInfo { version: string; commit: string; builtAt: string }
 export interface User { id: number; username: string; displayName: string; email: string; role: Role; organizationId?: number; keyVersion: number }
 export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; serviceName: string; notice: string; build: BuildInfo }
 export interface Providers { local: boolean; oidc: boolean; name: string; notice: string; build: BuildInfo }
-export interface ReportItem { id?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; progress: number; sortOrder: number }
+export interface ReportItem { id?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; progress: number; sortOrder: number }
 export interface ReportComment { id: number; userId: number; displayName: string; content: string; createdAt: string }
-export type ReportSource = 'MANUAL' | 'AI_TEXT' | 'PPTX_IMPORT' | 'API' | 'JIRA'
+export type ReportSource = 'MANUAL' | 'AI_TEXT' | 'PPTX_IMPORT' | 'CONFLUENCE_AI' | 'API' | 'JIRA'
 export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[] }
 export interface ReportListItem { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; updatedAt: string }
 export interface AnalyticsOverview { weekStart: string; totalUsers: number; submittedUsers: number; submissionRate: number; statusCounts: Record<string, number>; openIssues: number; averageProgress: number }
@@ -28,4 +28,23 @@ export interface ImportFile {
 export interface ImportJob {
   id: number; status: ImportJobStatus; totalFiles: number; processedFiles: number; failedFiles: number
   createdAt: string; startedAt?: string; completedAt?: string; confirmedAt?: string; files?: ImportFile[]
+}
+export interface ConfluenceSource { pageId: string; title: string; spaceKey: string; pageUrl: string; pageVersion: number; activityType: 'CREATED' | 'MODIFIED' | 'CREATED_AND_MODIFIED'; sourceUpdatedAt?: string }
+export interface ConfluenceCandidate {
+  id: number; weekStart: string; normalizedTitle: string; category: string; currentResult: string; nextPlan: string; issue: string
+  confidence: number; ruleScore: number; status: 'DETECTED' | 'ACCEPTED' | 'IGNORED' | 'MERGED' | 'REMOVED'; userEdited: boolean
+  sources: ConfluenceSource[]; createdAt: string; updatedAt: string
+}
+export interface ConfluenceCandidateResponse {
+  enabled: boolean; weekStart: string; candidates: ConfluenceCandidate[]
+  sync: { status: string; lastSuccessAt?: string; lastAttemptAt?: string; errorMessage?: string }
+}
+export interface ConfluenceMapping {
+  userId: number; username: string; displayName: string; email: string; externalUsername?: string; mappingSource?: 'EXPLICIT' | 'EMAIL_LOCALPART' | 'USERNAME'
+  active?: boolean; suggestedUsername: string; suggestionSource: 'EMAIL_LOCALPART' | 'USERNAME'
+}
+export interface ConfluenceSyncStatus {
+  enabled: boolean; status: string; lastSuccessAt?: string; lastAttemptAt?: string; currentStartedAt?: string; errorMessage: string
+  pagesScanned: number; pagesChanged: number; candidatesCreated: number; pagesFailed: number; mappedUsers: number; unmappedUsers: number
+  recentErrors: { id: number; pageId?: string; phase: string; statusCode?: number; message: string; createdAt: string }[]
 }

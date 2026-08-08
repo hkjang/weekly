@@ -28,6 +28,7 @@
 - 관리자가 등록한 원본 PPTX 규격을 보존하는 주간보고 내보내기
 - 자유 텍스트를 검증 가능한 보고 항목으로 바꾸는 AI 작성 미리보기
 - 과거 PPTX의 주차·표·업무를 비동기 분석하고 확인 후 적재하는 Import
+- Confluence Server 6.9.1 활동 증분 수집과 사용자별 AI 주간보고 자동 초안
 - 로그인 화면과 프로필 컨텍스트 메뉴의 빌드 버전 표시
 - 프론트엔드 정적 자산을 포함한 단일 오프라인 Docker 이미지
 
@@ -36,7 +37,7 @@
 GitHub Release에서 `weekly-v<VERSION>-linux-amd64-docker.tar.gz` 하나만 반입합니다.
 
 ```bash
-gzip -dc weekly-v0.2.0-linux-amd64-docker.tar.gz | docker load
+gzip -dc weekly-v0.3.0-linux-amd64-docker.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # deploy/.env의 세 값을 운영 환경에 맞게 변경
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -50,9 +51,9 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 | `WEEKLY_BOOTSTRAP_ADMIN` | 최초 관리자 아이디 |
 | `WEEKLY_BOOTSTRAP_ADMIN_PASSWORD` | 최초 관리자 비밀번호, 12자 이상 |
 
-최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. 서비스 이름, 공지, 워크플로, OIDC, AI Gateway, Import 제한·보존기간, 세션, 키 유효기간, 분석 보존기간과 PPTX 템플릿은 모두 관리자 화면에서 관리합니다.
+최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. 서비스 이름, 공지, 워크플로, OIDC, AI Gateway, Confluence, Import 제한·보존기간, 세션, 키 유효기간, 분석 보존기간과 PPTX 템플릿은 모두 관리자 화면에서 관리합니다.
 
-> `/var/lib/weekly` 볼륨은 반드시 백업하십시오. OIDC/AI 비밀값 암호화용 인스턴스 키, 사용자 PPTX 템플릿과 보관 중인 Import 원본이 저장됩니다. 이 볼륨을 잃으면 암호화된 설정을 복호화할 수 없습니다.
+> `/var/lib/weekly` 볼륨은 반드시 백업하십시오. OIDC/AI/Confluence 비밀값 암호화용 인스턴스 키, 사용자 PPTX 템플릿과 보관 중인 Import 원본이 저장됩니다. 이 볼륨을 잃으면 암호화된 설정을 복호화할 수 없습니다.
 
 ## Keycloak OIDC 설정
 
@@ -109,6 +110,22 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 
 동일 사용자의 같은 SHA-256 파일은 중복으로 표시합니다. 확정된 보고는 `PPTX_IMPORT`, AI 작성 후 저장된 보고는 `AI_TEXT` 출처가 기록됩니다. 원본 파일은 `import.retention_days` 이후 제거하되 해시, 추출 결과, AI 응답, 연결 보고서와 감사 이력은 DB에 보존됩니다.
 
+## Confluence 6.9.1 자동 초안
+
+관리자는 `관리자 관리 → 서비스 설정 → Confluence 6.9.1 자동화`에서 Base URL, 연동 전용 Service Account, 포함·제외 Space, 수집 주기, 규칙 점수와 AI/본문 분석 정책을 저장합니다. Confluence 6.9.1은 Personal Access Token을 전제로 하지 않으며 1차 연동은 Basic Auth 또는 사내 Reverse Proxy 인증을 지원합니다. 비밀번호는 인스턴스 키로 암호화되고 브라우저에 다시 노출되지 않습니다.
+
+Background Worker는 CQL `lastmodified` 조건과 Pagination으로 마지막 성공 시각 이후의 Page를 증분 수집합니다. 본인이 이번 주 생성한 Page와 본인이 마지막으로 수정한 Page를 사용자 활동으로 판정하며, 제목·Space·작성자·수정자·버전만 먼저 저장합니다. 규칙 점수와 AI가 실제 업무 후보를 고르고 유사 문서를 병합한 뒤, 선택된 Page에 한해서만 `body.storage`를 조회해 금주 실적을 요약합니다. 원문 본문은 DB나 애플리케이션 로그에 보존하지 않습니다.
+
+사용자 식별자는 다음 순서로 유일하게 매핑합니다.
+
+1. 관리자가 명시한 Confluence 아이디
+2. Keycloak/Weekly 이메일의 `@` 앞부분
+3. Weekly 로그인 아이디
+
+예를 들어 Keycloak 이메일 `hkjang@koreacb.com`은 Confluence 사용자 `hkjang`과 자동 연결됩니다. 후보 화면에서는 출처 Page를 확인하고 제목·실적·계획·이슈를 수정하거나 제외할 수 있습니다. 사용자 수정본은 재동기화로 덮어쓰지 않으며, 제외한 같은 Page는 같은 주차에 다시 생성되지 않습니다. 보고서에 반영해 저장한 항목은 `CONFLUENCE_AI` 출처가 기록됩니다.
+
+구체적인 설정값, 동기화·장애 처리와 데이터 모델은 [Confluence 연동 문서](docs/CONFLUENCE.md)를 참고하십시오.
+
 ## API와 MCP
 
 REST API 기본 경로는 `/api/v1`이며 응답 규격은 다음과 같습니다.
@@ -150,8 +167,8 @@ cd .. && go test ./...
 `v*` 태그를 푸시하면 GitHub Actions가 `linux/amd64` 서비스 이미지를 빌드하고 `docker save | gzip` 형식의 단일 `.tar.gz` 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 로컬에서는 `make offline`으로 같은 형식의 파일을 만들 수 있습니다.
@@ -161,4 +178,5 @@ git push origin v0.2.0
 - [요구사항 및 시스템 설계](docs/DESIGN.md)
 - [보안 및 운영](docs/OPERATIONS.md)
 - [MCP 연동](docs/MCP.md)
+- [Confluence Server 6.9.1 자동화](docs/CONFLUENCE.md)
 - [OpenAPI](docs/openapi.yaml)

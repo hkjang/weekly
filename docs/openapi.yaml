@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.2.0
-  description: 주간보고 관리, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
+  version: 0.3.0
+  description: 주간보고 관리, Confluence 6.9.1 자동 초안, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
 security:
@@ -48,6 +48,73 @@ paths:
       summary: 현재 주차 본인 보고서
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /reports/current/candidates:
+    get:
+      summary: 현재 주차 Confluence 자동 초안과 Sync 상태
+      responses:
+        "200":
+          description: 사용자별 자동 초안
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          enabled: { type: boolean }
+                          weekStart: { type: string, format: date }
+                          candidates:
+                            type: array
+                            items: { $ref: "#/components/schemas/ConfluenceCandidate" }
+  /report-candidates/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+    patch:
+      summary: 본인 Confluence 자동 초안 수정 및 사용자 수정 보호
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfluenceCandidateWrite" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: 본인 자동 초안을 제외하고 같은 주차 재생성 방지
+      responses:
+        "204": { description: 제외 완료 }
+        "404": { $ref: "#/components/responses/Error" }
+  /report-candidates/{id}/sources:
+    get:
+      summary: 본인 자동 초안의 Confluence 원본 Page 목록
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "404": { $ref: "#/components/responses/Error" }
+  /report-candidates/accept:
+    post:
+      summary: 자동 초안을 저장한 본인 보고서에 연결
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, reportId]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: integer, format: int64 }
+                reportId: { type: integer, format: int64 }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
   /reports:
     get:
       summary: 권한 범위 보고서 검색
@@ -237,6 +304,51 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "502": { $ref: "#/components/responses/Error" }
+  /admin/settings/confluence/test:
+    post:
+      summary: 저장된 Confluence 6.9.1 REST 설정 연결 시험
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "502": { $ref: "#/components/responses/Error" }
+  /admin/confluence/sync:
+    post:
+      summary: 관리자 증분 동기화 비동기 요청
+      responses:
+        "202": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /admin/confluence/sync/status:
+    get:
+      summary: 동기화 상태·처리 건수·최근 오류
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/confluence/users/mappings:
+    get:
+      summary: Weekly와 Confluence 사용자 매핑·자동 추천 목록
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/confluence/users/unmapped:
+    get:
+      summary: 활성 미매핑 사용자 목록
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/confluence/users/{id}/mapping:
+    put:
+      summary: 관리자 명시 Confluence 사용자 매핑
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [externalUsername, active]
+              properties:
+                externalUsername: { type: string, minLength: 1, maxLength: 255 }
+                active: { type: boolean }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
   /admin/users:
     get:
       summary: 사용자 목록
@@ -388,6 +500,41 @@ components:
           minItems: 1
           maxItems: 100
           items: { $ref: "#/components/schemas/AIReportItem" }
+    ConfluenceSource:
+      type: object
+      required: [pageId, title, spaceKey, pageUrl, pageVersion, activityType]
+      properties:
+        pageId: { type: string }
+        title: { type: string }
+        spaceKey: { type: string }
+        pageUrl: { type: string, format: uri }
+        pageVersion: { type: integer }
+        activityType: { type: string, enum: [CREATED, MODIFIED, CREATED_AND_MODIFIED] }
+        sourceUpdatedAt: { type: string, format: date-time }
+    ConfluenceCandidateWrite:
+      type: object
+      required: [normalizedTitle, category, currentResult, nextPlan, issue]
+      properties:
+        normalizedTitle: { type: string, minLength: 1, maxLength: 240 }
+        category: { type: string, maxLength: 80 }
+        currentResult: { type: string }
+        nextPlan: { type: string }
+        issue: { type: string }
+    ConfluenceCandidate:
+      allOf:
+        - { $ref: "#/components/schemas/ConfluenceCandidateWrite" }
+        - type: object
+          required: [id, weekStart, confidence, ruleScore, status, userEdited, sources]
+          properties:
+            id: { type: integer, format: int64 }
+            weekStart: { type: string, format: date }
+            confidence: { type: number, minimum: 0, maximum: 1 }
+            ruleScore: { type: integer }
+            status: { type: string, enum: [DETECTED, ACCEPTED, IGNORED, MERGED, REMOVED] }
+            userEdited: { type: boolean }
+            sources:
+              type: array
+              items: { $ref: "#/components/schemas/ConfluenceSource" }
     ReportWrite:
       type: object
       required: [summary, items]
@@ -395,7 +542,7 @@ components:
         weekStart: { type: string, format: date }
         summary: { type: string, maxLength: 10000 }
         version: { type: integer, minimum: 1 }
-        sourceType: { type: string, enum: [MANUAL, AI_TEXT] }
+        sourceType: { type: string, enum: [MANUAL, AI_TEXT, CONFLUENCE_AI] }
         items:
           type: array
           maxItems: 100

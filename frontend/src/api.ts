@@ -18,4 +18,5 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const post = <T>(url: string, data?: unknown) => api<T>(url, { method: 'POST', body: JSON.stringify(data ?? {}) })
 export const put = <T>(url: string, data: unknown) => api<T>(url, { method: 'PUT', body: JSON.stringify(data) })
+export const patch = <T>(url: string, data: unknown) => api<T>(url, { method: 'PATCH', body: JSON.stringify(data) })
 export const del = <T>(url: string) => api<T>(url, { method: 'DELETE' })

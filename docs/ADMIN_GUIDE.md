@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.2.0-ENTERPRISE
+- **문서 버전**: v0.3.0-ENTERPRISE
 - **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자  
 - **문서 개요**: Weekly 단일 컨테이너 환경변수 부트스트랩, Keycloak OIDC SSO 연동, RBAC 권한 매핑, PPTX 템플릿 등록 및 감사 로그 운영  
 
@@ -18,7 +18,7 @@ WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
 ```
 
 > **중요 (Volume Backup Notice)**:  
-> `/var/lib/weekly` 볼륨은 반드시 정기 백업해야 합니다. 해당 볼륨에는 Keycloak/AI 비밀값 암호화 키, 사용자가 등록한 PPTX 템플릿과 보관 중인 Import 원본이 저장되며, 분실 시 암호화된 설정 복호화가 불가능합니다.
+> `/var/lib/weekly` 볼륨은 반드시 정기 백업해야 합니다. 해당 볼륨에는 Keycloak/AI/Confluence 비밀값 암호화 키, 사용자가 등록한 PPTX 템플릿과 보관 중인 Import 원본이 저장되며, 분실 시 암호화된 설정 복호화가 불가능합니다.
 
 ---
 
@@ -80,3 +80,13 @@ Endpoint와 Model을 먼저 저장하고 `AI 연결 시험`으로 JSON Schema St
 원본 보존기간이 지나면 해당 PPTX 바이너리만 상태 볼륨에서 삭제됩니다. 파일 해시, 추출 텍스트, 구조화 결과, 연결된 보고서와 감사 기록은 PostgreSQL에 남습니다. 실패 파일의 재분석이 필요하면 보존기간 만료 전에 수행해야 합니다.
 
 보안상 AI에는 PPTX 파일 자체가 아니라 서버에서 추출·정규화한 텍스트만 전달됩니다. 데이터 반출 정책상 외부 AI 호출이 허용되지 않는 환경에서는 사내망 OpenAI 호환 Gateway를 사용하십시오.
+
+## 6. Confluence 6.9.1 자동화
+
+`서비스 설정 ➔ Confluence 6.9.1 자동화`에서 Base URL, `BASIC` 인증, 연동 전용 계정과 암호화 비밀번호를 저장한 뒤 연결 시험을 수행합니다. 대상·제외 Space, 5분 이상의 동기화 주기, Blog 포함 여부, AI/본문 분석, 후보 점수와 업무 키워드를 운영 환경에 맞게 지정합니다. 새로운 환경변수는 필요하지 않습니다.
+
+`Confluence 자동화` 탭에서는 마지막 성공·시도 시각, 조회/변경 Page 수, 생성 후보, 실패 수와 최근 단계별 오류를 확인하고 관리자 강제 증분 Sync를 요청할 수 있습니다. 일반 사용자에게는 Sync 버튼을 제공하지 않습니다.
+
+사용자 매핑 우선순위는 관리자 명시값, Keycloak/Weekly 이메일의 `@` 앞부분, Weekly 로그인 아이디입니다. 예를 들어 `hkjang@koreacb.com`은 Confluence `hkjang`에 자동 매핑됩니다. 유일하게 판정할 수 없는 미매핑 사용자만 표에서 직접 지정합니다.
+
+Confluence 본문은 PostgreSQL이나 로그에 저장되지 않고 후보 Page에 한해 정제·제한한 뒤 AI Gateway로 전달됩니다. 외부 AI 데이터 반출이 허용되지 않으면 사내 AI Gateway를 사용하거나 `후보 문서 본문 분석`을 끄십시오. 전체 운영 규격과 장애 코드는 [Confluence 연동 문서](CONFLUENCE.md)를 참고하십시오.

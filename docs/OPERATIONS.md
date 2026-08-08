@@ -7,6 +7,8 @@
 - `/var/lib/weekly` 영속 볼륨
 - 운영 TLS를 종료할 Reverse Proxy, Ingress 또는 Route
 
+Confluence 자동화를 사용하는 경우 Confluence Server 6.9.1 Base URL과 읽기 전용 Service Account, 선택된 Space에서 사내 AI Gateway로의 정책상 허용 여부도 사전에 확인한다. 연동값은 모두 관리자 UI에 저장하며 컨테이너 환경변수는 추가하지 않는다.
+
 Weekly 프로세스에는 세 환경변수만 전달한다. DSN에는 `sslmode=require` 또는 사내 CA 검증이 가능한 `verify-full`을 권장한다.
 
 ## 백업
@@ -16,7 +18,7 @@ Weekly 프로세스에는 세 환경변수만 전달한다. DSN에는 `sslmode=r
 1. PostgreSQL 데이터베이스
 2. `/var/lib/weekly` 볼륨
 
-볼륨의 `instance.key`가 없으면 DB의 OIDC Client Secret과 AI API Key를 복호화할 수 없다. `imports/`에는 보관 중인 과거 PPTX 원본이 있다. 복구 후 `/readyz`, 로컬 관리자 로그인, OIDC/AI 연결 시험, 샘플 PPTX 내보내기와 Import 조회를 점검한다.
+볼륨의 `instance.key`가 없으면 DB의 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 복호화할 수 없다. `imports/`에는 보관 중인 과거 PPTX 원본이 있다. 복구 후 `/readyz`, 로컬 관리자 로그인, OIDC/AI/Confluence 연결 시험, 샘플 PPTX 내보내기와 Import 조회를 점검한다.
 
 ## 보안 통제
 
@@ -29,7 +31,7 @@ Weekly 프로세스에는 세 환경변수만 전달한다. DSN에는 `sslmode=r
 - AI 응답 2MB 제한, 호출 제한시간 5~300초, HTTP Redirect 차단
 - HTTP 본문 읽기 5분·응답 쓰기 330초 제한으로 대량 업로드와 최대 AI 제한시간을 수용
 - PPTX ZIP 엔트리·압축 해제 크기·슬라이드 XML 크기 제한으로 ZIP bomb 완화
-- 감사 대상: 로그인, 보고서 상태/내용, 사용자/조직/설정, 키, 템플릿, PPTX 다운로드, AI 분석, Import 업로드·재분석·확정
+- 감사 대상: 로그인, 보고서 상태/내용, 사용자/조직/설정, 키, 템플릿, PPTX 다운로드, AI 분석, Import 업로드·재분석·확정, Confluence Sync·자동 매핑·후보 수정/제외/수락
 - 개인 키 원문은 발급 응답에서 한 번만 노출
 
 외부 Reverse Proxy를 사용할 때 신뢰할 수 없는 클라이언트가 `X-Forwarded-For`와 `X-Forwarded-Proto`를 직접 주입하지 못하도록 Proxy에서 해당 헤더를 덮어써야 한다.
@@ -52,5 +54,6 @@ Import Worker는 API 프로세스 내부에서 동작하며 PostgreSQL의 `FOR U
 4. Weekly 시작 시 자동 마이그레이션이 완료되는지 로그를 확인한다.
 5. `/readyz`와 로그인·보고서 조회를 점검한다.
 6. AI를 사용하는 환경은 AI 연결 시험, 자유 텍스트 미리보기와 테스트 PPTX Import를 확인한다.
+7. Confluence 자동화를 사용하는 환경은 REST 연결 시험, 사용자 매핑, 샘플 증분 Sync와 후보 출처를 확인한다.
 
 롤백 시 스키마 하위 호환성이 보장된 버전만 사용한다. 현재 마이그레이션은 자동 down을 수행하지 않는다.

@@ -501,6 +501,9 @@ func editableSourceType(value string) string {
 	if strings.EqualFold(strings.TrimSpace(value), "AI_TEXT") {
 		return "AI_TEXT"
 	}
+	if strings.EqualFold(strings.TrimSpace(value), "CONFLUENCE_AI") {
+		return "CONFLUENCE_AI"
+	}
 	return "MANUAL"
 }
 

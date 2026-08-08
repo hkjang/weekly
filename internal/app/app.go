@@ -41,6 +41,7 @@ type App struct {
 	defaultPPTX     []byte
 	defaultPPTXName string
 	importWake      chan struct{}
+	confluenceWake  chan struct{}
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
@@ -69,7 +70,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1)}
+	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
 		return nil, err
@@ -77,6 +78,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	a.routes()
 	go a.maintenance(ctx)
 	go a.importWorker(ctx)
+	go a.confluenceWorker(ctx)
 	return a, nil
 }
 
@@ -114,6 +116,11 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/import/{id}", a.requireAuth(http.HandlerFunc(a.getImportJob)))
 	a.mux.Handle("POST /api/v1/import/{id}/analyze", a.requireAuth(a.csrf(http.HandlerFunc(a.retryImportJob))))
 	a.mux.Handle("POST /api/v1/import/{id}/confirm", a.requireAuth(a.csrf(http.HandlerFunc(a.confirmImportJob))))
+	a.mux.Handle("GET /api/v1/reports/current/candidates", a.requireAuth(http.HandlerFunc(a.currentConfluenceCandidates)))
+	a.mux.Handle("PATCH /api/v1/report-candidates/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateConfluenceCandidate))))
+	a.mux.Handle("DELETE /api/v1/report-candidates/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteConfluenceCandidate))))
+	a.mux.Handle("GET /api/v1/report-candidates/{id}/sources", a.requireAuth(http.HandlerFunc(a.confluenceCandidateSources)))
+	a.mux.Handle("POST /api/v1/report-candidates/accept", a.requireAuth(a.csrf(http.HandlerFunc(a.acceptConfluenceCandidates))))
 
 	a.mux.Handle("GET /api/v1/keys", a.requireAuth(http.HandlerFunc(a.listKeys)))
 	a.mux.Handle("POST /api/v1/keys", a.requireAuth(a.csrf(http.HandlerFunc(a.createKey))))
@@ -124,6 +131,7 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/admin/settings", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateSettings))))
 	a.mux.Handle("POST /api/v1/admin/settings/oidc/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testOIDC))))
 	a.mux.Handle("POST /api/v1/admin/settings/ai/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testAI))))
+	a.mux.Handle("POST /api/v1/admin/settings/confluence/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testConfluence))))
 	a.mux.Handle("GET /api/v1/admin/users", a.requireRole("ADMIN")(http.HandlerFunc(a.adminUsers)))
 	a.mux.Handle("POST /api/v1/admin/users", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.createUser))))
 	a.mux.Handle("PUT /api/v1/admin/users/{id}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateUser))))
@@ -133,6 +141,11 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/admin/pptx-template", a.requireRole("ADMIN")(http.HandlerFunc(a.pptxTemplateInfo)))
 	a.mux.Handle("POST /api/v1/admin/pptx-template", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.uploadPPTXTemplate))))
 	a.mux.Handle("DELETE /api/v1/admin/pptx-template", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.resetPPTXTemplate))))
+	a.mux.Handle("POST /api/v1/admin/confluence/sync", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.forceConfluenceSync))))
+	a.mux.Handle("GET /api/v1/admin/confluence/sync/status", a.requireRole("ADMIN")(http.HandlerFunc(a.adminConfluenceStatus)))
+	a.mux.Handle("GET /api/v1/admin/confluence/users/mappings", a.requireRole("ADMIN")(http.HandlerFunc(a.adminConfluenceMappings)))
+	a.mux.Handle("GET /api/v1/admin/confluence/users/unmapped", a.requireRole("ADMIN")(http.HandlerFunc(a.adminUnmappedConfluenceUsers)))
+	a.mux.Handle("PUT /api/v1/admin/confluence/users/{id}/mapping", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateConfluenceMapping))))
 
 	a.mux.Handle("GET /api/v1/analytics/overview", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.analyticsOverview)))
 	a.mux.Handle("GET /api/v1/analytics/endpoints", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsEndpoints)))

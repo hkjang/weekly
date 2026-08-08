@@ -45,6 +45,7 @@ flowchart LR
   W --> P[(PostgreSQL)]
   W --> K[Keycloak OIDC]
   W --> AI[OpenAI 호환 사내 AI Gateway]
+  W --> CF[Confluence Server 6.9.1]
   C[MCP / API Client] -->|Bearer personal key| W
   A[Administrator] -->|settings UI| W
   W --> V[(Weekly state volume)]
@@ -67,6 +68,9 @@ Go 바이너리가 React 빌드 결과를 embed하여 단일 프로세스로 제
 - `pptx_templates`: 템플릿 파일 메타데이터
 - `import_jobs`, `import_files`: PPTX 분석 작업, 원본 해시, 추출/AI 결과, 확정 보고 연결
 - `weekly_reports.source_type/source_ref`: 수동·AI 텍스트·PPTX Import 등 데이터 출처
+- `user_external_accounts`: Weekly 사용자와 Confluence 사용자 아이디, 매핑 근거
+- `confluence_pages`, `confluence_sync_state`, `confluence_sync_errors`: Page Metadata와 증분 수집 상태·진단
+- `report_candidates`, `candidate_sources`: 사용자별 자동 초안과 N:M 원본 Page 출처
 
 마이그레이션은 바이너리에 포함되며 프로세스 시작 시 트랜잭션으로 순서대로 적용한다.
 
@@ -110,7 +114,23 @@ AI는 DB Entity와 연결되지 않고 검증된 DTO만 반환한다. 자유 텍
 
 다중 업로드는 API 프로세스 내부 Worker와 PostgreSQL 잠금으로 처리한다. 동일 사용자 파일의 SHA-256을 비교해 중복을 표시하고, 동일 사용자·주차 충돌은 생성·병합·교체·건너뛰기 전략을 요구한다. 원본, 정규화 텍스트, AI 응답과 확정 보고의 연결을 분리해 재현성과 감사를 확보한다.
 
-## 9. 확장 지점
+## 9. Confluence 자동 초안 파이프라인
+
+```mermaid
+flowchart LR
+  C[CQL 변경 Page] --> M[Metadata·Version 저장]
+  M --> U[명시 매핑 / 이메일 로컬파트 / 아이디]
+  U --> R[Rule Score]
+  R --> A[AI 업무 분류·Cluster]
+  A --> B[후보 Page body.storage만 조회]
+  B --> S[AI 사실 기반 요약]
+  S --> P[(Report Candidate + Sources)]
+  P --> E[사용자 검토·보고서 반영]
+```
+
+같은 Page Version은 AI 호출 전에 제거하고, 사용자 수정·제외·수락 상태를 재처리보다 우선한다. Confluence 원문 본문은 저장하지 않고 정제한 제한 크기 입력을 AI에 일시 전달한 뒤 해시만 보존한다. Worker는 PostgreSQL Advisory Lock을 사용하므로 여러 인스턴스가 동시에 같은 Sync를 실행하지 않는다. 상세 규격은 [Confluence 연동 문서](CONFLUENCE.md)에 정의한다.
+
+## 10. 확장 지점
 
 - Jira Issue ID와 `report_items`의 관계 테이블
 - 공급자별 AI Responses/Chat 어댑터와 사내 모델 평가

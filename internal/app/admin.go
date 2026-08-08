@@ -18,34 +18,61 @@ type settingDefinition struct {
 }
 
 var settingDefinitions = map[string]settingDefinition{
-	"service.name":              {Validate: bounded(1, 80)},
-	"service.notice":            {Validate: bounded(0, 500)},
-	"service.timezone":          {Validate: validTimezone},
-	"workflow.enabled":          {Validate: booleanValue},
-	"workflow.week_start":       {Validate: oneOf("MONDAY", "SUNDAY")},
-	"auth.local_enabled":        {Validate: booleanValue},
-	"auth.session_hours":        {Validate: integerRange(1, 720)},
-	"oidc.enabled":              {Validate: booleanValue},
-	"oidc.issuer_url":           {Validate: validOptionalURL},
-	"oidc.client_id":            {Validate: bounded(0, 255)},
-	"oidc.client_secret":        {Secret: true, Validate: bounded(0, 2048)},
-	"oidc.redirect_url":         {Validate: validOptionalURL},
-	"oidc.scopes":               {Validate: bounded(1, 500)},
-	"oidc.username_claim":       {Validate: bounded(1, 120)},
-	"oidc.groups_claim":         {Validate: bounded(1, 120)},
-	"oidc.admin_group":          {Validate: bounded(0, 255)},
-	"oidc.auto_provision":       {Validate: booleanValue},
-	"security.api_key_max_days": {Validate: integerRange(1, 3650)},
-	"analytics.retention_days":  {Validate: integerRange(1, 3650)},
-	"ai.enabled":                {Validate: booleanValue},
-	"ai.endpoint":               {Validate: validOptionalURL},
-	"ai.api_key":                {Secret: true, Validate: bounded(0, 4096)},
-	"ai.model":                  {Validate: bounded(0, 255)},
-	"ai.timeout_seconds":        {Validate: integerRange(5, 300)},
-	"ai.max_input_chars":        {Validate: integerRange(1000, 200000)},
-	"import.max_files":          {Validate: integerRange(1, 100)},
-	"import.max_file_mb":        {Validate: integerRange(1, 100)},
-	"import.retention_days":     {Validate: integerRange(1, 3650)},
+	"service.name":                        {Validate: bounded(1, 80)},
+	"service.notice":                      {Validate: bounded(0, 500)},
+	"service.timezone":                    {Validate: validTimezone},
+	"workflow.enabled":                    {Validate: booleanValue},
+	"workflow.week_start":                 {Validate: oneOf("MONDAY", "SUNDAY")},
+	"auth.local_enabled":                  {Validate: booleanValue},
+	"auth.session_hours":                  {Validate: integerRange(1, 720)},
+	"oidc.enabled":                        {Validate: booleanValue},
+	"oidc.issuer_url":                     {Validate: validOptionalURL},
+	"oidc.client_id":                      {Validate: bounded(0, 255)},
+	"oidc.client_secret":                  {Secret: true, Validate: bounded(0, 2048)},
+	"oidc.redirect_url":                   {Validate: validOptionalURL},
+	"oidc.scopes":                         {Validate: bounded(1, 500)},
+	"oidc.username_claim":                 {Validate: bounded(1, 120)},
+	"oidc.groups_claim":                   {Validate: bounded(1, 120)},
+	"oidc.admin_group":                    {Validate: bounded(0, 255)},
+	"oidc.auto_provision":                 {Validate: booleanValue},
+	"security.api_key_max_days":           {Validate: integerRange(1, 3650)},
+	"analytics.retention_days":            {Validate: integerRange(1, 3650)},
+	"ai.enabled":                          {Validate: booleanValue},
+	"ai.endpoint":                         {Validate: validOptionalURL},
+	"ai.api_key":                          {Secret: true, Validate: bounded(0, 4096)},
+	"ai.model":                            {Validate: bounded(0, 255)},
+	"ai.timeout_seconds":                  {Validate: integerRange(5, 300)},
+	"ai.max_input_chars":                  {Validate: integerRange(1000, 200000)},
+	"import.max_files":                    {Validate: integerRange(1, 100)},
+	"import.max_file_mb":                  {Validate: integerRange(1, 100)},
+	"import.retention_days":               {Validate: integerRange(1, 3650)},
+	"confluence.enabled":                  {Validate: booleanValue},
+	"confluence.base_url":                 {Validate: validConfluenceBaseURL},
+	"confluence.auth_mode":                {Validate: oneOf("BASIC", "NONE")},
+	"confluence.username":                 {Validate: bounded(0, 255)},
+	"confluence.password":                 {Secret: true, Validate: bounded(0, 4096)},
+	"confluence.include_spaces":           {Validate: bounded(0, 4000)},
+	"confluence.exclude_spaces":           {Validate: bounded(0, 4000)},
+	"confluence.sync_interval_minutes":    {Validate: integerRange(5, 1440)},
+	"confluence.ai_enabled":               {Validate: booleanValue},
+	"confluence.minimum_candidate_score":  {Validate: integerRange(-100, 200)},
+	"confluence.ai_review_min_score":      {Validate: integerRange(-100, 200)},
+	"confluence.analyze_body":             {Validate: booleanValue},
+	"confluence.lookback_days":            {Validate: integerRange(1, 90)},
+	"confluence.batch_size":               {Validate: integerRange(1, 200)},
+	"confluence.include_blogs":            {Validate: booleanValue},
+	"confluence.auto_map_email_localpart": {Validate: booleanValue},
+	"confluence.auto_map_username":        {Validate: booleanValue},
+	"confluence.work_keywords":            {Validate: bounded(0, 4000)},
+	"confluence.personal_space_prefixes":  {Validate: bounded(0, 2000)},
+	"confluence.score_project_space":      {Validate: integerRange(-100, 100)},
+	"confluence.score_creator":            {Validate: integerRange(-100, 100)},
+	"confluence.score_modifier":           {Validate: integerRange(-100, 100)},
+	"confluence.score_work_keyword":       {Validate: integerRange(-100, 100)},
+	"confluence.score_meeting":            {Validate: integerRange(-100, 100)},
+	"confluence.score_notice":             {Validate: integerRange(-100, 100)},
+	"confluence.score_leave":              {Validate: integerRange(-100, 100)},
+	"confluence.score_personal_space":     {Validate: integerRange(-100, 100)},
 }
 
 type settingView struct {
@@ -102,6 +129,32 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if !validOptionalURL(endpoint) || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(model) == "" {
 			writeError(w, 400, "AI_CONFIGURATION_REQUIRED", "AI Endpoint와 모델을 입력한 뒤 AI 기능을 활성화하세요.")
+			return
+		}
+	}
+	if enabled, ok := input.Settings["confluence.enabled"]; ok && enabled == "true" {
+		baseURL := a.setting(r.Context(), "confluence.base_url", "")
+		authMode := a.setting(r.Context(), "confluence.auth_mode", "BASIC")
+		username := a.setting(r.Context(), "confluence.username", "")
+		password, _ := a.secretSetting(r.Context(), "confluence.password")
+		if value, exists := input.Settings["confluence.base_url"]; exists {
+			baseURL = value
+		}
+		if value, exists := input.Settings["confluence.auth_mode"]; exists {
+			authMode = value
+		}
+		if value, exists := input.Settings["confluence.username"]; exists {
+			username = value
+		}
+		if value, exists := input.Settings["confluence.password"]; exists && value != "" {
+			password = value
+		}
+		if !validConfluenceBaseURL(baseURL) || strings.TrimSpace(baseURL) == "" {
+			writeError(w, 400, "CONFLUENCE_CONFIGURATION_REQUIRED", "Confluence Base URL을 입력한 뒤 연동을 활성화하세요.")
+			return
+		}
+		if authMode == "BASIC" && (strings.TrimSpace(username) == "" || password == "") {
+			writeError(w, 400, "CONFLUENCE_CREDENTIAL_REQUIRED", "Basic Auth 계정과 비밀번호를 입력한 뒤 연동을 활성화하세요.")
 			return
 		}
 	}
@@ -416,6 +469,13 @@ func validOptionalURL(v string) bool {
 	}
 	parsed, err := url.Parse(v)
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+}
+func validConfluenceBaseURL(v string) bool {
+	if v == "" {
+		return true
+	}
+	parsed, err := url.Parse(v)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == ""
 }
 func validRole(role string) bool {
 	return role == "USER" || role == "TEAM_LEADER" || role == "ORG_MANAGER" || role == "ADMIN"

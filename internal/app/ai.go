@@ -149,6 +149,18 @@ weekStart는 입력에서 주차를 명확히 확인할 수 있을 때만 YYYY-M
 PPTX_NORMALIZED 입력은 슬라이드와 표 셀의 순서를 보존한 텍스트입니다. 추진실적 열과 추진계획 열을 서로 섞지 마십시오.
 출력은 제공된 JSON Schema만 따라야 합니다.`
 	user := "입력 유형: " + mode + "\n<untrusted_weekly_input>\n" + input + "\n</untrusted_weekly_input>"
+	var result aiWeeklyResult
+	content, err := callStructuredAI(ctx, cfg, "weekly_report_structure", system, user, weeklyAISchema(), &result)
+	if err != nil {
+		return aiWeeklyResult{}, content, err
+	}
+	if err := validateAIResult(&result); err != nil {
+		return aiWeeklyResult{}, content, err
+	}
+	return result, content, nil
+}
+
+func callStructuredAI(ctx context.Context, cfg aiConfiguration, schemaName, system, user string, schema map[string]any, target any) (string, error) {
 	payload := chatCompletionRequest{
 		Model:       cfg.Model,
 		Messages:    []chatMessage{{Role: "system", Content: system}, {Role: "user", Content: user}},
@@ -156,21 +168,21 @@ PPTX_NORMALIZED 입력은 슬라이드와 표 셀의 순서를 보존한 텍스�
 		ResponseFormat: map[string]any{
 			"type": "json_schema",
 			"json_schema": map[string]any{
-				"name":   "weekly_report_structure",
+				"name":   schemaName,
 				"strict": true,
-				"schema": weeklyAISchema(),
+				"schema": schema,
 			},
 		},
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return aiWeeklyResult{}, "", err
+		return "", err
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, cfg.Endpoint, bytes.NewReader(encoded))
 	if err != nil {
-		return aiWeeklyResult{}, "", err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -185,42 +197,38 @@ PPTX_NORMALIZED 입력은 슬라이드와 표 셀의 순서를 보존한 텍스�
 	}
 	response, err := client.Do(req)
 	if err != nil {
-		return aiWeeklyResult{}, "", fmt.Errorf("AI request: %w", err)
+		return "", fmt.Errorf("AI request: %w", err)
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
 	if err != nil {
-		return aiWeeklyResult{}, "", fmt.Errorf("read AI response: %w", err)
+		return "", fmt.Errorf("read AI response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return aiWeeklyResult{}, "", fmt.Errorf("AI endpoint returned HTTP %d", response.StatusCode)
+		return "", fmt.Errorf("AI endpoint returned HTTP %d", response.StatusCode)
 	}
 	var completion chatCompletionResponse
 	if err := json.Unmarshal(body, &completion); err != nil {
-		return aiWeeklyResult{}, "", errors.New("AI endpoint returned invalid JSON")
+		return "", errors.New("AI endpoint returned invalid JSON")
 	}
 	if completion.Error != nil {
-		return aiWeeklyResult{}, "", errors.New("AI endpoint returned an error")
+		return "", errors.New("AI endpoint returned an error")
 	}
 	if len(completion.Choices) == 0 {
-		return aiWeeklyResult{}, "", errors.New("AI endpoint returned no choices")
+		return "", errors.New("AI endpoint returned no choices")
 	}
 	if completion.Choices[0].Message.Refusal != "" {
-		return aiWeeklyResult{}, "", errors.New("AI model refused the request")
+		return "", errors.New("AI model refused the request")
 	}
 	content, err := chatContentString(completion.Choices[0].Message.Content)
 	if err != nil {
-		return aiWeeklyResult{}, "", err
+		return "", err
 	}
 	content = stripJSONFence(content)
-	var result aiWeeklyResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return aiWeeklyResult{}, content, errors.New("AI structured output is invalid")
+	if err := json.Unmarshal([]byte(content), target); err != nil {
+		return content, errors.New("AI structured output is invalid")
 	}
-	if err := validateAIResult(&result); err != nil {
-		return aiWeeklyResult{}, content, err
-	}
-	return result, content, nil
+	return content, nil
 }
 
 func weeklyAISchema() map[string]any {

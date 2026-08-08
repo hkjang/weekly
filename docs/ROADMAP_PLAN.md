@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.2.0 ~ v2.0-VISION
+- **문서 버전**: v0.3.0 ~ v2.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)  
 
@@ -16,6 +16,7 @@ Weekly 플랫폼은 오프라인망 기반 수집 및 PPTX 자동화를 시작�
 ========================================================================================
  [Phase 1: v0.1.0] (완료) ➔ Single Container, PPTX Zip Engine, Keycloak OIDC, MCP 1.0
  [Phase 1.5: v0.2.0] (완료) ➔ AI Text Draft, Historical PPTX Import, Structured Output
+ [Phase 1.75: v0.3.0] (완료) ➔ Confluence 6.9.1 Incremental Activity Draft Automation
  [Phase 2: v0.5.0] (진행) ➔ Multi-PPTX Template Mapping, Team Analytics & Slack/Teams Alert
  [Phase 3: v1.0.0] (2026 Q4) ➔ Source-system Agent Automation & MCP 2.0
  [Phase 4: v2.0.0] (2027)    ➔ Enterprise Autonomous Progress Copilot & Executive BI
@@ -38,11 +39,18 @@ Weekly 플랫폼은 오프라인망 기반 수집 및 PPTX 자동화를 시작�
 - **과거 PPTX Import**: Open XML 파싱, 주차 감지, SHA-256 중복 확인, 비동기 분석 및 병합·교체 확정.
 - **사내 AI Gateway**: 관리자 UI에서 OpenAI 호환 Endpoint, 모델, 암호화 API Key와 운영 제한 관리.
 
-### 2.3 Phase 2: v0.5.0 고도화 & 팀 단위 분석 알림 (2026 Q3)
+### 2.3 Phase 1.75: v0.3.0 Confluence 활동 자동 초안 (완료)
+
+- **증분 Source 수집**: Confluence 6.9.1 CQL, Pagination, Version 중복 방지와 백그라운드 Worker.
+- **Identity Mapping**: 명시 매핑, Keycloak 이메일 로컬파트, Weekly 아이디 순서의 안전한 자동 연결.
+- **근거 기반 Candidate**: Rule Score, AI 제목 Cluster, 후보 본문만 요약하고 N:M 원본 Page 출처 유지.
+- **사용자 통제**: 수정 보호, 제외 후 미재생성, 검토·보고서 반영과 `CONFLUENCE_AI` 출처 추적.
+
+### 2.4 Phase 2: v0.5.0 고도화 & 팀 단위 분석 알림 (2026 Q3)
 - **다중 PPTX 템플릿**: 사업부별/부서별 서로 다른 PPTX 양식 동적 선택 지정.
 - **미제출자 자동 알림**: 금요일 오후 미제출 임직원 대상 Slack/Teams/사내 메일 자동 알림.
 
-### 2.4 Phase 3: v1.0.0 소스 시스템 기반 AI 에이전트 자동화 (2026 Q4)
+### 2.5 Phase 3: v1.0.0 소스 시스템 기반 AI 에이전트 자동화 (2026 Q4)
 
 - **Source-to-Report Agent (MCP 2.0)**: 사용자 동의하에 커밋·결재·Jira 같은 시스템에서 근거를 수집해 `ReportItem` 후보와 출처 링크를 생성.
 
