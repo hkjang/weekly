@@ -1,0 +1,239 @@
+openapi: 3.1.0
+info:
+  title: Weekly API
+  version: 0.1.0
+  description: 주간보고 관리, 관리자 설정, 분석 및 키 관리 REST API
+servers:
+  - url: /api/v1
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+paths:
+  /version:
+    get:
+      security: []
+      summary: 빌드 버전 조회
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /auth/providers:
+    get:
+      security: []
+      summary: 로그인 방식과 공개 서비스 정보
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /auth/login:
+    post:
+      security: []
+      summary: 로컬 로그인
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "401": { $ref: "#/components/responses/Error" }
+  /me:
+    get:
+      summary: 현재 사용자와 서비스 컨텍스트
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /reports/current:
+    get:
+      summary: 현재 주차 본인 보고서
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /reports:
+    get:
+      summary: 권한 범위 보고서 검색
+      parameters:
+        - { in: query, name: weekStart, schema: { type: string, format: date } }
+        - { in: query, name: status, schema: { $ref: "#/components/schemas/ReportStatus" } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      summary: 보고서 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportWrite" }
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+  /reports/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+    get:
+      summary: 보고서 상세
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    put:
+      summary: 보고서 낙관적 잠금 수정
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportWrite" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /reports/{id}/submit:
+    post:
+      summary: 보고서 제출 또는 즉시 확정
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /reports/{id}/approve:
+    post:
+      summary: 제출 보고서 승인
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /reports/{id}/reject:
+    post:
+      summary: 제출 보고서 반려
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /reports/{id}/export.pptx:
+    get:
+      summary: 템플릿 기반 PPTX 다운로드
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: PowerPoint 파일
+          content:
+            application/vnd.openxmlformats-officedocument.presentationml.presentation:
+              schema: { type: string, format: binary }
+  /keys:
+    get:
+      summary: 개인 API 키 목록
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      summary: 개인 API 키 발급
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+  /keys/rotate:
+    post:
+      summary: 개인 키 버전 회전 및 전부 폐기
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /analytics/overview:
+    get:
+      summary: 조직 보고 현황 분석
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /analytics/endpoints:
+    get:
+      summary: 최근 24시간 API 분석, 관리자 전용
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/settings:
+    get:
+      summary: 운영 설정 조회
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    put:
+      summary: 운영 설정 변경
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/users:
+    get:
+      summary: 사용자 목록
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      summary: 사용자 등록
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+  /admin/organizations:
+    get:
+      summary: 조직 목록
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      summary: 조직 등록
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+  /admin/pptx-template:
+    get:
+      summary: PPTX 템플릿 정보
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      summary: PPTX 템플릿 업로드
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    delete:
+      summary: 기본 PPTX 템플릿 복원
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+components:
+  securitySchemes:
+    cookieAuth: { type: apiKey, in: cookie, name: weekly_session }
+    bearerAuth: { type: http, scheme: bearer }
+  parameters:
+    ID: { in: path, name: id, required: true, schema: { type: integer, format: int64 } }
+  responses:
+    Success:
+      description: 성공
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    Error:
+      description: 오류
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+  schemas:
+    Envelope:
+      type: object
+      required: [success, traceId]
+      properties:
+        success: { type: boolean }
+        data: {}
+        error:
+          type: [object, "null"]
+          properties:
+            code: { type: string }
+            message: { type: string }
+        traceId: { type: string }
+    ReportStatus:
+      type: string
+      enum: [DRAFT, SUBMITTED, REVISION_REQUESTED, APPROVED, CLOSED]
+    ReportItem:
+      type: object
+      required: [title, currentResult, nextPlan, issue, progress]
+      properties:
+        category: { type: string }
+        title: { type: string, maxLength: 240 }
+        currentResult: { type: string }
+        nextPlan: { type: string }
+        issue: { type: string }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+    ReportWrite:
+      type: object
+      required: [summary, items]
+      properties:
+        weekStart: { type: string, format: date }
+        summary: { type: string, maxLength: 10000 }
+        version: { type: integer, minimum: 1 }
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ReportItem" }

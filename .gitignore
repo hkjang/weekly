@@ -1,0 +1,12 @@
+.env
+.DS_Store
+weekly
+coverage.out
+frontend/node_modules/
+frontend/dist/
+dist/
+release/
+*.tar.gz
+*.log
+.weekly-data/
+cmd/weekly/templates/*.pptx

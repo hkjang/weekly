@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weekly 엔터프라이즈 중장기 로드맵 (Roadmap Plan)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10b981;
+            --primary-dark: #047857;
+            --text-dark: #0f172a;
+            --text-muted: #475569;
+            --bg-light: #f8fafc;
+            --border-color: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', -apple-system, sans-serif; color: var(--text-dark); background: var(--bg-light); line-height: 1.65; padding: 48px 24px; }
+        .doc-card { max-width: 1040px; margin: 0 auto; background: #ffffff; border: 1px solid var(--border-color); border-radius: 20px; padding: 56px; box-shadow: 0 12px 30px rgba(0,0,0,0.06); }
+        .header-meta { border-bottom: 3px solid var(--primary); padding-bottom: 28px; margin-bottom: 36px; }
+        .header-meta h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.2rem; color: #0f172a; margin-bottom: 16px; letter-spacing: -0.02em; }
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 0.9rem; color: var(--text-muted); }
+        .meta-item { background: #f1f5f9; padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
+        h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.45rem; color: var(--primary-dark); margin: 40px 0 20px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }
+        p { margin-bottom: 18px; font-size: 1rem; color: #334155; }
+        ul { margin-bottom: 20px; padding-left: 24px; }
+        li { margin-bottom: 8px; }
+        .phase-box { background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); padding: 24px; border-radius: 14px; margin-bottom: 24px; }
+        .phase-title { font-weight: 700; font-size: 1.15rem; color: var(--primary-dark); margin-bottom: 12px; }
+        .print-btn { display: inline-block; background: var(--primary); color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.92rem; float: right; }
+        .print-btn:hover { background: var(--primary-dark); }
+        @media print { .print-btn { display: none; } body { background: #ffffff; padding: 0; } .doc-card { border: none; box-shadow: none; padding: 0; } }
+    </style>
+</head>
+<body>
+    <div class="doc-card">
+        <a href="javascript:window.print()" class="print-btn">🖨️ PDF / 인쇄하기</a>
+        <div class="header-meta">
+            <h1>Weekly 엔터프라이즈 중장기 로드맵 (Roadmap Plan)</h1>
+            <div class="meta-grid">
+                <div class="meta-item"><strong>문서 버전:</strong> v0.1.0 ~ v2.0-VISION</div>
+                <div class="meta-item"><strong>작성일자:</strong> 2026년 8월 8일</div>
+                <div class="meta-item"><strong>대상:</strong> 경영진, CTO, 시스템 관리자</div>
+                <div class="meta-item"><strong>분류:</strong> 공식 기술 비전 문서</div>
+            </div>
+        </div>
+
+        <h2>1. 비전 및 발전 마일스톤 개요</h2>
+        <p>Weekly 플랫폼은 오프라인망 기반 수집 및 PPTX 자동화를 시작으로, 사내 AI 데이터 에이전트와 자연어 대화형으로 주간보고를 작성·분석하는 차세대 Enterprise Reporting Platform으로 발전합니다.</p>
+
+        <div class="phase-box">
+            <div class="phase-title">Phase 1: v0.1.0 오프라인 수집 및 PPTX 엔진 구축 (완료)</div>
+            <ul>
+                <li><strong>ReportItem 모델:</strong> 금주 실적, 차주 계획, 주요 이슈, 진척도 입력 구조화</li>
+                <li><strong>PPTX 템플릿 엔진:</strong> 슬라이드 디자인, 마스터, 글꼴 100% 보존 토큰 자동 치환</li>
+                <li><strong>Keycloak OIDC & RBAC:</strong> PKCE 지원 및 4단계 조직 계층 RBAC 권한 분리</li>
+                <li><strong>Analytics MCP 1.0:</strong> Streamable HTTP MCP 서버로 submission_overview, reports_search 도구 탑재</li>
+            </ul>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Phase 2: v0.5.0 고도화 & 팀 단위 분석 알림 (2026 Q3)</div>
+            <ul>
+                <li><strong>다중 PPTX 템플릿:</strong> 사업부별/부서별 서로 다른 PPTX 양식 동적 선택 지정</li>
+                <li><strong>미제출자 자동 알림:</strong> 금요일 오후 미제출 임직원 대상 Slack/Teams/사내 메일 자동 알림</li>
+            </ul>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Phase 3: v1.0.0 AI 대화형 주간보고 작성 (2026 Q4)</div>
+            <ul>
+                <li><strong>NL-to-Report Draft (MCP 2.0):</strong> AI 에이전트에 커밋 및 결재 문서 기반 자동 초안 생성 질의 처리</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

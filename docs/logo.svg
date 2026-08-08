@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="weekly-edge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <filter id="edge-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3.5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Transparent Background, Sharp Edge Monogram W + Progress Check Mark -->
+  <g filter="url(#edge-glow)">
+    <!-- Main Neon W Path -->
+    <path d="M 16 34 L 34 86 L 60 48 L 86 86 L 104 34" 
+          fill="none" 
+          stroke="url(#weekly-edge-grad)" 
+          stroke-width="11" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" />
+    
+    <!-- Accent Pulsing Node Dots -->
+    <circle cx="104" cy="34" r="7.5" fill="#3b82f6" />
+    <circle cx="60" cy="48" r="5" fill="#06b6d4" />
+  </g>
+</svg>

@@ -1,0 +1,22 @@
+services:
+  weekly:
+    image: weekly:${WEEKLY_VERSION:-0.1.0}
+    container_name: weekly
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      WEEKLY_POSTGRES_DSN: ${WEEKLY_POSTGRES_DSN:?required}
+      WEEKLY_BOOTSTRAP_ADMIN: ${WEEKLY_BOOTSTRAP_ADMIN:?required}
+      WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: ${WEEKLY_BOOTSTRAP_ADMIN_PASSWORD:?required}
+    volumes:
+      - weekly-data:/var/lib/weekly
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  weekly-data:

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weekly 엔터프라이즈 관리자 가이드 (Admin Guide)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10b981;
+            --primary-dark: #047857;
+            --text-dark: #0f172a;
+            --text-muted: #475569;
+            --bg-light: #f8fafc;
+            --border-color: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', -apple-system, sans-serif; color: var(--text-dark); background: var(--bg-light); line-height: 1.65; padding: 48px 24px; }
+        .doc-card { max-width: 1040px; margin: 0 auto; background: #ffffff; border: 1px solid var(--border-color); border-radius: 20px; padding: 56px; box-shadow: 0 12px 30px rgba(0,0,0,0.06); }
+        .header-meta { border-bottom: 3px solid var(--primary); padding-bottom: 28px; margin-bottom: 36px; }
+        .header-meta h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.2rem; color: #0f172a; margin-bottom: 16px; letter-spacing: -0.02em; }
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 0.9rem; color: var(--text-muted); }
+        .meta-item { background: #f1f5f9; padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
+        h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.45rem; color: var(--primary-dark); margin: 40px 0 20px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }
+        p { margin-bottom: 18px; font-size: 1rem; color: #334155; }
+        table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.92rem; }
+        th, td { border: 1px solid var(--border-color); padding: 12px 16px; text-align: left; }
+        th { background: #f8fafc; font-weight: 700; color: #0f172a; }
+        pre { background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; overflow-x: auto; margin: 20px 0; }
+        code { font-family: 'JetBrains Mono', monospace; background: #e2e8f0; color: #0f172a; padding: 2px 6px; border-radius: 4px; font-size: 0.88rem; }
+        pre code { background: none; color: inherit; padding: 0; }
+        .print-btn { display: inline-block; background: var(--primary); color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.92rem; float: right; }
+        .print-btn:hover { background: var(--primary-dark); }
+        @media print { .print-btn { display: none; } body { background: #ffffff; padding: 0; } .doc-card { border: none; box-shadow: none; padding: 0; } }
+    </style>
+</head>
+<body>
+    <div class="doc-card">
+        <a href="javascript:window.print()" class="print-btn">🖨️ PDF / 인쇄하기</a>
+        <div class="header-meta">
+            <h1>Weekly 엔터프라이즈 관리자 가이드 (Admin Guide)</h1>
+            <div class="meta-grid">
+                <div class="meta-item"><strong>문서 버전:</strong> v0.1.0-ENTERPRISE</div>
+                <div class="meta-item"><strong>작성일자:</strong> 2026년 8월 8일</div>
+                <div class="meta-item"><strong>대상:</strong> 시스템 관리자, Security/DevOps</div>
+                <div class="meta-item"><strong>분류:</strong> 공식 관리자 & 운영 매뉴얼</div>
+            </div>
+        </div>
+
+        <h2>1. 시스템 부트스트랩</h2>
+        <pre><code>WEEKLY_POSTGRES_DSN=postgres://weekly:Secr3tPass@10.10.30.5:5432/weekly?sslmode=disable
+WEEKLY_BOOTSTRAP_ADMIN=admin
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!</code></pre>
+
+        <h2>2. Keycloak OIDC SSO 및 RBAC 연동</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>역할 (Role)</th>
+                    <th>개인 작성</th>
+                    <th>팀 승인/반려</th>
+                    <th>조직 전체 조회</th>
+                    <th>PPTX 템플릿 등록</th>
+                    <th>OIDC/시스템 설정</th>
+                    <th>감사 로그</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>ADMIN</strong></td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td><strong>ORG_MANAGER</strong></td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>❌</td>
+                    <td>❌</td>
+                    <td>❌</td>
+                </tr>
+                <tr>
+                    <td><strong>TEAM_LEADER</strong></td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td>❌ (소속 팀만)</td>
+                    <td>❌</td>
+                    <td>❌</td>
+                    <td>❌</td>
+                </tr>
+                <tr>
+                    <td><strong>USER</strong></td>
+                    <td>✅</td>
+                    <td>❌</td>
+                    <td>❌ (본인 것만)</td>
+                    <td>❌</td>
+                    <td>❌</td>
+                    <td>❌</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>3. 사내 PPTX 템플릿 등록 및 토큰 검증</h2>
+        <p>관리자 화면에서 사내 표준 PPTX 파일을 업로드하면 원본 디자인 양식을 보존하면서 <code>{{THIS_WEEK}}</code>, <code>{{NEXT_WEEK}}</code>, <code>{{ISSUES}}</code> 토큰이 자동 교체됩니다.</p>
+    </div>
+</body>
+</html>

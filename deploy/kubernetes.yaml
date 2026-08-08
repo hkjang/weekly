@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: weekly-bootstrap
+type: Opaque
+stringData:
+  WEEKLY_POSTGRES_DSN: "postgres://weekly:CHANGE_ME@postgres.internal:5432/weekly?sslmode=require"
+  WEEKLY_BOOTSTRAP_ADMIN: "admin"
+  WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: "CHANGE_ME_AT_LEAST_12_CHARS"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: weekly-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weekly
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weekly
+  template:
+    metadata:
+      labels:
+        app: weekly
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: weekly
+          image: weekly:0.1.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: weekly-bootstrap
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/weekly
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: weekly-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weekly
+spec:
+  selector:
+    app: weekly
+  ports:
+    - port: 8080
+      targetPort: http
