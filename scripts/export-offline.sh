@@ -8,9 +8,13 @@ fi
 
 image=$1
 project_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-version=${image##*:}
+image_tag=${image##*:}
+case "$image_tag" in
+  v*) release_tag=$image_tag ;;
+  *) release_tag="v$image_tag" ;;
+esac
 output_dir="$project_dir/release"
-output="$output_dir/weekly-v${version}-linux-amd64-docker.tar.gz"
+output="$output_dir/weekly-${release_tag}.tar.gz"
 
 mkdir -p "$output_dir"
 docker image inspect "$image" >/dev/null

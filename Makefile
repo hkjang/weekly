@@ -1,7 +1,7 @@
 .PHONY: build test run image offline clean
 
 VERSION ?= $(shell cat VERSION)
-IMAGE ?= weekly:$(VERSION)
+IMAGE ?= weekly:v$(VERSION)
 
 build:
 	./scripts/build.sh

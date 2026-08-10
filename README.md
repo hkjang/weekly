@@ -36,10 +36,10 @@
 
 ## 오프라인 설치
 
-GitHub Release에서 `weekly-v<VERSION>-linux-amd64-docker.tar.gz` 하나만 반입합니다.
+GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.4.0-linux-amd64-docker.tar.gz | docker load
+gzip -dc weekly-v0.4.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # deploy/.env의 세 값을 운영 환경에 맞게 변경
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -168,7 +168,7 @@ cd .. && go test ./...
 
 ## 릴리즈
 
-`v*` 태그를 푸시하면 GitHub Actions가 `linux/amd64` 서비스 이미지를 빌드하고 `docker save | gzip` 형식의 단일 `.tar.gz` 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
+`v*` 태그를 푸시하면 GitHub Actions가 `weekly:<tag>` 형식(예: `weekly:v0.4.0`)의 `linux/amd64` 서비스 이미지를 빌드하고 `weekly-<tag>.tar.gz` 형식의 단일 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
 
 ```bash
 git tag v0.4.0

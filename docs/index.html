@@ -114,7 +114,7 @@
         {
           "@type": "HowToStep",
           "name": "오프라인 아카이브 로드",
-          "text": "docker load 명령으로 weekly-v0.3.0-linux-amd64-docker.tar.gz 패키지를 불러옵니다."
+          "text": "docker load 명령으로 weekly-v0.4.0.tar.gz 패키지를 불러옵니다."
         },
         {
           "@type": "HowToStep",
@@ -483,7 +483,7 @@
                     <div class="deploy-card glass-panel">
                         <h4>🐳 Single Docker Archive Load</h4>
                         <p>GitHub Release의 .tar.gz 패키지 하나만 오프라인망으로 반입하여 구동합니다.</p>
-<pre><code>gzip -dc weekly-v0.3.0-linux-amd64-docker.tar.gz | docker load
+<pre><code>gzip -dc weekly-v0.4.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 
 # deploy/.env 환경변수 설정 후 실행
