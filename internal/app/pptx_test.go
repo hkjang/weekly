@@ -87,11 +87,17 @@ func TestPasswordHashAndVerify(t *testing.T) {
 
 func TestCurrentWeekStart(t *testing.T) {
 	now := time.Date(2026, time.January, 8, 12, 0, 0, 0, time.UTC)
-	if got := currentWeekStart(now, "MONDAY").Format("2006-01-02"); got != "2026-01-05" {
-		t.Fatalf("got %s", got)
+	tests := map[string]string{
+		"SUNDAY": "2026-01-04", "MONDAY": "2026-01-05", "TUESDAY": "2026-01-06",
+		"WEDNESDAY": "2026-01-07", "THURSDAY": "2026-01-08", "FRIDAY": "2026-01-02", "SATURDAY": "2026-01-03",
 	}
-	if got := currentWeekStart(now, "SUNDAY").Format("2006-01-02"); got != "2026-01-04" {
-		t.Fatalf("got %s", got)
+	for weekday, expected := range tests {
+		if got := currentWeekStart(now, weekday).Format("2006-01-02"); got != expected {
+			t.Errorf("%s: got %s, want %s", weekday, got, expected)
+		}
+	}
+	if got := currentWeekStart(now, "invalid").Format("2006-01-02"); got != "2026-01-05" {
+		t.Fatalf("invalid setting fallback = %s", got)
 	}
 }
 
@@ -133,7 +139,7 @@ func TestGeneratedReferenceStylePPTX(t *testing.T) {
 	}
 	validatePPTXXML(t, result)
 	text := pptxXMLText(t, result)
-	for _, expected := range []string{"추진실적 (2026.8.3 ~ 2026.8.7)", "추진계획 (2026.8.10 ~ 2026.8.14)", "연동 완료", "반입 시험"} {
+	for _, expected := range []string{"추진실적 (2026.8.3 ~ 2026.8.9)", "추진계획 (2026.8.10 ~ 2026.8.16)", "연동 완료", "반입 시험"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("generated reference is missing %q", expected)
 		}
@@ -150,6 +156,14 @@ func TestGeneratedReferenceStylePPTX(t *testing.T) {
 	}
 	if slides != 4 {
 		t.Fatalf("got %d slides, want 4", slides)
+	}
+}
+
+func TestReportItemLinesPreserveReadableListStructure(t *testing.T) {
+	items := []reportItem{{Category: "플랫폼", Title: "인증", CurrentResult: "• OIDC 연동\n• 권한 검증"}}
+	got := reportItemLines(items, "current")
+	if !strings.Contains(got, "• [플랫폼] 인증\n  - OIDC 연동\n  - 권한 검증") {
+		t.Fatalf("unexpected report lines: %q", got)
 	}
 }
 

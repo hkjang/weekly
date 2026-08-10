@@ -219,9 +219,9 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 		}
 	}
 	groups := distributeReferenceItems(report.Items, slideCount)
-	currentHeader := fmt.Sprintf("추진실적 (%s ~ %s)", formatReferenceDate(weekStart), formatReferenceDate(weekStart.AddDate(0, 0, 4)))
+	currentHeader := fmt.Sprintf("추진실적 (%s ~ %s)", formatReferenceDate(weekStart), formatReferenceDate(weekStart.AddDate(0, 0, 6)))
 	nextStart := weekStart.AddDate(0, 0, 7)
-	nextHeader := fmt.Sprintf("추진계획 (%s ~ %s)", formatReferenceDate(nextStart), formatReferenceDate(nextStart.AddDate(0, 0, 4)))
+	nextHeader := fmt.Sprintf("추진계획 (%s ~ %s)", formatReferenceDate(nextStart), formatReferenceDate(nextStart.AddDate(0, 0, 6)))
 	var output bytes.Buffer
 	writer := zip.NewWriter(&output)
 	slideIndex := 0
@@ -320,9 +320,9 @@ func referenceTextBody(items []reportItem, field string) string {
 			} else {
 				content = item.NextPlan
 			}
-			for _, line := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
-				if strings.TrimSpace(line) != "" {
-					body.WriteString(referenceParagraph(strings.TrimSpace(line), "detail"))
+			for _, line := range reportContentLines(content) {
+				if line != "" {
+					body.WriteString(referenceParagraph(line, "detail"))
 				}
 			}
 		}
@@ -410,7 +410,9 @@ func reportItemLines(items []reportItem, field string) string {
 		}
 		line := prefix + item.Title
 		if content != item.Title {
-			line += "\n  " + strings.ReplaceAll(content, "\r\n", "\n")
+			for _, detail := range reportContentLines(content) {
+				line += "\n  - " + detail
+			}
 		}
 		lines = append(lines, line)
 	}
@@ -418,6 +420,20 @@ func reportItemLines(items []reportItem, field string) string {
 		return "-"
 	}
 	return strings.Join(lines, "\n")
+}
+
+func reportContentLines(value string) []string {
+	value = formatAIListText(value)
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	result := make([]string, 0)
+	for _, line := range strings.Split(value, "\n") {
+		line = stripListMarker(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
 }
 
 func analyzePPTX(body []byte) ([]string, error) {

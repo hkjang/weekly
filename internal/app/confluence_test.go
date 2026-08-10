@@ -98,9 +98,21 @@ func TestConfluenceRuleScoringAndStorageCleaning(t *testing.T) {
 	if score := scoreConfluenceActivity(activity, cfg); score >= 20 {
 		t.Fatalf("leave/personal score should be excluded, got %d", score)
 	}
-	cleaned := cleanConfluenceStorage(`<p>OAuth &amp; 인증</p><script>secret-command</script><ac:structured-macro ac:name="toc"/>`, 100)
-	if cleaned != "OAuth & 인증" || strings.Contains(cleaned, "secret-command") {
+	cleaned := cleanConfluenceStorage(`<p>OAuth &amp; 인증</p><table><tr><td>구현 완료</td><td>운영 검증</td></tr></table><script>secret-command</script><ac:structured-macro ac:name="toc"/>`, 100)
+	if cleaned != "OAuth & 인증\n구현 완료\n운영 검증" || strings.Contains(cleaned, "secret-command") {
 		t.Fatalf("cleaned storage = %q", cleaned)
+	}
+}
+
+func TestConfluenceClassifierRejectsIncompleteCoverage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		content := `{"groups":[{"include":true,"normalizedTitle":"OAuth","category":"개발","pageIds":["101"],"confidence":0.9}]}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
+	}))
+	defer server.Close()
+	activities := []confluenceActivity{{Page: ConfluencePage{ID: "101"}}, {Page: ConfluencePage{ID: "102"}}}
+	if _, _, err := callConfluenceClassifier(t.Context(), aiConfiguration{Endpoint: server.URL, Model: "test", Timeout: 3 * time.Second, MaxInput: 50000}, activities); err == nil {
+		t.Fatal("classifier response that omits an input page must fall back")
 	}
 }
 
@@ -113,12 +125,20 @@ func TestConfluenceMappingSuggestionPrioritizesEmailLocalpart(t *testing.T) {
 
 func TestConfluenceClassifierTracksIncludedAndExcludedPages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		encoded, _ := json.Marshal(request["messages"])
+		if !strings.Contains(string(encoded), "OAuth 구현 완료") {
+			t.Fatalf("classifier did not receive the bounded body preview: %s", encoded)
+		}
 		content := `{"groups":[{"include":true,"normalizedTitle":"OAuth 인증 적용","category":"개발","pageIds":["101"],"confidence":0.9},{"include":false,"normalizedTitle":"","category":"","pageIds":["102"],"confidence":0.95}]}`
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
 	}))
 	defer server.Close()
 	activities := []confluenceActivity{
-		{Page: ConfluencePage{ID: "101", Title: "OAuth PoC"}, RuleScore: 60},
+		{Page: ConfluencePage{ID: "101", Title: "OAuth PoC"}, RuleScore: 60, BodyText: "OAuth 구현 완료"},
 		{Page: ConfluencePage{ID: "102", Title: "휴가 계획"}, RuleScore: 20},
 	}
 	groups, decisions, err := callConfluenceClassifier(t.Context(), aiConfiguration{Endpoint: server.URL, Model: "test", Timeout: 3 * time.Second, MaxInput: 50000}, activities)

@@ -190,6 +190,12 @@ func (a *App) runConfluenceSync(ctx context.Context, cfg confluenceSettings) err
 	sort.Strings(ownerKeys)
 	for _, key := range ownerKeys {
 		ownerActivities := groupsByOwner[key]
+		if aiCfg != nil && cfg.AnalyzeBody {
+			ownerActivities = a.loadConfluenceBodyPreviews(ctx, client, ownerActivities, aiCfg.MaxInput)
+		}
+		if len(ownerActivities) == 0 {
+			continue
+		}
 		groups := make([]confluenceCandidateGroup, 0)
 		decided := map[string]bool{}
 		fallbackThreshold := cfg.AIReviewMinimumScore
@@ -491,6 +497,15 @@ func (a *App) processConfluenceGroup(ctx context.Context, client ConfluenceClien
 			maximum = 1000
 		}
 		for _, activity := range filtered {
+			if activity.BodyLoaded {
+				bodies[activity.Page.ID] = trimRunes(activity.BodyText, maximum)
+				available = append(available, activity)
+				continue
+			}
+			if activity.BodyAttempted {
+				available = append(available, activity)
+				continue
+			}
 			body, err := client.GetPageBody(ctx, activity.Page.ID)
 			if err != nil {
 				statusCode := confluenceErrorStatus(err)
@@ -530,6 +545,42 @@ func (a *App) processConfluenceGroup(ctx context.Context, client ConfluenceClien
 		summary.CurrentResult = fallbackConfluenceSummary(group).CurrentResult
 	}
 	return a.upsertReportCandidate(ctx, group, summary)
+}
+
+func (a *App) loadConfluenceBodyPreviews(ctx context.Context, client ConfluenceClient, activities []confluenceActivity, maximumInput int) []confluenceActivity {
+	if len(activities) == 0 {
+		return activities
+	}
+	maximum := 3000
+	if budget := (maximumInput - 6000) / len(activities); budget < maximum {
+		maximum = budget
+	}
+	if maximum < 500 {
+		maximum = 500
+	}
+	result := make([]confluenceActivity, 0, len(activities))
+	for _, activity := range activities {
+		body, err := client.GetPageBody(ctx, activity.Page.ID)
+		activity.BodyAttempted = true
+		if err != nil {
+			statusCode := confluenceErrorStatus(err)
+			a.recordConfluenceError(ctx, activity.Page.ID, "BODY_PREVIEW", statusCode, err)
+			if statusCode == http.StatusNotFound {
+				_, _ = a.db.Exec(ctx, `UPDATE confluence_pages SET status='DELETED',last_error='HTTP 404',updated_at=now() WHERE id=$1`, activity.PageDBID)
+				if markErr := a.markConfluenceActivityExcluded(ctx, activity); markErr != nil {
+					a.recordConfluenceError(ctx, activity.Page.ID, "EXCLUSION", 0, markErr)
+				}
+				continue
+			}
+			result = append(result, activity)
+			continue
+		}
+		activity.BodyText = cleanConfluenceStorage(body.Storage, maximum)
+		activity.BodyLoaded = true
+		_, _ = a.db.Exec(ctx, `UPDATE confluence_pages SET body_hash=$2,last_error='',updated_at=now() WHERE id=$1`, activity.PageDBID, confluenceTextHash(activity.BodyText))
+		result = append(result, activity)
+	}
+	return result
 }
 
 func (a *App) upsertReportCandidate(ctx context.Context, group confluenceCandidateGroup, summary confluenceSummaryResult) (bool, error) {

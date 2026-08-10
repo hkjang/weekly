@@ -104,6 +104,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/reports/{id}", a.requireAuth(http.HandlerFunc(a.getReport)))
 	a.mux.Handle("POST /api/v1/reports", a.requireAuth(a.csrf(http.HandlerFunc(a.createReport))))
 	a.mux.Handle("PUT /api/v1/reports/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateReport))))
+	a.mux.Handle("DELETE /api/v1/reports/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/submit", a.requireAuth(a.csrf(http.HandlerFunc(a.submitReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/approve", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(a.csrf(http.HandlerFunc(a.approveReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/reject", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(a.csrf(http.HandlerFunc(a.rejectReport))))

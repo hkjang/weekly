@@ -45,3 +45,14 @@ func TestValidateAIResultRejectsEmptyItems(t *testing.T) {
 		t.Fatal("empty titled items must be rejected")
 	}
 }
+
+func TestFormatAIListTextSplitsCommaSeparatedTasks(t *testing.T) {
+	got := formatAIListText("OIDC 연동 완료, 권한 검증 완료, 운영 배포 준비.")
+	want := "• OIDC 연동 완료\n• 권한 검증 완료\n• 운영 배포 준비."
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got := formatAIListText("처리량 1,000건 검증 완료."); got != "처리량 1,000건 검증 완료." {
+		t.Fatalf("prose or thousands separator was changed: %q", got)
+	}
+}

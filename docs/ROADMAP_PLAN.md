@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.3.0 ~ v2.0-VISION
+- **문서 버전**: v0.4.0 ~ v2.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)  
 

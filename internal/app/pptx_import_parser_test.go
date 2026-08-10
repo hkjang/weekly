@@ -24,8 +24,21 @@ func TestExtractAndDetectGeneratedReferencePPTX(t *testing.T) {
 		t.Fatalf("unexpected extraction: slides=%d text=%s", len(extracted.Slides), extracted.Normalized)
 	}
 	detected := detectPPTXWeek("weekly.pptx", extracted.Normalized, "MONDAY", time.Local)
-	if detected.Start.Format("2006-01-02") != "2026-08-03" || detected.End.Format("2006-01-02") != "2026-08-07" || detected.Source != "slide_text" || detected.Confidence < 0.9 {
+	if detected.Start.Format("2006-01-02") != "2026-08-03" || detected.End.Format("2006-01-02") != "2026-08-09" || detected.Source != "slide_text" || detected.Confidence < 0.9 {
 		t.Fatalf("unexpected detected week: %#v", detected)
+	}
+}
+
+func TestDetectPPTXWeekAlignsStandaloneDateToConfiguredStart(t *testing.T) {
+	detected := detectPPTXWeek("weekly.pptx", "작성일 2026-08-06", "TUESDAY", time.UTC)
+	if got := detected.Start.Format("2006-01-02"); got != "2026-08-04" {
+		t.Fatalf("week start = %s", got)
+	}
+	if got := detected.End.Format("2006-01-02"); got != "2026-08-10" {
+		t.Fatalf("week end = %s", got)
+	}
+	if detected.Confidence >= 0.9 {
+		t.Fatalf("standalone date confidence is too high: %f", detected.Confidence)
 	}
 }
 

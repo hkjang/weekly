@@ -22,7 +22,7 @@ var settingDefinitions = map[string]settingDefinition{
 	"service.notice":                      {Validate: bounded(0, 500)},
 	"service.timezone":                    {Validate: validTimezone},
 	"workflow.enabled":                    {Validate: booleanValue},
-	"workflow.week_start":                 {Validate: oneOf("MONDAY", "SUNDAY")},
+	"workflow.week_start":                 {Validate: oneOf("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")},
 	"auth.local_enabled":                  {Validate: booleanValue},
 	"auth.session_hours":                  {Validate: integerRange(1, 720)},
 	"oidc.enabled":                        {Validate: booleanValue},

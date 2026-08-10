@@ -180,20 +180,22 @@ func detectPPTXWeek(filename, normalized string, weekStartSetting string, locati
 		location = time.UTC
 	}
 	if dates := extractFullDates(normalized, location); len(dates) > 0 {
-		end := dates[0].AddDate(0, 0, 4)
-		confidence := 0.92
-		if len(dates) > 1 && !dates[1].Before(dates[0]) && dates[1].Sub(dates[0]) <= 7*24*time.Hour {
+		start := currentWeekStart(dates[0], weekStartSetting)
+		end := start.AddDate(0, 0, 6)
+		confidence := 0.78
+		if len(dates) > 1 && !dates[1].Before(dates[0]) && dates[1].Sub(dates[0]) <= 6*24*time.Hour {
+			start = dates[0]
 			end = dates[1]
 			confidence = 0.98
 		}
-		return detectedWeek{Start: dates[0], End: end, Confidence: confidence, Source: "slide_text"}
+		return detectedWeek{Start: start, End: end, Confidence: confidence, Source: "slide_text"}
 	}
 	if yearMatch := filenameYearPattern.FindString(filename); yearMatch != "" {
 		year, _ := strconv.Atoi(yearMatch)
 		if match := shortRangePattern.FindStringSubmatch(normalized); len(match) == 5 {
 			start, startOK := makeDate(year, match[1], match[2], location)
 			end, endOK := makeDate(year, match[3], match[4], location)
-			if startOK && endOK && !end.Before(start) && end.Sub(start) <= 7*24*time.Hour {
+			if startOK && endOK && !end.Before(start) && end.Sub(start) <= 6*24*time.Hour {
 				return detectedWeek{Start: start, End: end, Confidence: 0.9, Source: "slide_text_with_filename_year"}
 			}
 		}
@@ -202,7 +204,7 @@ func detectPPTXWeek(filename, normalized string, weekStartSetting string, locati
 		date, ok := makeDate(match[1], match[2], match[3], location)
 		if ok {
 			start := currentWeekStart(date, weekStartSetting)
-			return detectedWeek{Start: start, End: start.AddDate(0, 0, 4), Confidence: 0.82, Source: "filename"}
+			return detectedWeek{Start: start, End: start.AddDate(0, 0, 6), Confidence: 0.82, Source: "filename"}
 		}
 	}
 	return detectedWeek{}

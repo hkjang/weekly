@@ -8,8 +8,9 @@ export class APIError extends Error {
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
-  if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const response = await fetch(url, { ...init, headers, credentials: 'same-origin' })
+  if (response.ok && response.status === 204) return undefined as T
   let payload: Envelope<T> | undefined
   try { payload = await response.json() as Envelope<T> } catch { /* handled below */ }
   if (!response.ok || !payload?.success) throw new APIError(response.status, payload?.error?.code ?? 'REQUEST_FAILED', payload?.error?.message ?? '요청을 처리할 수 없습니다.')

@@ -427,7 +427,7 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "Import 보고서를 저장할 수 없습니다.")
 			return
 		}
-		_, err = tx.Exec(r.Context(), `UPDATE import_files SET status='CONFIRMED',detected_week_start=$1,detected_week_end=$2,report_id=$3,confirmed_at=now() WHERE id=$4`, week, week.AddDate(0, 0, 4), reportID, file.ID)
+		_, err = tx.Exec(r.Context(), `UPDATE import_files SET status='CONFIRMED',detected_week_start=$1,detected_week_end=$2,report_id=$3,confirmed_at=now() WHERE id=$4`, week, week.AddDate(0, 0, 6), reportID, file.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "Import 연결 이력을 저장할 수 없습니다.")
 			return
@@ -633,7 +633,7 @@ func (a *App) processImportFile(ctx context.Context, jobID, fileID int64, filena
 	weekEnd := detected.End
 	if weekStart.IsZero() && result.WeekStart != "" {
 		weekStart, _ = time.ParseInLocation("2006-01-02", result.WeekStart, location)
-		weekEnd = weekStart.AddDate(0, 0, 4)
+		weekEnd = weekStart.AddDate(0, 0, 6)
 		confidence = result.DateConfidence
 		dateSource = "ai_inference"
 	}

@@ -17,6 +17,8 @@
 ## 주요 기능
 
 - `Report → ReportItem` 데이터 모델: 금주 실적, 차주 계획, 이슈, 진척도
+- 일요일부터 토요일까지 선택 가능한 주차 시작 요일과 7일 단위 보고 기간
+- 현재·과거 본인 보고서 수정 및 낙관적 잠금이 적용된 확인형 삭제
 - 개인 화면과 관리자 관리 화면의 명확한 분리
 - 관리자 설정에 따라 켜지는 팀장 검토·승인·반려 흐름
 - Keycloak 호환 OIDC Discovery, Authorization Code + PKCE, nonce 검증
@@ -37,7 +39,7 @@
 GitHub Release에서 `weekly-v<VERSION>-linux-amd64-docker.tar.gz` 하나만 반입합니다.
 
 ```bash
-gzip -dc weekly-v0.3.0-linux-amd64-docker.tar.gz | docker load
+gzip -dc weekly-v0.4.0-linux-amd64-docker.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # deploy/.env의 세 값을 운영 환경에 맞게 변경
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -73,7 +75,9 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 - 꺼짐: `DRAFT → CLOSED`. 검토·승인·반려 버튼과 절차가 제외됩니다.
 - 켜짐: `DRAFT → SUBMITTED → APPROVED` 또는 `REVISION_REQUESTED → SUBMITTED`.
 
-모든 상태 전이는 `report_status_history`와 감사 로그에 기록됩니다.
+모든 상태 전이는 `report_status_history`와 감사 로그에 기록됩니다. 본인은 어느 상태의 보고서도 수정·삭제할 수 있습니다. `SUBMITTED` 또는 `APPROVED` 내용을 수정하면 기존 검토 효력을 유지하지 않고 자동으로 `DRAFT`로 돌아가며 상태 이력이 남습니다. `CLOSED` 보고서는 수정 후 확정 상태를 유지합니다.
+
+관리자는 `workflow.week_start`에서 일요일부터 토요일까지 어느 요일이든 주차 시작일로 지정할 수 있습니다. 현재 주차, 분석, Confluence 후보, PPTX 날짜와 Import 날짜 보정이 같은 설정을 사용합니다.
 
 ## PPTX 내보내기
 
@@ -97,7 +101,7 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 
 관리자가 `관리자 설정 → AI · Import`에서 OpenAI 호환 Chat Completions 전체 Endpoint, 모델, API Key(선택)를 저장하고 연결 시험을 통과시킨 뒤 AI 기능을 켭니다. 예를 들어 Endpoint는 `http://ai-gateway.internal/v1/chat/completions`처럼 호출 가능한 전체 주소를 입력합니다. AI 관련 값도 환경변수로 받지 않으므로 기존 세 환경변수 원칙은 유지됩니다.
 
-작성자는 보고서 편집 화면의 텍스트 영역에 이번 주 한 일, 다음 주 할 일과 이슈를 자유롭게 붙여 넣고 `AI 분석`을 실행합니다. 서버는 엄격한 JSON Schema Structured Output으로 결과를 검증하며, 사용자는 항목과 신뢰도를 확인·수정한 후 `병합` 또는 `교체`를 선택해 편집기에 적용합니다. 적용만으로 DB에 저장되지 않고 기존 저장 버튼을 눌러야 반영됩니다.
+작성자는 보고서 편집 화면의 텍스트 영역에 이번 주 한 일, 다음 주 할 일과 이슈를 자유롭게 붙여 넣고 `AI 분석`을 실행합니다. 서버는 엄격한 JSON Schema Structured Output으로 결과를 검증하고, 쉼표로 이어진 독립 업무는 한 줄 한 항목의 글머리표 목록으로 정규화합니다. 사용자는 항목과 신뢰도를 확인·수정한 후 `병합` 또는 `교체`를 선택해 편집기에 적용합니다. 같은 줄바꿈 구조가 PPTX에도 개별 세부 항목으로 반영됩니다. 적용만으로 DB에 저장되지 않고 기존 저장 버튼을 눌러야 반영됩니다.
 
 `PPTX 가져오기`에서는 여러 과거 파일을 올릴 수 있습니다. 서버가 먼저 안전하게 Open XML의 슬라이드·표 셀을 추출하고 파일명과 본문에서 날짜를 결정적으로 찾은 다음, 정규화한 텍스트만 AI에 전달합니다. 분석 결과는 비동기 작업으로 제공되며 사용자가 주차와 항목을 고친 뒤 아래 전략으로 확정합니다.
 
@@ -114,7 +118,7 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 
 관리자는 `관리자 관리 → 서비스 설정 → Confluence 6.9.1 자동화`에서 Base URL, 연동 전용 Service Account, 포함·제외 Space, 수집 주기, 규칙 점수와 AI/본문 분석 정책을 저장합니다. Confluence 6.9.1은 Personal Access Token을 전제로 하지 않으며 1차 연동은 Basic Auth 또는 사내 Reverse Proxy 인증을 지원합니다. 비밀번호는 인스턴스 키로 암호화되고 브라우저에 다시 노출되지 않습니다.
 
-Background Worker는 CQL `lastmodified` 조건과 Pagination으로 마지막 성공 시각 이후의 Page를 증분 수집합니다. 본인이 이번 주 생성한 Page와 본인이 마지막으로 수정한 Page를 사용자 활동으로 판정하며, 제목·Space·작성자·수정자·버전만 먼저 저장합니다. 규칙 점수와 AI가 실제 업무 후보를 고르고 유사 문서를 병합한 뒤, 선택된 Page에 한해서만 `body.storage`를 조회해 금주 실적을 요약합니다. 원문 본문은 DB나 애플리케이션 로그에 보존하지 않습니다.
+Background Worker는 CQL `lastmodified` 조건과 Pagination으로 마지막 성공 시각 이후의 Page를 증분 수집합니다. 본인이 이번 주 생성한 Page와 본인이 마지막으로 수정한 Page를 사용자 활동으로 판정하며, 제목·Space·작성자·수정자·버전을 먼저 저장합니다. 규칙 점수를 통과한 Page는 제한된 `body.storage` 미리보기를 함께 사용해 제목이 일반적인 문서도 실제 내용으로 업무 여부를 판정하고 유사 문서를 병합합니다. 본문 XHTML은 문단·목록·표 셀 경계를 줄바꿈으로 보존해 요약하며 원문은 DB나 애플리케이션 로그에 보존하지 않습니다. AI 분류가 일부 Page를 누락하면 전체 응답을 불완전한 것으로 처리하고 결정적 후보 생성으로 전환해 증분 수집에서 조용히 유실되지 않게 합니다.
 
 사용자 식별자는 다음 순서로 유일하게 매핑합니다.
 
@@ -167,8 +171,8 @@ cd .. && go test ./...
 `v*` 태그를 푸시하면 GitHub Actions가 `linux/amd64` 서비스 이미지를 빌드하고 `docker save | gzip` 형식의 단일 `.tar.gz` 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 로컬에서는 `make offline`으로 같은 형식의 파일을 만들 수 있습니다.

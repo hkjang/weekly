@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.3.0
+  version: 0.4.0
   description: 주간보고 관리, Confluence 6.9.1 자동 초안, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -140,7 +140,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
     put:
-      summary: 보고서 낙관적 잠금 수정
+      summary: 본인 보고서 낙관적 잠금 수정
       requestBody:
         required: true
         content:
@@ -148,6 +148,16 @@ paths:
             schema: { $ref: "#/components/schemas/ReportWrite" }
       responses:
         "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: 본인 보고서 낙관적 잠금 삭제
+      parameters:
+        - in: query
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "204": { description: 삭제 완료 }
         "409": { $ref: "#/components/responses/Error" }
   /reports/{id}/submit:
     post:

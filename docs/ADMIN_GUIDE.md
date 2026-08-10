@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.3.0-ENTERPRISE
+- **문서 버전**: v0.4.0-ENTERPRISE
 - **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자  
 - **문서 개요**: Weekly 단일 컨테이너 환경변수 부트스트랩, Keycloak OIDC SSO 연동, RBAC 권한 매핑, PPTX 템플릿 등록 및 감사 로그 운영  
 
@@ -61,6 +61,8 @@ WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
 
 ## 5. AI Gateway 및 Import 정책
 
+`서비스 설정`의 주차 시작 요일은 월·화·수·목·금·토·일 중 하나를 선택할 수 있습니다. 이 값은 현재 주차 조회, 팀 분석, Confluence 후보, PPTX 날짜와 Import의 단독 날짜 보정에 공통 적용됩니다.
+
 `관리자 설정 ➔ AI · Import`에서 다음 값을 관리합니다. 런타임 환경변수는 추가하지 않습니다.
 
 | 설정 | 의미 | 기본값 |
@@ -89,4 +91,4 @@ Endpoint와 Model을 먼저 저장하고 `AI 연결 시험`으로 JSON Schema St
 
 사용자 매핑 우선순위는 관리자 명시값, Keycloak/Weekly 이메일의 `@` 앞부분, Weekly 로그인 아이디입니다. 예를 들어 `hkjang@koreacb.com`은 Confluence `hkjang`에 자동 매핑됩니다. 유일하게 판정할 수 없는 미매핑 사용자만 표에서 직접 지정합니다.
 
-Confluence 본문은 PostgreSQL이나 로그에 저장되지 않고 후보 Page에 한해 정제·제한한 뒤 AI Gateway로 전달됩니다. 외부 AI 데이터 반출이 허용되지 않으면 사내 AI Gateway를 사용하거나 `후보 문서 본문 분석`을 끄십시오. 전체 운영 규격과 장애 코드는 [Confluence 연동 문서](CONFLUENCE.md)를 참고하십시오.
+Confluence 본문은 PostgreSQL이나 로그에 저장되지 않습니다. 규칙 점수를 통과한 Page의 제한된 본문 미리보기는 문단·목록·표 구조를 보존해 AI 업무 판정과 요약에 일시 사용됩니다. 외부 AI 데이터 반출이 허용되지 않으면 사내 AI Gateway를 사용하거나 `후보 문서 본문 분석`을 끄십시오. 전체 운영 규격과 장애 코드는 [Confluence 연동 문서](CONFLUENCE.md)를 참고하십시오.

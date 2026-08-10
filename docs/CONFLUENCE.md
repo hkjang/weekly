@@ -14,14 +14,14 @@ flowchart LR
   W --> M[Page Metadata 저장]
   M --> I[사용자 자동 매핑]
   I --> R[Rule Score]
-  R --> A[AI 업무 판별·제목 정규화·병합]
-  A -->|후보 Page만| B[body.storage 조회·정제]
+  R --> B[제한된 body.storage 조회·구조 보존 정제]
+  B --> A[제목+본문 AI 업무 판별·제목 정규화·병합]
   B --> S[AI 금주 실적 요약]
   S --> P[(Report Candidate)]
   P --> U[사용자 확인·수정·제외·보고서 반영]
 ```
 
-Worker는 마지막 성공 시각에 2분 중첩 구간을 더해 변경 누락을 방지한다. Page ID와 Version, 사용자, 주차를 이용해 같은 버전의 재분석을 AI 호출 전에 차단한다. 여러 서비스 복제본이 동시에 기동해도 PostgreSQL Advisory Lock으로 하나의 Worker만 수집한다.
+Worker는 마지막 성공 시각에 2분 중첩 구간을 더해 변경 누락을 방지한다. Page ID와 Version, 사용자, 주차를 이용해 같은 버전의 재분석을 AI 호출 전에 차단한다. AI 분류는 입력된 모든 Page ID를 정확히 한 번씩 포함해야 하며 하나라도 누락되면 해당 응답 전체를 버리고 결정적 후보 생성으로 전환한다. 따라서 불완전한 모델 응답 때문에 증분 기준시각만 전진하고 Page가 조용히 유실되지 않는다. 여러 서비스 복제본이 동시에 기동해도 PostgreSQL Advisory Lock으로 하나의 Worker만 수집한다.
 
 ## 인증
 
@@ -57,7 +57,7 @@ Weekly는 외부 사용자를 다음 우선순위로 유일하게 연결하고 `
 | `confluence.batch_size` | `50` | REST Pagination 크기, 최대 200 |
 | `confluence.include_blogs` | `false` | Blog Post 포함 여부 |
 | `confluence.ai_enabled` | `true` | 제목 분류·병합과 본문 요약 |
-| `confluence.analyze_body` | `true` | 후보 Page의 본문 조회 |
+| `confluence.analyze_body` | `true` | 규칙 점수를 통과한 Page의 제한 본문 미리보기·요약 |
 | `confluence.minimum_candidate_score` | `50` | AI 정상 시 규칙 자동 후보 기준 |
 | `confluence.ai_review_min_score` | `20` | AI 판단에 전달할 최소 기준 |
 | `confluence.auto_map_email_localpart` | `true` | 이메일 로컬파트 자동 매핑 |
@@ -73,7 +73,7 @@ Weekly는 외부 사용자를 다음 우선순위로 유일하게 연결하고 `
 - `confluence_sync_state`: 마지막 시도·성공, 상태와 처리 건수
 - `confluence_sync_errors`: 최근 500건의 단계·HTTP 상태·안전한 오류 요약
 
-`body.storage`는 메모리에만 머물며 script/style/XML 태그 제거와 HTML Entity 해제 후 크기를 제한해 AI에 전달한다. 원문은 DB, 감사 로그, 일반 로그에 저장하지 않는다. 외부 AI로 사내 문서를 전달할 수 없는 환경에서는 반드시 사내망 AI Gateway를 사용하거나 본문 분석을 끈다.
+`body.storage`는 메모리에만 머문다. script/style과 XML 태그를 제거하되 문단·목록·표 행·표 셀·코드 블록 경계는 줄바꿈으로 보존하고 HTML Entity를 해제한 뒤 크기를 제한한다. 규칙 점수를 통과한 Page는 이 제한된 미리보기를 제목·Space와 함께 업무 판정에 사용하므로 일반적인 제목의 문서도 실제 본문으로 판단할 수 있다. 원문은 DB, 감사 로그, 일반 로그에 저장하지 않는다. 외부 AI로 사내 문서를 전달할 수 없는 환경에서는 반드시 사내망 AI Gateway를 사용하거나 본문 분석을 끈다.
 
 ## 사용자 동작
 
@@ -93,7 +93,7 @@ Weekly는 외부 사용자를 다음 우선순위로 유일하게 연결하고 `
 | 401 | 인증 오류로 Sync 실패, 관리자 상태 화면에 표시 |
 | 403/404 본문 | 해당 본문을 건너뛰고 제목 기반 후보 유지 |
 | 429/5xx/네트워크 | 제한된 지수형 재시도 후 진단 기록 |
-| AI 오류 | 제목 기반 후보와 출처 유지, 원문 미저장 |
+| AI 오류·입력 Page 누락 | 결정적 제목 후보와 출처 유지, 원문 미저장 |
 | 일부 Page 저장 실패 | Batch는 계속 처리하고 상태를 `PARTIAL`로 기록 |
 | Confluence 전체 장애 | 이미 생성된 후보와 주간보고 조회는 정상 동작 |
 | 프로세스 재시작 | 남은 `RUNNING`을 실패로 정리하고 다음 주기에 재시도 |

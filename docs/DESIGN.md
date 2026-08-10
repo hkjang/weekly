@@ -33,9 +33,11 @@ stateDiagram-v2
   REVISION_REQUESTED --> SUBMITTED: 수정 후 재제출
   SUBMITTED --> APPROVED: 승인
   SUBMITTED --> REVISION_REQUESTED: 반려
+  SUBMITTED --> DRAFT: 작성자 내용 수정
+  APPROVED --> DRAFT: 작성자 내용 수정
 ```
 
-워크플로 설정이 없거나 `false`이면 검토 API와 UI가 업무 흐름에서 제외되고 제출 즉시 `CLOSED`가 된다. 수정 API는 `version` 일치 조건으로 갱신하며 불일치는 `409 VERSION_CONFLICT`를 반환한다.
+워크플로 설정이 없거나 `false`이면 검토 API와 UI가 업무 흐름에서 제외되고 제출 즉시 `CLOSED`가 된다. 본인 보고서는 상태와 관계없이 수정·삭제할 수 있다. `SUBMITTED`·`APPROVED` 보고서의 내용 수정은 검토 효력을 무효화해 `DRAFT`로 전환하고, `CLOSED` 수정은 상태를 유지한다. 수정과 삭제 API는 `version` 일치 조건을 사용하며 불일치는 `409 VERSION_CONFLICT`를 반환한다.
 
 ## 4. 논리 아키텍처
 
@@ -110,25 +112,24 @@ flowchart LR
   P -->|명시적 확정| R[(WeeklyReport + Items)]
 ```
 
-AI는 DB Entity와 연결되지 않고 검증된 DTO만 반환한다. 자유 텍스트 결과는 편집기 적용 후 일반 저장 절차를 거치고, PPTX는 비동기 Import Job의 미리보기에서 사용자가 주차·항목과 충돌 전략을 확정해야 저장된다. 파일명·슬라이드 본문 날짜를 정규식으로 먼저 찾으며, 결정적 날짜가 없을 때만 AI 날짜를 후보로 사용한다.
+AI는 DB Entity와 연결되지 않고 검증된 DTO만 반환한다. 자유 텍스트 결과는 독립 작업을 줄바꿈 글머리표로 정규화한 뒤 편집기 적용과 일반 저장 절차를 거치고, PPTX는 비동기 Import Job의 미리보기에서 사용자가 주차·항목과 충돌 전략을 확정해야 저장된다. 브라우저는 `FormData`의 multipart boundary를 직접 생성하며 공통 API 계층은 업로드에 JSON Content-Type을 덮어쓰지 않는다. 파일명·슬라이드 본문 날짜를 정규식으로 먼저 찾고, 단독 날짜는 관리자 주차 시작 요일에 맞춰 보정하며 명확한 날짜가 없을 때만 AI 날짜를 후보로 사용한다.
 
 다중 업로드는 API 프로세스 내부 Worker와 PostgreSQL 잠금으로 처리한다. 동일 사용자 파일의 SHA-256을 비교해 중복을 표시하고, 동일 사용자·주차 충돌은 생성·병합·교체·건너뛰기 전략을 요구한다. 원본, 정규화 텍스트, AI 응답과 확정 보고의 연결을 분리해 재현성과 감사를 확보한다.
 
 ## 9. Confluence 자동 초안 파이프라인
 
 ```mermaid
-flowchart LR
   C[CQL 변경 Page] --> M[Metadata·Version 저장]
   M --> U[명시 매핑 / 이메일 로컬파트 / 아이디]
   U --> R[Rule Score]
-  R --> A[AI 업무 분류·Cluster]
-  A --> B[후보 Page body.storage만 조회]
+  R --> B[제한된 body.storage 미리보기·구조 보존 정제]
+  B --> A[제목+본문 AI 업무 분류·Cluster]
   B --> S[AI 사실 기반 요약]
   S --> P[(Report Candidate + Sources)]
   P --> E[사용자 검토·보고서 반영]
 ```
 
-같은 Page Version은 AI 호출 전에 제거하고, 사용자 수정·제외·수락 상태를 재처리보다 우선한다. Confluence 원문 본문은 저장하지 않고 정제한 제한 크기 입력을 AI에 일시 전달한 뒤 해시만 보존한다. Worker는 PostgreSQL Advisory Lock을 사용하므로 여러 인스턴스가 동시에 같은 Sync를 실행하지 않는다. 상세 규격은 [Confluence 연동 문서](CONFLUENCE.md)에 정의한다.
+같은 Page Version은 AI 호출 전에 제거하고, 사용자 수정·제외·수락 상태를 재처리보다 우선한다. AI 분류 응답은 입력 Page 전체를 정확히 한 번씩 판정해야 하며 누락 시 결정적 폴백으로 전환한다. Confluence 원문 본문은 저장하지 않고 문단·목록·표 셀 경계를 보존한 제한 크기 입력을 AI에 일시 전달한 뒤 해시만 보존한다. Worker는 PostgreSQL Advisory Lock을 사용하므로 여러 인스턴스가 동시에 같은 Sync를 실행하지 않는다. 상세 규격은 [Confluence 연동 문서](CONFLUENCE.md)에 정의한다.
 
 ## 10. 확장 지점
 

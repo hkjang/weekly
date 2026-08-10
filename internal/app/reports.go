@@ -233,22 +233,38 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	command, err := tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,
-		source_type=CASE WHEN upper(trim($2))='AI_TEXT' THEN 'AI_TEXT' ELSE source_type END,
-		version=version+1,updated_at=now()
-		WHERE id=$3 AND user_id=$4 AND version=$5 AND status IN ('DRAFT','REVISION_REQUESTED')`, trimLength(input.Summary, 10000), input.SourceType, id, p.ID, input.Version)
+	var ownerID int64
+	var storedVersion int
+	var previousStatus string
+	err = tx.QueryRow(r.Context(), `SELECT user_id,version,status FROM weekly_reports WHERE id=$1 FOR UPDATE`, id).Scan(&ownerID, &storedVersion, &previousStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
+		return
+	}
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 		return
 	}
-	if command.RowsAffected() == 0 {
-		var exists bool
-		_ = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM weekly_reports WHERE id=$1 AND user_id=$2)`, id, p.ID).Scan(&exists)
-		if exists {
-			writeError(w, http.StatusConflict, "VERSION_CONFLICT", "다른 변경사항이 먼저 저장되었습니다. 새로고침 후 다시 시도하세요.")
-		} else {
-			writeError(w, http.StatusForbidden, "FORBIDDEN", "수정할 수 없는 보고서입니다.")
-		}
+	if ownerID != p.ID {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
+		return
+	}
+	if storedVersion != input.Version {
+		writeError(w, http.StatusConflict, "VERSION_CONFLICT", "다른 변경사항이 먼저 저장되었습니다. 새로고침 후 다시 시도하세요.")
+		return
+	}
+	newStatus := previousStatus
+	if previousStatus == "SUBMITTED" || previousStatus == "APPROVED" {
+		newStatus = "DRAFT"
+	}
+	_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,
+		source_type=CASE WHEN upper(trim($2))='AI_TEXT' THEN 'AI_TEXT' ELSE source_type END,
+		status=$3,submitted_at=CASE WHEN $3='DRAFT' THEN NULL ELSE submitted_at END,
+		reviewed_at=CASE WHEN $3='DRAFT' THEN NULL ELSE reviewed_at END,
+		reviewed_by=CASE WHEN $3='DRAFT' THEN NULL ELSE reviewed_by END,
+		version=version+1,updated_at=now() WHERE id=$4`, trimLength(input.Summary, 10000), input.SourceType, newStatus, id)
+	if err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `DELETE FROM report_items WHERE report_id=$1`, id); err != nil {
@@ -262,12 +278,76 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if newStatus != previousStatus {
+		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment)
+			VALUES($1,$2,$3,$4,'작성자가 제출·승인 후 내용을 수정하여 재검토 상태로 전환')`, id, p.ID, previousStatus, newStatus)
+		if err != nil {
+			writeError(w, 500, "DATABASE_ERROR", "보고서 상태 이력을 저장할 수 없습니다.")
+			return
+		}
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 		return
 	}
-	a.audit(r, p, "report.update", "report", strconv.FormatInt(id, 10), map[string]any{"version": input.Version + 1})
-	writeData(w, http.StatusOK, map[string]any{"id": id, "version": input.Version + 1})
+	a.audit(r, p, "report.update", "report", strconv.FormatInt(id, 10), map[string]any{"version": input.Version + 1, "status": newStatus})
+	writeData(w, http.StatusOK, map[string]any{"id": id, "version": input.Version + 1, "status": newStatus})
+}
+
+func (a *App) deleteReport(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	p := currentPrincipal(r.Context())
+	version, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("version")))
+	if err != nil || version < 1 {
+		writeError(w, http.StatusBadRequest, "VERSION_REQUIRED", "삭제할 보고서 버전이 필요합니다.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서를 삭제할 수 없습니다.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var ownerID int64
+	var storedVersion int
+	var week time.Time
+	var status string
+	err = tx.QueryRow(r.Context(), `SELECT user_id,version,week_start,status FROM weekly_reports WHERE id=$1 FOR UPDATE`, id).
+		Scan(&ownerID, &storedVersion, &week, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 삭제할 수 있습니다.")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서를 삭제할 수 없습니다.")
+		return
+	}
+	if ownerID != p.ID {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 삭제할 수 있습니다.")
+		return
+	}
+	if storedVersion != version {
+		writeError(w, http.StatusConflict, "VERSION_CONFLICT", "보고서가 변경되었습니다. 새로고침 후 다시 시도하세요.")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE report_candidates SET status='DETECTED',accepted_report_id=NULL,updated_at=now()
+		WHERE accepted_report_id=$1 AND user_id=$2 AND status='ACCEPTED'`, id, p.ID); err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서 연결 정보를 정리할 수 없습니다.")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `DELETE FROM weekly_reports WHERE id=$1 AND user_id=$2`, id, p.ID); err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서를 삭제할 수 없습니다.")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서를 삭제할 수 없습니다.")
+		return
+	}
+	a.audit(r, p, "report.delete", "report", strconv.FormatInt(id, 10), map[string]any{"weekStart": week.Format("2006-01-02"), "status": status, "version": version})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) submitReport(w http.ResponseWriter, r *http.Request) {
@@ -480,9 +560,13 @@ func (a *App) canReviewReport(ctx context.Context, p *principal, reportID int64)
 }
 
 func currentWeekStart(now time.Time, start string) time.Time {
-	weekday := time.Monday
-	if strings.EqualFold(start, "SUNDAY") {
-		weekday = time.Sunday
+	weekdays := map[string]time.Weekday{
+		"SUNDAY": time.Sunday, "MONDAY": time.Monday, "TUESDAY": time.Tuesday,
+		"WEDNESDAY": time.Wednesday, "THURSDAY": time.Thursday, "FRIDAY": time.Friday, "SATURDAY": time.Saturday,
+	}
+	weekday, ok := weekdays[strings.ToUpper(strings.TrimSpace(start))]
+	if !ok {
+		weekday = time.Monday
 	}
 	date := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	offset := (7 + int(date.Weekday()) - int(weekday)) % 7
