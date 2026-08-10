@@ -114,12 +114,12 @@
         {
           "@type": "HowToStep",
           "name": "오프라인 아카이브 로드",
-          "text": "docker load 명령으로 weekly-v0.4.0.tar.gz 패키지를 불러옵니다."
+          "text": "docker load 명령으로 weekly-v0.5.0.tar.gz 패키지를 불러옵니다."
         },
         {
           "@type": "HowToStep",
-          "name": "환경변수 3종 설정",
-          "text": "WEEKLY_POSTGRES_DSN, WEEKLY_BOOTSTRAP_ADMIN, WEEKLY_BOOTSTRAP_ADMIN_PASSWORD 세 환경변수를 설정합니다."
+          "name": "필수 환경변수와 암호화 키 설정",
+          "text": "필수 환경변수 3종과 업그레이드에 유지할 WEEKLY_ENCRYPTION_KEY를 설정합니다."
         },
         {
           "@type": "HowToStep",
@@ -483,18 +483,19 @@
                     <div class="deploy-card glass-panel">
                         <h4>🐳 Single Docker Archive Load</h4>
                         <p>GitHub Release의 .tar.gz 패키지 하나만 오프라인망으로 반입하여 구동합니다.</p>
-<pre><code>gzip -dc weekly-v0.4.0.tar.gz | docker load
+<pre><code>gzip -dc weekly-v0.5.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 
 # deploy/.env 환경변수 설정 후 실행
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d</code></pre>
                     </div>
                     <div class="deploy-card glass-panel">
-                        <h4>⚙️ 3대 필수 환경변수</h4>
-                        <p>프로세스가 요구하는 필수 환경변수는 단 3개입니다.</p>
+                        <h4>⚙️ 필수 환경변수와 고정 암호화 키</h4>
+                        <p>필수 3개 값과 업그레이드에도 유지할 32-byte 암호화 키를 설정합니다.</p>
 <pre><code>WEEKLY_POSTGRES_DSN=postgres://weekly:pass@localhost:5432/weekly
 WEEKLY_BOOTSTRAP_ADMIN=admin
-WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretPassword123!</code></pre>
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretPassword123!
+WEEKLY_ENCRYPTION_KEY=&lt;openssl rand -base64 32 결과&gt;</code></pre>
                     </div>
                 </div>
             </div>

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type reportItem struct {
@@ -348,6 +349,141 @@ func (a *App) deleteReport(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, p, "report.delete", "report", strconv.FormatInt(id, 10), map[string]any{"weekStart": week.Format("2006-01-02"), "status": status, "version": version})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type cloneReportInput struct {
+	TargetWeekStart string `json:"targetWeekStart"`
+	Mode            string `json:"mode"`
+}
+
+func (a *App) cloneReport(w http.ResponseWriter, r *http.Request) {
+	sourceID, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var input cloneReportInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Mode = strings.ToUpper(strings.TrimSpace(input.Mode))
+	if input.Mode == "" {
+		input.Mode = "STRUCTURE"
+	}
+	if input.Mode != "STRUCTURE" && input.Mode != "FULL" {
+		writeError(w, http.StatusBadRequest, "INVALID_CLONE_MODE", "복제 방식이 올바르지 않습니다.")
+		return
+	}
+	location := a.serviceLocation(r.Context())
+	configuredWeekday := a.setting(r.Context(), "workflow.week_start", "MONDAY")
+	targetWeek := currentWeekStart(time.Now().In(location), configuredWeekday)
+	if strings.TrimSpace(input.TargetWeekStart) != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(input.TargetWeekStart), location)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_WEEK", "대상 주차 시작일이 올바르지 않습니다.")
+			return
+		}
+		targetWeek = parsed
+	}
+	if !currentWeekStart(targetWeek, configuredWeekday).Equal(targetWeek) {
+		writeError(w, http.StatusBadRequest, "INVALID_WEEKDAY", "대상 날짜는 관리자가 설정한 주차 시작 요일이어야 합니다.")
+		return
+	}
+
+	p := currentPrincipal(r.Context())
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "보고서를 복제할 수 없습니다.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var summary string
+	if err = tx.QueryRow(r.Context(), `SELECT summary FROM weekly_reports WHERE id=$1 AND user_id=$2 FOR SHARE`, sourceID, p.ID).Scan(&summary); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 복제할 수 있습니다.")
+		} else {
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "원본 보고서를 조회할 수 없습니다.")
+		}
+		return
+	}
+	rows, err := tx.Query(r.Context(), `SELECT category,title,current_result,next_plan,issue,progress,sort_order
+		FROM report_items WHERE report_id=$1 ORDER BY sort_order,id`, sourceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "원본 보고서 항목을 조회할 수 없습니다.")
+		return
+	}
+	sourceItems := []reportItem{}
+	for rows.Next() {
+		var item reportItem
+		if err = rows.Scan(&item.Category, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.Progress, &item.SortOrder); err != nil {
+			rows.Close()
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "원본 보고서 항목을 조회할 수 없습니다.")
+			return
+		}
+		sourceItems = append(sourceItems, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "원본 보고서 항목을 조회할 수 없습니다.")
+		return
+	}
+	rows.Close()
+	clonedSummary, clonedItems := prepareClonedReport(summary, sourceItems, input.Mode)
+	if len(clonedItems) == 0 {
+		writeError(w, http.StatusConflict, "EMPTY_SOURCE_REPORT", "복제할 업무 항목이 없습니다.")
+		return
+	}
+	var reportID int64
+	err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,status,summary,source_type,source_ref)
+		VALUES($1,$2,'DRAFT',$3,'CLONED',$4) RETURNING id`, p.ID, targetWeek, clonedSummary, "report:"+strconv.FormatInt(sourceID, 10)).Scan(&reportID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			writeError(w, http.StatusConflict, "REPORT_EXISTS", targetWeek.Format("2006-01-02")+" 주차 보고서가 이미 있습니다.")
+		} else {
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "복제 보고서를 만들 수 없습니다.")
+		}
+		return
+	}
+	for index, item := range clonedItems {
+		_, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, reportID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.Progress, index)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "복제 보고서 항목을 저장할 수 없습니다.")
+			return
+		}
+	}
+	comment := "보고서 #" + strconv.FormatInt(sourceID, 10) + "에서 업무 구조 복제"
+	if input.Mode == "FULL" {
+		comment = "보고서 #" + strconv.FormatInt(sourceID, 10) + "에서 전체 내용 복제"
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,to_status,comment) VALUES($1,$2,'DRAFT',$3)`, reportID, p.ID, comment); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "복제 보고서 이력을 저장할 수 없습니다.")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "보고서를 복제할 수 없습니다.")
+		return
+	}
+	a.audit(r, p, "report.clone", "report", strconv.FormatInt(reportID, 10), map[string]any{"sourceReportId": sourceID, "targetWeekStart": targetWeek.Format("2006-01-02"), "mode": input.Mode})
+	writeData(w, http.StatusCreated, map[string]any{"id": reportID, "sourceReportId": sourceID, "weekStart": targetWeek.Format("2006-01-02"), "status": "DRAFT", "mode": input.Mode})
+}
+
+func prepareClonedReport(summary string, items []reportItem, mode string) (string, []reportItem) {
+	result := make([]reportItem, 0, len(items))
+	for index, item := range items {
+		cloned := reportItem{Category: item.Category, Title: item.Title, SortOrder: index}
+		if mode == "FULL" {
+			cloned.CurrentResult = item.CurrentResult
+			cloned.NextPlan = item.NextPlan
+			cloned.Issue = item.Issue
+			cloned.Progress = item.Progress
+		}
+		result = append(result, cloned)
+	}
+	if mode == "FULL" {
+		return summary, result
+	}
+	return "", result
 }
 
 func (a *App) submitReport(w http.ResponseWriter, r *http.Request) {

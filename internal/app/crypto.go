@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -10,10 +12,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -21,23 +25,51 @@ const stateDirectory = "/var/lib/weekly"
 
 type secretBox struct{ aead cipher.AEAD }
 
-func loadSecretBox() (*secretBox, error) {
+func loadSecretBoxes(configuredKey string) (active, legacy *secretBox, source string, err error) {
 	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
-		return nil, fmt.Errorf("create state directory: %w", err)
+		return nil, nil, "", fmt.Errorf("create state directory: %w", err)
 	}
-	path := filepath.Join(stateDirectory, "instance.key")
-	key, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		key = make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
-			return nil, err
+	if strings.TrimSpace(configuredKey) != "" {
+		key, decodeErr := decodeEncryptionKey(configuredKey)
+		if decodeErr != nil {
+			return nil, nil, "", decodeErr
 		}
-		if err := os.WriteFile(path, key, 0o600); err != nil {
-			return nil, fmt.Errorf("persist instance key: %w", err)
+		active, err = newSecretBox(key)
+		if err != nil {
+			return nil, nil, "", err
 		}
-	} else if err != nil {
-		return nil, fmt.Errorf("read instance key: %w", err)
+		fileKey, readErr := readInstanceKey()
+		if readErr == nil && !bytes.Equal(fileKey, key) {
+			legacy, err = newSecretBox(fileKey)
+			if err != nil {
+				return nil, nil, "", err
+			}
+		} else if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return nil, nil, "", readErr
+		}
+		return active, legacy, "environment", nil
 	}
+	key, err := loadOrCreateInstanceKey()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	active, err = newSecretBox(key)
+	return active, nil, "state_volume", err
+}
+
+func decodeEncryptionKey(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	encodings := []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding}
+	for _, encoding := range encodings {
+		key, err := encoding.DecodeString(value)
+		if err == nil && len(key) == 32 {
+			return key, nil
+		}
+	}
+	return nil, errors.New("WEEKLY_ENCRYPTION_KEY must be a base64-encoded 32-byte key")
+}
+
+func newSecretBox(key []byte) (*secretBox, error) {
 	if len(key) != 32 {
 		return nil, errors.New("invalid instance key length")
 	}
@@ -50,6 +82,132 @@ func loadSecretBox() (*secretBox, error) {
 		return nil, err
 	}
 	return &secretBox{aead: aead}, nil
+}
+
+func readInstanceKey() ([]byte, error) {
+	key, err := os.ReadFile(filepath.Join(stateDirectory, "instance.key"))
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != 32 {
+		return nil, errors.New("invalid instance key length")
+	}
+	return key, nil
+}
+
+func loadOrCreateInstanceKey() ([]byte, error) {
+	key, err := readInstanceKey()
+	if err == nil {
+		return key, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read instance key: %w", err)
+	}
+	key = make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(stateDirectory, "instance.key")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return readInstanceKey()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("persist instance key: %w", err)
+	}
+	written, writeErr := file.Write(key)
+	if writeErr == nil && written != len(key) {
+		writeErr = io.ErrShortWrite
+	}
+	if writeErr != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("persist instance key: %w", writeErr)
+	}
+	if err = file.Close(); err != nil {
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("persist instance key: %w", err)
+	}
+	return key, nil
+}
+
+type secretMigrationResult struct {
+	Migrated    int
+	Unavailable []string
+}
+
+type storedSecret struct {
+	Key   string
+	Value string
+}
+
+func migrateSecretSettings(ctx context.Context, db *pgxpool.Pool, active, legacy *secretBox) (secretMigrationResult, error) {
+	result := secretMigrationResult{Unavailable: []string{}}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT key,value FROM app_settings WHERE secret=true AND value<>'' ORDER BY key`)
+	if err != nil {
+		return result, err
+	}
+	values := []storedSecret{}
+	for rows.Next() {
+		var key, value string
+		if err = rows.Scan(&key, &value); err != nil {
+			rows.Close()
+			return result, err
+		}
+		values = append(values, storedSecret{Key: key, Value: value})
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return result, err
+	}
+	rows.Close()
+	for _, stored := range values {
+		encrypted, migrated, available, reencryptErr := reencryptSecret(stored.Value, active, legacy)
+		if reencryptErr != nil {
+			return result, reencryptErr
+		}
+		if !available {
+			result.Unavailable = append(result.Unavailable, stored.Key)
+			continue
+		}
+		if !migrated {
+			continue
+		}
+		command, updateErr := tx.Exec(ctx, `UPDATE app_settings SET value=$1 WHERE key=$2 AND value=$3`, encrypted, stored.Key, stored.Value)
+		if updateErr != nil {
+			return result, updateErr
+		}
+		if command.RowsAffected() == 1 {
+			result.Migrated++
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func reencryptSecret(value string, active, legacy *secretBox) (encrypted string, migrated, available bool, err error) {
+	if _, err = active.Decrypt(value); err == nil {
+		return value, false, true, nil
+	}
+	if legacy == nil {
+		return value, false, false, nil
+	}
+	plain, err := legacy.Decrypt(value)
+	if err != nil {
+		return value, false, false, nil
+	}
+	encrypted, err = active.Encrypt(plain)
+	if err != nil {
+		return "", false, false, err
+	}
+	return encrypted, true, true, nil
 }
 
 func (s *secretBox) Encrypt(value string) (string, error) {

@@ -80,6 +80,7 @@ type settingView struct {
 	Value      string    `json:"value,omitempty"`
 	Secret     bool      `json:"secret"`
 	Configured bool      `json:"configured"`
+	Available  bool      `json:"available"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
@@ -99,8 +100,12 @@ func (a *App) adminSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		item.Configured = stored != ""
+		item.Available = true
 		if !item.Secret {
 			item.Value = stored
+		} else if item.Configured {
+			_, decryptErr := a.box.Decrypt(stored)
+			item.Available = decryptErr == nil
 		}
 		result = append(result, item)
 	}

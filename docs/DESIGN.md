@@ -8,7 +8,7 @@ Weekly는 개인 주간 업무를 구조화하고 조직 단위로 조회·취�
 
 - 보고서는 문서 하나가 아니라 `WeeklyReport`와 여러 `ReportItem`으로 구성한다.
 - 서버가 권한과 조직 범위를 항상 검증한다.
-- 런타임 구성은 세 환경변수로 부팅하고 이후 운영 설정은 관리자 UI에서 변경한다.
+- 런타임 구성은 세 필수 환경변수와 선택형 고정 암호화 키로 부팅하고 이후 운영 설정은 관리자 UI에서 변경한다.
 - 승인 절차는 기능 플래그가 아니라 상태 전이 규칙 자체를 바꾼다.
 - AI/Jira 같은 후속 연계는 REST와 MCP 위에 추가하며 원본 보고서를 직접 변경하지 않는다.
 
@@ -37,7 +37,7 @@ stateDiagram-v2
   APPROVED --> DRAFT: 작성자 내용 수정
 ```
 
-워크플로 설정이 없거나 `false`이면 검토 API와 UI가 업무 흐름에서 제외되고 제출 즉시 `CLOSED`가 된다. 본인 보고서는 상태와 관계없이 수정·삭제할 수 있다. `SUBMITTED`·`APPROVED` 보고서의 내용 수정은 검토 효력을 무효화해 `DRAFT`로 전환하고, `CLOSED` 수정은 상태를 유지한다. 수정과 삭제 API는 `version` 일치 조건을 사용하며 불일치는 `409 VERSION_CONFLICT`를 반환한다.
+워크플로 설정이 없거나 `false`이면 검토 API와 UI가 업무 흐름에서 제외되고 제출 즉시 `CLOSED`가 된다. 본인 보고서는 상태와 관계없이 수정·삭제할 수 있다. `SUBMITTED`·`APPROVED` 보고서의 내용 수정은 검토 효력을 무효화해 `DRAFT`로 전환하고, `CLOSED` 수정은 상태를 유지한다. 수정과 삭제 API는 `version` 일치 조건을 사용하며 불일치는 `409 VERSION_CONFLICT`를 반환한다. 과거 보고 복제는 원본 상태와 무관하게 별도의 `DRAFT`를 생성하고 댓글·승인 이력·외부 출처 연결을 상속하지 않는다.
 
 ## 4. 논리 아키텍처
 
@@ -50,12 +50,13 @@ flowchart LR
   W --> CF[Confluence Server 6.9.1]
   C[MCP / API Client] -->|Bearer personal key| W
   A[Administrator] -->|settings UI| W
+  E[Deployment Secret] -->|WEEKLY_ENCRYPTION_KEY| W
   W --> V[(Weekly state volume)]
   V --> S[Instance encryption key]
   V --> T[Custom PPTX template]
 ```
 
-Go 바이너리가 React 빌드 결과를 embed하여 단일 프로세스로 제공한다. Redis나 별도 API Gateway는 필수 구성요소가 아니다. 서버는 stateless 확장이 가능하지만 커스텀 PPTX와 인스턴스 키 때문에 현재 배포 예시는 단일 복제본과 RWO 볼륨을 사용한다. 다중 복제본에서는 RWX 또는 동일한 키/템플릿 배포 전략이 필요하다.
+Go 바이너리가 React 빌드 결과를 embed하여 단일 프로세스로 제공한다. Redis나 별도 API Gateway는 필수 구성요소가 아니다. `WEEKLY_ENCRYPTION_KEY`가 있으면 모든 복제본이 같은 비밀 설정을 복호화하고 기존 볼륨 키의 암호문도 첫 기동에 자동 재암호화한다. 환경 키가 없으면 하위 호환을 위해 상태 볼륨의 `instance.key`를 사용한다. 커스텀 PPTX와 Import 원본 때문에 현재 배포 예시는 단일 복제본과 RWO 볼륨을 사용한다.
 
 ## 5. 주요 데이터
 
@@ -69,7 +70,7 @@ Go 바이너리가 React 빌드 결과를 embed하여 단일 프로세스로 제
 - `api_request_metrics`: 시간 단위 API 요청 집계
 - `pptx_templates`: 템플릿 파일 메타데이터
 - `import_jobs`, `import_files`: PPTX 분석 작업, 원본 해시, 추출/AI 결과, 확정 보고 연결
-- `weekly_reports.source_type/source_ref`: 수동·AI 텍스트·PPTX Import 등 데이터 출처
+- `weekly_reports.source_type/source_ref`: 수동·AI 텍스트·PPTX Import·복제 원본 등 데이터 출처
 - `user_external_accounts`: Weekly 사용자와 Confluence 사용자 아이디, 매핑 근거
 - `confluence_pages`, `confluence_sync_state`, `confluence_sync_errors`: Page Metadata와 증분 수집 상태·진단
 - `report_candidates`, `candidate_sources`: 사용자별 자동 초안과 N:M 원본 Page 출처
@@ -83,7 +84,7 @@ Go 바이너리가 React 빌드 결과를 embed하여 단일 프로세스로 제
 - OIDC: Discovery, Authorization Code, PKCE S256, state, nonce, ID Token issuer/audience/signature 검증
 - API 키: `wky_` 접두사 임의 토큰, DB에는 SHA-256과 표시용 접두사만 저장
 - 개인 키 회전: 사용자 `key_version` 증가 + 활성 키 전부 폐기. 이전 버전 키는 검증 단계에서도 거부
-- 설정 비밀값: 인스턴스 AES-256-GCM 키로 암호화
+- 설정 비밀값: 고정 배포 키 또는 상태 볼륨 키를 사용하는 AES-256-GCM 암호화. 키 전환 시 기존 암호문을 트랜잭션으로 재암호화하고 복호화 불가 상태를 관리자에게 표시
 
 ## 7. PPTX 파이프라인
 

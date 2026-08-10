@@ -12,12 +12,22 @@ import AdminPage from './pages/AdminPage'
 import ImportPage from './pages/ImportPage'
 
 type Page = 'dashboard' | 'current' | 'history' | 'import' | 'team' | 'analytics' | 'profile' | 'admin'
+const pages: Page[] = ['dashboard', 'current', 'history', 'import', 'team', 'analytics', 'profile', 'admin']
+
+function pageFromLocation(): Page | undefined {
+  const value = window.location.hash.replace(/^#\/?/, '')
+  return pages.includes(value as Page) ? value as Page : undefined
+}
+
+function replacePageLocation(page: Page) {
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/${page}`)
+}
 
 export default function App() {
   const [providers, setProviders] = useState<Providers>()
   const [session, setSession] = useState<SessionInfo>()
   const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState<Page>('dashboard')
+  const [page, setPage] = useState<Page>(() => pageFromLocation() ?? 'dashboard')
   const [profileOpen, setProfileOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error' }>()
 
@@ -27,6 +37,21 @@ export default function App() {
     Promise.all([api<Providers>('/api/v1/auth/providers'), api<SessionInfo>('/api/v1/me').catch(() => undefined)])
       .then(([p, s]) => { setProviders(p); setSession(s) }).finally(() => setLoading(false))
   }, [])
+  useEffect(() => {
+    if (!pageFromLocation()) replacePageLocation('dashboard')
+    const syncPage = () => setPage(pageFromLocation() ?? 'dashboard')
+    window.addEventListener('hashchange', syncPage)
+    return () => window.removeEventListener('hashchange', syncPage)
+  }, [])
+  useEffect(() => {
+    if (!session) return
+    const teamOnly = page === 'team' || page === 'analytics'
+    const denied = (teamOnly && session.user.role === 'USER') || (page === 'admin' && session.user.role !== 'ADMIN')
+    if (denied) {
+      replacePageLocation('dashboard')
+      setPage('dashboard')
+    }
+  }, [page, session])
 
   if (loading) return <div className="splash"><div className="brand-mark">W</div><Spinner /></div>
   if (!providers) return <div className="splash"><p>서비스 정보를 불러올 수 없습니다.</p></div>
@@ -34,8 +59,8 @@ export default function App() {
 
   const canTeam = session.user.role !== 'USER'
   const isAdmin = session.user.role === 'ADMIN'
-  const navigate = (next: Page) => { setPage(next); setProfileOpen(false) }
-  const logout = async () => { await post('/api/v1/auth/logout'); setSession(undefined); setProfileOpen(false) }
+  const navigate = (next: Page) => { if (page !== next) window.location.hash = `/${next}`; setPage(next); setProfileOpen(false) }
+  const logout = async () => { await post('/api/v1/auth/logout'); replacePageLocation('dashboard'); setPage('dashboard'); setSession(undefined); setProfileOpen(false) }
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -63,7 +88,7 @@ export default function App() {
       <div className="page-content">
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
-        {page === 'history' && <ReportsPage notify={notify} />}
+        {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage />}

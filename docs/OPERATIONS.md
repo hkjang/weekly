@@ -7,9 +7,9 @@
 - `/var/lib/weekly` 영속 볼륨
 - 운영 TLS를 종료할 Reverse Proxy, Ingress 또는 Route
 
-Confluence 자동화를 사용하는 경우 Confluence Server 6.9.1 Base URL과 읽기 전용 Service Account, 선택된 Space에서 사내 AI Gateway로의 정책상 허용 여부도 사전에 확인한다. 연동값은 모두 관리자 UI에 저장하며 컨테이너 환경변수는 추가하지 않는다.
+Confluence 자동화를 사용하는 경우 Confluence Server 6.9.1 Base URL과 읽기 전용 Service Account, 선택된 Space에서 사내 AI Gateway로의 정책상 허용 여부도 사전에 확인한다. 연동값은 모두 관리자 UI에 저장한다.
 
-Weekly 프로세스에는 세 환경변수만 전달한다. DSN에는 `sslmode=require` 또는 사내 CA 검증이 가능한 `verify-full`을 권장한다.
+Weekly 프로세스에는 세 필수 환경변수와 운영에서 강력히 권장하는 `WEEKLY_ENCRYPTION_KEY`를 전달한다. 암호화 키는 `openssl rand -base64 32`로 한 번 생성하고 Secret Manager나 Kubernetes Secret에 보관한 뒤 모든 업그레이드에서 같은 값을 유지한다. DSN에는 `sslmode=require` 또는 사내 CA 검증이 가능한 `verify-full`을 권장한다.
 
 ## 백업
 
@@ -18,7 +18,7 @@ Weekly 프로세스에는 세 환경변수만 전달한다. DSN에는 `sslmode=r
 1. PostgreSQL 데이터베이스
 2. `/var/lib/weekly` 볼륨
 
-볼륨의 `instance.key`가 없으면 DB의 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 복호화할 수 없다. `imports/`에는 보관 중인 과거 PPTX 원본이 있다. 복구 후 `/readyz`, 로컬 관리자 로그인, OIDC/AI/Confluence 연결 시험, 샘플 PPTX 내보내기와 Import 조회를 점검한다.
+`WEEKLY_ENCRYPTION_KEY`를 설정한 환경은 DB와 같은 키를 복구하면 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 다시 입력하지 않아도 된다. 환경 키가 없는 하위 호환 모드에서는 볼륨의 `instance.key`가 유일한 복호화 키다. `imports/`에는 보관 중인 과거 PPTX 원본이 있다. 복구 후 `/readyz`, 로컬 관리자 로그인, 관리자 비밀값 상태, OIDC/AI/Confluence 연결 시험, 샘플 PPTX 내보내기와 Import 조회를 점검한다.
 
 ## 보안 통제
 
@@ -49,11 +49,12 @@ Import Worker는 API 프로세스 내부에서 동작하며 PostgreSQL의 `FOR U
 ## 업그레이드
 
 1. DB와 상태 볼륨을 백업한다.
-2. Release의 SHA-256을 확인한다.
-3. `docker load` 후 Compose/Kubernetes 이미지 태그를 변경한다.
-4. Weekly 시작 시 자동 마이그레이션이 완료되는지 로그를 확인한다.
-5. `/readyz`와 로그인·보고서 조회를 점검한다.
-6. AI를 사용하는 환경은 AI 연결 시험, 자유 텍스트 미리보기와 테스트 PPTX Import를 확인한다.
-7. Confluence 자동화를 사용하는 환경은 REST 연결 시험, 사용자 매핑, 샘플 증분 Sync와 후보 출처를 확인한다.
+2. 아직 환경 암호화 키가 없다면 기존 상태 볼륨을 유지한 채 `openssl rand -base64 32` 결과를 `WEEKLY_ENCRYPTION_KEY`에 설정한다. 첫 기동이 기존 비밀값을 자동 재암호화한다.
+3. Release의 SHA-256을 확인한다.
+4. `docker load` 후 Compose/Kubernetes 이미지 태그를 변경한다.
+5. Weekly 시작 로그에서 `secret encryption initialized`와 자동 마이그레이션 완료를 확인한다.
+6. `/readyz`, 로그인·보고서 조회와 관리자 비밀값의 `안전하게 설정됨` 상태를 점검한다.
+7. AI를 사용하는 환경은 AI 연결 시험, 자유 텍스트 미리보기와 테스트 PPTX Import를 확인한다.
+8. Confluence 자동화를 사용하는 환경은 REST 연결 시험, 사용자 매핑, 샘플 증분 Sync와 후보 출처를 확인한다.
 
 롤백 시 스키마 하위 호환성이 보장된 버전만 사용한다. 현재 마이그레이션은 자동 down을 수행하지 않는다.

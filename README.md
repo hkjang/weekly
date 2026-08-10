@@ -39,23 +39,24 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.4.0.tar.gz | docker load
+gzip -dc weekly-v0.5.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
-# deploy/.env의 세 값을 운영 환경에 맞게 변경
+# 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 ```
 
-Weekly가 받는 환경변수는 아래 세 개뿐입니다.
+Weekly는 세 개의 필수 환경변수와 한 개의 권장 보안 환경변수를 받습니다.
 
 | 환경변수 | 설명 |
 |---|---|
 | `WEEKLY_POSTGRES_DSN` | PostgreSQL 연결 문자열 |
 | `WEEKLY_BOOTSTRAP_ADMIN` | 최초 관리자 아이디 |
 | `WEEKLY_BOOTSTRAP_ADMIN_PASSWORD` | 최초 관리자 비밀번호, 12자 이상 |
+| `WEEKLY_ENCRYPTION_KEY` | 권장: `openssl rand -base64 32`로 한 번 생성해 업그레이드마다 유지할 비밀 설정 암호화 키 |
 
-최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. 서비스 이름, 공지, 워크플로, OIDC, AI Gateway, Confluence, Import 제한·보존기간, 세션, 키 유효기간, 분석 보존기간과 PPTX 템플릿은 모두 관리자 화면에서 관리합니다.
+최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. `WEEKLY_ENCRYPTION_KEY`는 연결 비밀번호 자체가 아니라 관리자 화면에서 입력한 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 보호하는 마스터 키입니다. 같은 값을 유지하면 컨테이너나 상태 볼륨이 교체돼도 PostgreSQL의 암호화 설정을 계속 복호화할 수 있습니다. 기존 `instance.key`를 쓰던 환경은 기존 볼륨을 연결한 첫 업그레이드에 이 값을 설정하면 자동으로 재암호화됩니다.
 
-> `/var/lib/weekly` 볼륨은 반드시 백업하십시오. OIDC/AI/Confluence 비밀값 암호화용 인스턴스 키, 사용자 PPTX 템플릿과 보관 중인 Import 원본이 저장됩니다. 이 볼륨을 잃으면 암호화된 설정을 복호화할 수 없습니다.
+> `/var/lib/weekly` 볼륨과 `WEEKLY_ENCRYPTION_KEY`를 각각 백업하십시오. 환경 키를 설정하지 않은 하위 호환 모드에서는 볼륨의 `instance.key`가 유일한 복호화 키입니다.
 
 ## Keycloak OIDC 설정
 
@@ -76,6 +77,8 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 - 켜짐: `DRAFT → SUBMITTED → APPROVED` 또는 `REVISION_REQUESTED → SUBMITTED`.
 
 모든 상태 전이는 `report_status_history`와 감사 로그에 기록됩니다. 본인은 어느 상태의 보고서도 수정·삭제할 수 있습니다. `SUBMITTED` 또는 `APPROVED` 내용을 수정하면 기존 검토 효력을 유지하지 않고 자동으로 `DRAFT`로 돌아가며 상태 이력이 남습니다. `CLOSED` 보고서는 수정 후 확정 상태를 유지합니다.
+
+과거 보고 상세의 `복제`를 누르면 원하는 새 주차에 항상 `DRAFT` 상태로 복제합니다. 권장 모드인 `업무 구조만`은 분류·제목만 옮기고 요약·실적·계획·이슈·진척도를 초기화하며, `전체 내용`은 편집을 전제로 모든 내용을 복사합니다. 승인 이력, 댓글, Import·Confluence 연결과 원본 항목 ID는 복제하지 않습니다.
 
 관리자는 `workflow.week_start`에서 일요일부터 토요일까지 어느 요일이든 주차 시작일로 지정할 수 있습니다. 현재 주차, 분석, Confluence 후보, PPTX 날짜와 Import 날짜 보정이 같은 설정을 사용합니다.
 
@@ -99,7 +102,7 @@ Weekly가 받는 환경변수는 아래 세 개뿐입니다.
 
 ## AI 작성과 과거 PPTX 가져오기
 
-관리자가 `관리자 설정 → AI · Import`에서 OpenAI 호환 Chat Completions 전체 Endpoint, 모델, API Key(선택)를 저장하고 연결 시험을 통과시킨 뒤 AI 기능을 켭니다. 예를 들어 Endpoint는 `http://ai-gateway.internal/v1/chat/completions`처럼 호출 가능한 전체 주소를 입력합니다. AI 관련 값도 환경변수로 받지 않으므로 기존 세 환경변수 원칙은 유지됩니다.
+관리자가 `관리자 설정 → AI · Import`에서 OpenAI 호환 Chat Completions 전체 Endpoint, 모델, API Key(선택)를 저장하고 연결 시험을 통과시킨 뒤 AI 기능을 켭니다. 예를 들어 Endpoint는 `http://ai-gateway.internal/v1/chat/completions`처럼 호출 가능한 전체 주소를 입력합니다. AI 연결값은 계속 관리자 UI에서 관리하며 `WEEKLY_ENCRYPTION_KEY`에는 연결값이 아닌 암호화 키만 둡니다.
 
 작성자는 보고서 편집 화면의 텍스트 영역에 이번 주 한 일, 다음 주 할 일과 이슈를 자유롭게 붙여 넣고 `AI 분석`을 실행합니다. 서버는 엄격한 JSON Schema Structured Output으로 결과를 검증하고, 쉼표로 이어진 독립 업무는 한 줄 한 항목의 글머리표 목록으로 정규화합니다. 사용자는 항목과 신뢰도를 확인·수정한 후 `병합` 또는 `교체`를 선택해 편집기에 적용합니다. 같은 줄바꿈 구조가 PPTX에도 개별 세부 항목으로 반영됩니다. 적용만으로 DB에 저장되지 않고 기존 저장 버튼을 눌러야 반영됩니다.
 
@@ -164,15 +167,15 @@ cd .. && go test ./...
 ./scripts/build.sh
 ```
 
-로컬 실행에도 운영과 동일한 세 환경변수가 필요합니다. API는 `:8080`에 고정되어 있으며 프록시/Ingress에서 TLS를 종료하는 구성을 권장합니다.
+로컬 실행에도 운영과 동일한 세 필수 환경변수가 필요합니다. 운영과 같은 비밀 설정 복구를 검증할 때는 `WEEKLY_ENCRYPTION_KEY`도 지정합니다. API는 `:8080`에 고정되어 있으며 프록시/Ingress에서 TLS를 종료하는 구성을 권장합니다.
 
 ## 릴리즈
 
-`v*` 태그를 푸시하면 GitHub Actions가 `weekly:<tag>` 형식(예: `weekly:v0.4.0`)의 `linux/amd64` 서비스 이미지를 빌드하고 `weekly-<tag>.tar.gz` 형식의 단일 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
+`v*` 태그를 푸시하면 GitHub Actions가 `weekly:<tag>` 형식(예: `weekly:v0.5.0`)의 `linux/amd64` 서비스 이미지를 빌드하고 `weekly-<tag>.tar.gz` 형식의 단일 자산만 GitHub Release에 올립니다. 릴리즈 본문은 `.github/release-notes/<tag>.md`에 기능, 설정, 업그레이드, 보안, 검증, 알려진 제약을 작성해야 하며 파일이 없거나 비어 있으면 배포가 실패합니다. 워크플로가 실제 자산명·크기·SHA-256을 본문 끝에 자동 추가합니다.
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 로컬에서는 `make offline`으로 같은 형식의 파일을 만들 수 있습니다.

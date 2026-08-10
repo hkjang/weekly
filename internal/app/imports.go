@@ -316,6 +316,7 @@ type confirmImportItem struct {
 
 type confirmImportFile struct {
 	ID        int64               `json:"id"`
+	Selected  bool                `json:"selected,omitempty"`
 	WeekStart string              `json:"weekStart"`
 	Summary   string              `json:"summary"`
 	Strategy  string              `json:"strategy"`

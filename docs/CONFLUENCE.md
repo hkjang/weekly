@@ -41,7 +41,7 @@ Weekly는 외부 사용자를 다음 우선순위로 유일하게 연결하고 `
 
 ## 관리자 설정
 
-모든 값은 관리자 UI와 `app_settings`에서 관리하며 런타임 환경변수를 추가하지 않는다.
+모든 Confluence 연결값은 관리자 UI와 `app_settings`에서 관리한다. 배포 환경의 `WEEKLY_ENCRYPTION_KEY`는 Confluence 비밀번호 자체가 아니라 `app_settings` 비밀값을 복호화하는 공통 마스터 키다.
 
 | 설정 | 기본값 | 의미 |
 |---|---:|---|

@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.4.0
-  description: 주간보고 관리, Confluence 6.9.1 자동 초안, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
+  version: 0.5.0
+  description: 주간보고 작성·복제, Confluence 6.9.1 자동 초안, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
 security:
@@ -114,6 +114,7 @@ paths:
                 reportId: { type: integer, format: int64 }
       responses:
         "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
   /reports:
     get:
@@ -165,6 +166,25 @@ paths:
       parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /reports/{id}/clone:
+    post:
+      summary: 본인 보고서를 새 주차의 독립된 초안으로 복제
+      description: 승인 이력, 댓글, 외부 출처 연결과 원본 항목 ID는 복사하지 않는다. 대상 주차가 없으면 현재 주차를 사용한다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetWeekStart: { type: string, format: date, description: 관리자가 설정한 주차 시작 요일이어야 함 }
+                mode: { type: string, enum: [STRUCTURE, FULL], default: STRUCTURE }
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /reports/{id}/approve:
     post:
       summary: 제출 보고서 승인
@@ -274,6 +294,7 @@ paths:
                   items: { $ref: "#/components/schemas/ImportConfirmFile" }
       responses:
         "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
   /keys:
     get:

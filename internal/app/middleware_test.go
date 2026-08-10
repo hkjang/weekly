@@ -14,6 +14,7 @@ func TestAPIKeyScopeEnforcement(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/reports", true},
 		{http.MethodGet, "/api/v1/reports/1/export.pptx", true},
+		{http.MethodPost, "/api/v1/reports/1/clone", false},
 		{http.MethodPost, "/api/v1/reports/1/submit", false},
 		{http.MethodGet, "/api/v1/admin/settings", false},
 		{http.MethodGet, "/api/v1/analytics/overview", false},

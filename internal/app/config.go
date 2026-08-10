@@ -10,6 +10,7 @@ type environment struct {
 	PostgresDSN       string
 	BootstrapAdmin    string
 	BootstrapPassword string
+	EncryptionKey     string
 }
 
 func loadEnvironment() (environment, error) {
@@ -17,6 +18,7 @@ func loadEnvironment() (environment, error) {
 		PostgresDSN:       strings.TrimSpace(os.Getenv("WEEKLY_POSTGRES_DSN")),
 		BootstrapAdmin:    strings.TrimSpace(os.Getenv("WEEKLY_BOOTSTRAP_ADMIN")),
 		BootstrapPassword: os.Getenv("WEEKLY_BOOTSTRAP_ADMIN_PASSWORD"),
+		EncryptionKey:     strings.TrimSpace(os.Getenv("WEEKLY_ENCRYPTION_KEY")),
 	}
 	if env.PostgresDSN == "" || env.BootstrapAdmin == "" || env.BootstrapPassword == "" {
 		return environment{}, errors.New("WEEKLY_POSTGRES_DSN, WEEKLY_BOOTSTRAP_ADMIN and WEEKLY_BOOTSTRAP_ADMIN_PASSWORD are required")

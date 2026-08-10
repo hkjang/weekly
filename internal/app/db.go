@@ -42,6 +42,10 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("read migrations: %w", err)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	var migrationTableExists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&migrationTableExists); err != nil {
+		return fmt.Errorf("check migration table: %w", err)
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
@@ -52,10 +56,10 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("invalid migration name %s", entry.Name())
 		}
 		var applied bool
-		err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='schema_migrations') AND EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, version).Scan(&applied)
-		if err != nil {
-			// schema_migrations does not exist before the first migration.
-			applied = false
+		if migrationTableExists {
+			if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, version).Scan(&applied); err != nil {
+				return fmt.Errorf("check migration %s: %w", entry.Name(), err)
+			}
 		}
 		if applied {
 			continue
@@ -78,6 +82,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
+		migrationTableExists = true
 	}
 	return nil
 }

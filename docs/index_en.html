@@ -289,18 +289,19 @@
                     <div class="deploy-card glass-panel">
                         <h4>🐳 Single Docker Archive Load</h4>
                         <p>Import the single .tar.gz package from GitHub Release into your offline network.</p>
-<pre><code>gzip -dc weekly-v0.4.0.tar.gz | docker load
+<pre><code>gzip -dc weekly-v0.5.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 
 # Configure environment variables in deploy/.env
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d</code></pre>
                     </div>
                     <div class="deploy-card glass-panel">
-                        <h4>⚙️ 3 Required Environment Variables</h4>
-                        <p>Weekly requires only three environment variables to boot.</p>
+                        <h4>⚙️ Required Settings and Stable Encryption Key</h4>
+                        <p>Set the three required values and retain one 32-byte encryption key across upgrades.</p>
 <pre><code>WEEKLY_POSTGRES_DSN=postgres://weekly:pass@localhost:5432/weekly
 WEEKLY_BOOTSTRAP_ADMIN=admin
-WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretPassword123!</code></pre>
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretPassword123!
+WEEKLY_ENCRYPTION_KEY=&lt;output of openssl rand -base64 32&gt;</code></pre>
                     </div>
                 </div>
             </div>

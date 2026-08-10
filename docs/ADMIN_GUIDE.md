@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.4.0-ENTERPRISE
+- **문서 버전**: v0.5.0-ENTERPRISE
 - **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자  
 - **문서 개요**: Weekly 단일 컨테이너 환경변수 부트스트랩, Keycloak OIDC SSO 연동, RBAC 권한 매핑, PPTX 템플릿 등록 및 감사 로그 운영  
 
@@ -8,17 +8,18 @@
 
 ## 1. 시스템 부트스트랩 (Bootstrap Environment Variables)
 
-Weekly 컨테이너 프로세스는 오직 **3개의 필수 환경변수**만으로 최소 인프라 구동을 완료합니다.
+Weekly 컨테이너 프로세스는 **3개의 필수 환경변수**로 부팅하며, 업그레이드 후에도 암호화 설정을 복구하기 위해 `WEEKLY_ENCRYPTION_KEY`를 운영 필수 수준으로 권장합니다.
 
 ```bash
 # deploy/.env 파일 설정 예시
 WEEKLY_POSTGRES_DSN=postgres://weekly:Secr3tPass@10.10.30.5:5432/weekly?sslmode=disable
 WEEKLY_BOOTSTRAP_ADMIN=admin
 WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
+WEEKLY_ENCRYPTION_KEY=<openssl rand -base64 32 결과>
 ```
 
 > **중요 (Volume Backup Notice)**:  
-> `/var/lib/weekly` 볼륨은 반드시 정기 백업해야 합니다. 해당 볼륨에는 Keycloak/AI/Confluence 비밀값 암호화 키, 사용자가 등록한 PPTX 템플릿과 보관 중인 Import 원본이 저장되며, 분실 시 암호화된 설정 복호화가 불가능합니다.
+> `/var/lib/weekly` 볼륨과 `WEEKLY_ENCRYPTION_KEY`는 별도로 정기 백업해야 합니다. 기존 볼륨 키만 사용하던 환경은 볼륨을 유지한 상태에서 환경 키를 처음 설정하면 Keycloak/AI/Confluence 비밀값이 새 키로 자동 재암호화됩니다.
 
 ---
 
@@ -63,7 +64,7 @@ WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
 
 `서비스 설정`의 주차 시작 요일은 월·화·수·목·금·토·일 중 하나를 선택할 수 있습니다. 이 값은 현재 주차 조회, 팀 분석, Confluence 후보, PPTX 날짜와 Import의 단독 날짜 보정에 공통 적용됩니다.
 
-`관리자 설정 ➔ AI · Import`에서 다음 값을 관리합니다. 런타임 환경변수는 추가하지 않습니다.
+`관리자 설정 ➔ AI · Import`에서 다음 연결값을 관리합니다. 배포 환경에는 연결값 대신 공통 암호화 키만 둡니다.
 
 | 설정 | 의미 | 기본값 |
 |---|---|---:|
@@ -85,7 +86,7 @@ Endpoint와 Model을 먼저 저장하고 `AI 연결 시험`으로 JSON Schema St
 
 ## 6. Confluence 6.9.1 자동화
 
-`서비스 설정 ➔ Confluence 6.9.1 자동화`에서 Base URL, `BASIC` 인증, 연동 전용 계정과 암호화 비밀번호를 저장한 뒤 연결 시험을 수행합니다. 대상·제외 Space, 5분 이상의 동기화 주기, Blog 포함 여부, AI/본문 분석, 후보 점수와 업무 키워드를 운영 환경에 맞게 지정합니다. 새로운 환경변수는 필요하지 않습니다.
+`서비스 설정 ➔ Confluence 6.9.1 자동화`에서 Base URL, `BASIC` 인증, 연동 전용 계정과 암호화 비밀번호를 저장한 뒤 연결 시험을 수행합니다. 대상·제외 Space, 5분 이상의 동기화 주기, Blog 포함 여부, AI/본문 분석, 후보 점수와 업무 키워드를 운영 환경에 맞게 지정합니다. Confluence 연결값 자체는 환경변수로 전달하지 않습니다.
 
 `Confluence 자동화` 탭에서는 마지막 성공·시도 시각, 조회/변경 Page 수, 생성 후보, 실패 수와 최근 단계별 오류를 확인하고 관리자 강제 증분 Sync를 요청할 수 있습니다. 일반 사용자에게는 Sync 버튼을 제공하지 않습니다.
 

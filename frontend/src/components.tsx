@@ -15,7 +15,7 @@ export function PageHeader({ title, description, action }: { title: string; desc
 
 const statusNames: Record<ReportStatus, string> = { DRAFT: '작성 중', SUBMITTED: '검토 대기', REVISION_REQUESTED: '반려/수정', APPROVED: '승인', CLOSED: '확정' }
 export function StatusBadge({ status }: { status: ReportStatus }) { return <span className={`badge status-${status.toLowerCase()}`}>{statusNames[status]}</span> }
-const sourceNames: Record<ReportSource, string> = { MANUAL: '직접 작성', AI_TEXT: 'AI 초안', PPTX_IMPORT: 'PPTX 가져오기', CONFLUENCE_AI: 'Confluence 자동 초안', API: 'API', JIRA: 'Jira' }
+const sourceNames: Record<ReportSource, string> = { MANUAL: '직접 작성', AI_TEXT: 'AI 초안', PPTX_IMPORT: 'PPTX 가져오기', CONFLUENCE_AI: 'Confluence 자동 초안', CLONED: '보고서 복제', API: 'API', JIRA: 'Jira' }
 export function SourceBadge({ source }: { source: ReportSource }) { return <span className={`badge source-${source.toLowerCase()}`}>{sourceNames[source]}</span> }
 
 export function Empty({ children }: PropsWithChildren) { return <div className="empty"><span className="empty-icon">◇</span><p>{children}</p></div> }

@@ -45,6 +45,10 @@ type App struct {
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	env, err := loadEnvironment()
 	if err != nil {
 		return nil, err
@@ -53,11 +57,23 @@ func New(ctx context.Context, options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	box, err := loadSecretBox()
+	box, legacyBox, keySource, err := loadSecretBoxes(env.EncryptionKey)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
+	migration, migrationErr := migrateSecretSettings(ctx, db, box, legacyBox)
+	if migrationErr != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate encrypted settings: %w", migrationErr)
+	}
+	if migration.Migrated > 0 {
+		logger.Info("secret settings re-encrypted", "count", migration.Migrated)
+	}
+	if len(migration.Unavailable) > 0 {
+		logger.Error("secret settings cannot be decrypted and must be re-entered", "keys", migration.Unavailable)
+	}
+	logger.Info("secret encryption initialized", "key_source", keySource)
 	defaultPPTX := options.DefaultPPTX
 	defaultPPTXName := options.DefaultPPTXName
 	if len(defaultPPTX) == 0 {
@@ -70,7 +86,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: options.Logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
+	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
 		return nil, err
@@ -105,6 +121,7 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/reports", a.requireAuth(a.csrf(http.HandlerFunc(a.createReport))))
 	a.mux.Handle("PUT /api/v1/reports/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateReport))))
 	a.mux.Handle("DELETE /api/v1/reports/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteReport))))
+	a.mux.Handle("POST /api/v1/reports/{id}/clone", a.requireAuth(a.csrf(http.HandlerFunc(a.cloneReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/submit", a.requireAuth(a.csrf(http.HandlerFunc(a.submitReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/approve", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(a.csrf(http.HandlerFunc(a.approveReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/reject", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(a.csrf(http.HandlerFunc(a.rejectReport))))
