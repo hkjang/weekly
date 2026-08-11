@@ -128,7 +128,7 @@ func apiKeyRequestAllowed(p *principal, r *http.Request) bool {
 	switch {
 	case r.URL.Path == "/api/v1/me" || r.URL.Path == "/api/v1/version":
 		return true
-	case strings.HasPrefix(r.URL.Path, "/api/v1/reports") || strings.HasPrefix(r.URL.Path, "/api/v1/team/reports"):
+	case strings.HasPrefix(r.URL.Path, "/api/v1/reports") || strings.HasPrefix(r.URL.Path, "/api/v1/team/reports") || strings.HasPrefix(r.URL.Path, "/api/v1/rollups"):
 		return contains(p.Scopes, "reports:read")
 	case strings.HasPrefix(r.URL.Path, "/api/v1/analytics"):
 		return contains(p.Scopes, "analytics:read")

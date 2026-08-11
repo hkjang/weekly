@@ -96,10 +96,12 @@ func (a *App) analyticsEndpoints(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) endpointAnalytics(ctx context.Context) ([]map[string]any, error) {
-	rows, err := a.db.Query(ctx, `SELECT method,route,sum(request_count)::bigint,
+	// Aggregates over an empty FILTER set return NULL, so every column that can be
+	// filtered down to zero rows must fall back to 0 before it reaches Scan.
+	rows, err := a.db.Query(ctx, `SELECT method,route,coalesce(sum(request_count),0)::bigint,
 		CASE WHEN sum(request_count)>0 THEN round(sum(duration_ms_sum)::numeric/sum(request_count),2) ELSE 0 END,
-		max(duration_ms_max),sum(request_count) FILTER(WHERE status>=500)::bigint,
-		round(100.0*sum(request_count) FILTER(WHERE status>=400)/NULLIF(sum(request_count),0),2)
+		coalesce(max(duration_ms_max),0),coalesce(sum(request_count) FILTER(WHERE status>=500),0)::bigint,
+		coalesce(round(100.0*coalesce(sum(request_count) FILTER(WHERE status>=400),0)/NULLIF(sum(request_count),0),2),0)
 		FROM api_request_metrics WHERE bucket>=now()-interval '24 hours' GROUP BY method,route ORDER BY sum(request_count) DESC`)
 	if err != nil {
 		return nil, err

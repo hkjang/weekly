@@ -128,6 +128,22 @@ func (a *App) mcpTools(p *principal) []map[string]any {
 			}, "required": []string{"reports"}},
 			"annotations": readOnly,
 		},
+		{
+			"name": "period_report_rollup", "title": "월간·분기·반기·연간 보고 집계",
+			"description": "주간보고를 기간 단위로 취합해 중복을 제거한 업무 목록과 완료율, 정체·이슈 지속 업무 같은 경영 인사이트를 반환합니다.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+				"kind":   map[string]any{"type": "string", "enum": []string{periodMonth, periodQuarter, periodHalf, periodYear}, "description": "집계 단위. 생략하면 MONTH"},
+				"period": map[string]any{"type": "string", "description": "2026-08, 2026-Q3, 2026-H2, 2026 형식. 생략하면 현재 기간"},
+				"scope":  map[string]any{"type": "string", "enum": []string{scopeSelf, scopeTeam}, "description": "SELF는 본인, TEAM은 소속 조직. 생략하면 SELF"},
+			}},
+			"outputSchema": map[string]any{"type": "object", "properties": map[string]any{
+				"period": map[string]any{"type": "string"}, "label": map[string]any{"type": "string"},
+				"summary": map[string]any{"type": "string"}, "insights": map[string]any{"type": "object"},
+				"highlights": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"items":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+			}, "required": []string{"period", "label", "summary", "insights", "highlights", "items"}},
+			"annotations": readOnly,
+		},
 	}
 	if p.Role == "ADMIN" {
 		tools = append(tools, map[string]any{"name": "weekly_endpoint_analysis", "title": "Weekly API 운영 분석", "description": "최근 24시간 API별 호출 수, 평균/최대 응답시간과 오류율을 분석합니다.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "outputSchema": map[string]any{"type": "object", "properties": map[string]any{"endpoints": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}}, "required": []string{"endpoints"}}, "annotations": readOnly})
@@ -158,6 +174,26 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 		var reports []reportListItem
 		reports, err = a.mcpSearchReports(r, p, strings.TrimSpace(asString(params.Arguments["weekStart"])), strings.TrimSpace(asString(params.Arguments["status"])))
 		data = map[string]any{"reports": reports}
+	case "period_report_rollup":
+		kind := strings.ToUpper(strings.TrimSpace(asString(params.Arguments["kind"])))
+		if kind == "" {
+			kind = periodMonth
+		}
+		scope := strings.ToUpper(strings.TrimSpace(asString(params.Arguments["scope"])))
+		if scope == "" {
+			scope = scopeSelf
+		}
+		if scope != scopeSelf && scope != scopeTeam {
+			return a.mcpToolError(response, "조회 범위는 SELF 또는 TEAM이어야 합니다.")
+		}
+		if scope == scopeTeam && p.Role == "USER" {
+			return a.mcpToolError(response, "조직 단위 집계는 팀장 이상만 조회할 수 있습니다.")
+		}
+		period, periodErr := resolvePeriod(kind, asString(params.Arguments["period"]), time.Now().In(a.serviceLocation(r.Context())))
+		if periodErr != nil {
+			return a.mcpToolError(response, "조회 기간이 올바르지 않습니다. 예: 2026-08, 2026-Q3, 2026-H2, 2026")
+		}
+		data, err = a.loadRollup(r.Context(), p, period, scope)
 	case "weekly_endpoint_analysis":
 		if p.Role != "ADMIN" {
 			return a.mcpToolError(response, "관리자 권한이 필요합니다.")

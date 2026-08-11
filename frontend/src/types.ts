@@ -43,6 +43,39 @@ export interface ConfluenceMapping {
   userId: number; username: string; displayName: string; email: string; externalUsername?: string; mappingSource?: 'EXPLICIT' | 'EMAIL_LOCALPART' | 'USERNAME'
   active?: boolean; suggestedUsername: string; suggestionSource: 'EMAIL_LOCALPART' | 'USERNAME'
 }
+export type PeriodKind = 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'
+export type RollupScope = 'SELF' | 'TEAM'
+export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
+export interface RollupItemWeek { weekStart: string; progress: number; hasIssue: boolean }
+export interface RollupItem {
+  key: string; category: string; title: string; currentResult: string; nextPlan: string; issue: string
+  progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number
+  owners: string[]; weeks: RollupItemWeek[]; mergedTitles: string[]
+  completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean; duplicatesCut: number
+}
+export interface RollupCategory { name: string; items: number; completed: number; averageProgress: number; share: number; issueItems: number }
+export interface RollupContributor { userId: number; displayName: string; reports: number; items: number; completed: number; issueItems: number; averageProgress: number }
+export interface RollupHighlight { severity: HighlightSeverity; category: 'DELIVERY' | 'RISK' | 'COVERAGE' | 'PORTFOLIO'; title: string; detail: string }
+export interface RollupWeekPoint {
+  weekStart: string; reports: number; contributors: number; activeItems: number
+  completedItems: number; notStartedItems: number; issueItems: number; averageProgress: number
+}
+export interface RollupInsights {
+  totalItems: number; completedItems: number; inProgressItems: number; notStartedItems: number
+  completionRate: number; averageProgress: number; progressGain: number
+  continuingItems: number; oneOffItems: number; stalledItems: number; carryoverItems: number
+  issueItems: number; persistentIssues: number
+  expectedWeeks: number; reportedWeeks: number; reportCoverage: number
+  sourceReports: number; sourceItems: number; duplicatesCut: number; mergedTitles: number; dedupRate: number
+}
+export interface Rollup {
+  kind: PeriodKind; period: string; label: string; start: string; end: string
+  scope: RollupScope; scopeLabel: string; summary: string
+  insights: RollupInsights; highlights: RollupHighlight[]; items: RollupItem[]
+  categories: RollupCategory[]; contributors: RollupContributor[]; trend: RollupWeekPoint[]
+  weeks: string[]; generatedAt: string
+}
+
 export interface ConfluenceSyncStatus {
   enabled: boolean; status: string; lastSuccessAt?: string; lastAttemptAt?: string; currentStartedAt?: string; errorMessage: string
   pagesScanned: number; pagesChanged: number; candidatesCreated: number; pagesFailed: number; mappedUsers: number; unmappedUsers: number

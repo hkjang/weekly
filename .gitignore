@@ -13,3 +13,5 @@ release/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+cmd/weekly/web/assets/
+cmd/weekly/templates/reference.pptx

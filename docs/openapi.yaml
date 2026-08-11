@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.5.0
+  version: 0.6.0
   description: 주간보고 작성·복제, Confluence 6.9.1 자동 초안, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -310,6 +310,49 @@ paths:
       summary: 개인 키 버전 회전 및 전부 폐기
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /rollups:
+    get:
+      summary: 월간·분기·반기·연간 기간 보고 집계
+      description: |
+        기간에 겹치는 주간보고를 취합해 중복 업무와 반복 기재를 제거한 업무 목록,
+        완료율·정체·이슈 지속·보고 커버리지 인사이트와 주차별 추이를 반환합니다.
+        저장하지 않고 요청할 때마다 원본 주간보고에서 다시 계산합니다.
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [MONTH, QUARTER, HALF, YEAR], default: MONTH } }
+        - { name: period, in: query, description: "2026-08, 2026-Q3, 2026-H2, 2026. 생략하면 현재 기간", schema: { type: string } }
+        - { name: scope, in: query, description: "TEAM은 팀장 이상만 조회할 수 있습니다.", schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /rollups/export.csv:
+    get:
+      summary: 기간 보고 업무 표 CSV 내보내기
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [MONTH, QUARTER, HALF, YEAR], default: MONTH } }
+        - { name: period, in: query, schema: { type: string } }
+        - { name: scope, in: query, schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+      responses:
+        "200":
+          description: UTF-8 BOM CSV
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+  /rollups/export.pptx:
+    get:
+      summary: 기간 보고 PPTX 내보내기
+      description: 주간보고와 동일한 관리자 등록 PPTX 규격으로 기간 집계 결과를 내보냅니다.
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [MONTH, QUARTER, HALF, YEAR], default: MONTH } }
+        - { name: period, in: query, schema: { type: string } }
+        - { name: scope, in: query, schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+      responses:
+        "200":
+          description: PPTX 파일
+          content:
+            application/vnd.openxmlformats-officedocument.presentationml.presentation:
+              schema: { type: string, format: binary }
+        "409": { $ref: "#/components/responses/Error" }
   /analytics/overview:
     get:
       summary: 조직 보고 현황 분석
