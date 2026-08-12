@@ -77,6 +77,7 @@ func (a *App) loadCandidateViews(r *http.Request, userID int64, week, status str
 		if err := rows.Scan(&item.ID, &item.WeekStart, &item.NormalizedTitle, &item.Category, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.Confidence, &item.RuleScore, &item.Status, &item.UserEdited, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
+		normalizeConfluenceCandidateView(&item)
 		item.Sources, err = a.candidateSourceViews(r, item.ID, userID)
 		if err != nil {
 			return nil, err
@@ -84,6 +85,15 @@ func (a *App) loadCandidateViews(r *http.Request, userID int64, week, status str
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func normalizeConfluenceCandidateView(item *confluenceCandidateView) {
+	if item == nil || item.UserEdited {
+		return
+	}
+	item.CurrentResult = mergeUniqueLines("", item.CurrentResult)
+	item.NextPlan = mergeUniqueLines("", item.NextPlan)
+	item.Issue = mergeUniqueLines("", item.Issue)
 }
 
 func (a *App) candidateSourceViews(r *http.Request, candidateID, userID int64) ([]confluenceSourceView, error) {

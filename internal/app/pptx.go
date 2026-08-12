@@ -348,29 +348,119 @@ func distributeReferenceItems(items []reportItem, slideCount int) [][]reportItem
 		return nil
 	}
 	result := make([][]reportItem, slideCount)
-	groups := [][]reportItem{}
-	groupIndex := map[string]int{}
-	for _, item := range items {
-		key := strings.TrimSpace(item.Category)
-		if key == "" {
-			key = strings.TrimSpace(item.Title)
-		}
-		index, exists := groupIndex[key]
-		if !exists {
-			index = len(groups)
-			groupIndex[key] = index
-			groups = append(groups, []reportItem{})
-		}
-		groups[index] = append(groups[index], item)
+	if len(items) == 0 {
+		return result
 	}
-	for index, group := range groups {
-		target := index
-		if target >= slideCount {
-			target = slideCount - 1
+
+	// Keep report order while minimizing the tallest slide. A slide's two table
+	// columns share the same height, so each item's cost is based on the longer
+	// of the current-result and next-plan sides. The secondary squared-load score
+	// makes otherwise equivalent partitions distribute short items evenly.
+	partitionCount := slideCount
+	if len(items) < partitionCount {
+		partitionCount = len(items)
+	}
+	costs := referenceSegmentCosts(items)
+	const unreachable = int(^uint(0) >> 1)
+	maximumLoads := make([][]int, partitionCount+1)
+	squaredLoads := make([][]int64, partitionCount+1)
+	previousBreak := make([][]int, partitionCount+1)
+	for partitions := 0; partitions <= partitionCount; partitions++ {
+		maximumLoads[partitions] = make([]int, len(items)+1)
+		squaredLoads[partitions] = make([]int64, len(items)+1)
+		previousBreak[partitions] = make([]int, len(items)+1)
+		for end := range maximumLoads[partitions] {
+			maximumLoads[partitions][end] = unreachable
+			previousBreak[partitions][end] = -1
 		}
-		result[target] = append(result[target], group...)
+	}
+	maximumLoads[0][0] = 0
+	for partitions := 1; partitions <= partitionCount; partitions++ {
+		for end := partitions; end <= len(items); end++ {
+			for start := partitions - 1; start < end; start++ {
+				if maximumLoads[partitions-1][start] == unreachable {
+					continue
+				}
+				load := costs[start][end]
+				candidateMaximum := maximumReferenceWeight(maximumLoads[partitions-1][start], load)
+				candidateSquared := squaredLoads[partitions-1][start] + int64(load)*int64(load)
+				if candidateMaximum < maximumLoads[partitions][end] ||
+					(candidateMaximum == maximumLoads[partitions][end] && candidateSquared < squaredLoads[partitions][end]) {
+					maximumLoads[partitions][end] = candidateMaximum
+					squaredLoads[partitions][end] = candidateSquared
+					previousBreak[partitions][end] = start
+				}
+			}
+		}
+	}
+
+	end := len(items)
+	for partitions := partitionCount; partitions > 0; partitions-- {
+		start := previousBreak[partitions][end]
+		if start < 0 {
+			// Every positive item/slide combination is reachable. Keep a defensive
+			// fallback so a future cost-model change can never drop report items.
+			result[0] = append(result[0], items...)
+			return result
+		}
+		result[partitions-1] = append(result[partitions-1], items[start:end]...)
+		end = start
 	}
 	return result
+}
+
+// referenceSegmentCosts estimates the vertical space used by every contiguous
+// item range. Category headings are counted once per slide segment, matching
+// referenceTextBody; when a category crosses a slide boundary the heading cost
+// (and the rendered heading itself) is repeated on the next slide.
+func referenceSegmentCosts(items []reportItem) [][]int {
+	itemLoads := make([]int, len(items))
+	categories := make([]string, len(items))
+	for index, item := range items {
+		categories[index] = strings.TrimSpace(item.Category)
+		itemLoads[index] = 3*referenceWrappedLines(strings.TrimSpace(item.Title)) +
+			maximumReferenceWeight(referenceDetailWeight(item.CurrentResult), referenceDetailWeight(item.NextPlan))
+	}
+	costs := make([][]int, len(items))
+	for start := range items {
+		costs[start] = make([]int, len(items)+1)
+		lastCategory := ""
+		load := 0
+		for end := start; end < len(items); end++ {
+			category := categories[end]
+			if category != "" && category != lastCategory {
+				load += 3 * referenceWrappedLines(category)
+				lastCategory = category
+			}
+			load += itemLoads[end]
+			costs[start][end+1] = load
+		}
+	}
+	return costs
+}
+
+func referenceDetailWeight(value string) int {
+	weight := 0
+	for _, line := range reportContentLines(value) {
+		weight += 2 * referenceWrappedLines(line)
+	}
+	return weight
+}
+
+func referenceWrappedLines(value string) int {
+	const estimatedRunesPerLine = 40
+	length := len([]rune(strings.TrimSpace(value)))
+	if length == 0 {
+		return 1
+	}
+	return (length + estimatedRunesPerLine - 1) / estimatedRunesPerLine
+}
+
+func maximumReferenceWeight(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func formatReferenceDate(value time.Time) string {

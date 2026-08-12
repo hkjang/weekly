@@ -19,6 +19,8 @@ import (
 
 const importDirectory = stateDirectory + "/imports"
 
+var errTooManyRetryFiles = errors.New("too many retry files")
+
 type importJobView struct {
 	ID             int64            `json:"id"`
 	Status         string           `json:"status"`
@@ -281,6 +283,25 @@ func (a *App) retryImportJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var input struct {
+		FileIDs json.RawMessage `json:"fileIds"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "요청 형식이 올바르지 않습니다.")
+		return
+	}
+	fileIDs, selectedRequest, parseErr := parseRetryFileIDs(input.FileIDs)
+	if parseErr != nil {
+		if errors.Is(parseErr, errTooManyRetryFiles) {
+			writeError(w, http.StatusBadRequest, "TOO_MANY_IMPORT_FILES", "한 번에 최대 100개 파일을 재분석할 수 있습니다.")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "INVALID_IMPORT_FILE_IDS", "재분석할 파일 식별자가 올바르지 않습니다.")
+		return
+	}
 	p := currentPrincipal(r.Context())
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
@@ -288,20 +309,67 @@ func (a *App) retryImportJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	command, err := tx.Exec(r.Context(), `UPDATE import_files f SET status='QUEUED',error_message='',analyzed_at=NULL
-		FROM import_jobs j WHERE f.import_job_id=j.id AND j.id=$1 AND j.user_id=$2 AND f.status='FAILED' AND f.stored_path IS NOT NULL`, id, p.ID)
+	query := `UPDATE import_files f SET status='QUEUED',error_message='',parsed_result='{}'::jsonb,ai_response='',analyzed_at=NULL
+		FROM import_jobs j WHERE f.import_job_id=j.id AND j.id=$1 AND j.user_id=$2 AND f.status='FAILED' AND f.stored_path IS NOT NULL`
+	arguments := []any{id, p.ID}
+	if selectedRequest {
+		query = `UPDATE import_files f SET status='QUEUED',error_message='',parsed_result='{}'::jsonb,ai_response='',analyzed_at=NULL
+			FROM import_jobs j WHERE f.import_job_id=j.id AND j.id=$1 AND j.user_id=$2 AND f.id=ANY($3)
+			AND f.status IN ('FAILED','READY','NEEDS_REVIEW') AND f.stored_path IS NOT NULL`
+		arguments = append(arguments, fileIDs)
+	}
+	command, err := tx.Exec(r.Context(), query, arguments...)
 	if err != nil || command.RowsAffected() == 0 {
 		writeError(w, http.StatusConflict, "NO_RETRYABLE_IMPORT", "재분석할 수 있는 파일이 없습니다.")
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE import_jobs SET status='PENDING',processed_files=0,failed_files=0,started_at=NULL,completed_at=NULL WHERE id=$1`, id)
+	if selectedRequest && command.RowsAffected() != int64(len(fileIDs)) {
+		writeError(w, http.StatusConflict, "IMPORT_FILE_NOT_RETRYABLE", "일부 파일이 이미 확정되었거나 원본 보관기간이 지나 재분석할 수 없습니다.")
+		return
+	}
+	_, err = tx.Exec(r.Context(), `UPDATE import_jobs SET status='PENDING',
+		processed_files=(SELECT count(*) FROM import_files WHERE import_job_id=$1 AND status NOT IN ('QUEUED','PROCESSING')),
+		failed_files=(SELECT count(*) FROM import_files WHERE import_job_id=$1 AND status='FAILED'),
+		started_at=NULL,completed_at=NULL WHERE id=$1`, id)
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "Import 재분석을 시작할 수 없습니다.")
 		return
 	}
 	a.wakeImportWorker()
-	a.audit(r, p, "import.retry", "import_job", strconv.FormatInt(id, 10), nil)
-	writeData(w, http.StatusAccepted, map[string]any{"id": id, "status": "PENDING"})
+	a.audit(r, p, "import.retry", "import_job", strconv.FormatInt(id, 10), map[string]any{"files": command.RowsAffected(), "selected": selectedRequest})
+	writeData(w, http.StatusAccepted, map[string]any{"id": id, "status": "PENDING", "files": command.RowsAffected()})
+}
+
+func parseRetryFileIDs(raw json.RawMessage) ([]int64, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	var values []int64
+	if strings.TrimSpace(string(raw)) == "null" || json.Unmarshal(raw, &values) != nil || len(values) == 0 {
+		return nil, true, errors.New("invalid file IDs")
+	}
+	if len(values) > 100 {
+		return nil, true, errTooManyRetryFiles
+	}
+	for _, value := range values {
+		if value <= 0 {
+			return nil, true, errors.New("invalid file ID")
+		}
+	}
+	return uniquePositiveIDs(values), true, nil
+}
+
+func uniquePositiveIDs(values []int64) []int64 {
+	seen := make(map[int64]bool, len(values))
+	result := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value <= 0 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 type confirmImportItem struct {
@@ -376,13 +444,20 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 			skipped++
 			continue
 		}
-		week, parseErr := time.Parse("2006-01-02", file.WeekStart)
+		location := a.serviceLocation(r.Context())
+		week, parseErr := time.ParseInLocation("2006-01-02", file.WeekStart, location)
 		items := make([]reportItem, 0, len(file.Items))
 		for index, item := range file.Items {
 			items = append(items, reportItem{Category: item.Category, Title: item.Title, CurrentResult: item.CurrentResult, NextPlan: item.NextPlan, Issue: item.Issue, Progress: item.Progress, SortOrder: index})
 		}
+		items = normalizeImportedItems(items)
 		if parseErr != nil || len(items) == 0 || validateItems(items) != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_IMPORT_DATA", "주차와 업무 항목을 확인하세요.")
+			return
+		}
+		configuredWeekday := a.setting(r.Context(), "workflow.week_start", "MONDAY")
+		if !currentWeekStart(week, configuredWeekday).Equal(week) {
+			writeError(w, http.StatusBadRequest, "INVALID_WEEKDAY", "보고 주차는 관리자가 설정한 주차 시작 요일이어야 합니다.")
 			return
 		}
 		var reportID int64
@@ -449,6 +524,36 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, p, "import.confirm", "import_job", strconv.FormatInt(jobID, 10), map[string]any{"confirmed": confirmed, "skipped": skipped})
 	writeData(w, http.StatusOK, map[string]any{"id": jobID, "confirmed": confirmed, "skipped": skipped, "remaining": remaining})
+}
+
+func normalizeImportedItems(items []reportItem) []reportItem {
+	result := make([]reportItem, 0, len(items))
+	byKey := make(map[string]int, len(items))
+	for _, item := range items {
+		item.Category = strings.TrimSpace(item.Category)
+		if item.Category == "" {
+			item.Category = "미분류"
+		}
+		item.Title = strings.TrimSpace(item.Title)
+		if item.Title == "" {
+			continue
+		}
+		item.CurrentResult = formatAIListText(item.CurrentResult)
+		item.NextPlan = formatAIListText(item.NextPlan)
+		item.Issue = formatAIListText(item.Issue)
+		key := aiReportItemKey(item.Category, item.Title)
+		if index, exists := byKey[key]; exists {
+			result[index].CurrentResult = mergeUniqueLines(result[index].CurrentResult, item.CurrentResult)
+			result[index].NextPlan = mergeUniqueLines(result[index].NextPlan, item.NextPlan)
+			result[index].Issue = mergeUniqueLines(result[index].Issue, item.Issue)
+			result[index].Progress = maximum(result[index].Progress, item.Progress)
+			continue
+		}
+		item.SortOrder = len(result)
+		byKey[key] = len(result)
+		result = append(result, item)
+	}
+	return result
 }
 
 func insertImportedItems(ctx context.Context, tx pgx.Tx, reportID int64, items []reportItem, offset int) error {
@@ -595,6 +700,7 @@ func (a *App) processImportJob(ctx context.Context, jobID int64) {
 }
 
 func (a *App) processImportFile(ctx context.Context, jobID, fileID int64, filename, path string) {
+	started := time.Now()
 	_, _ = a.db.Exec(ctx, `UPDATE import_files SET status='PROCESSING',error_message='' WHERE id=$1 AND status='QUEUED'`, fileID)
 	if !safeImportPath(path, jobID) {
 		a.failImportFile(ctx, fileID, "저장된 Import 파일 경로가 올바르지 않습니다.")
@@ -610,7 +716,13 @@ func (a *App) processImportFile(ctx context.Context, jobID, fileID int64, filena
 		a.failImportFile(ctx, fileID, "AI Gateway가 설정되거나 활성화되지 않았습니다.")
 		return
 	}
-	extracted, err := extractPPTX(body, cfg.MaxInput)
+	// Reserve space for deterministic metadata so fair per-slide truncation is
+	// not undone later by chopping the combined prompt from the end.
+	parserBudget := cfg.MaxInput - runeLength("원본 파일명: "+filename+"\n") - 160
+	if parserBudget < 256 {
+		parserBudget = 256
+	}
+	extracted, err := extractPPTX(body, parserBudget)
 	if err != nil {
 		a.failImportFile(ctx, fileID, err.Error())
 		return
@@ -628,38 +740,102 @@ func (a *App) processImportFile(ctx context.Context, jobID, fileID int64, filena
 		a.failImportFileWithRaw(ctx, fileID, extracted.Normalized, err.Error())
 		return
 	}
-	dateSource := detected.Source
-	confidence := detected.Confidence
-	weekStart := detected.Start
-	weekEnd := detected.End
-	if weekStart.IsZero() && result.WeekStart != "" {
-		weekStart, _ = time.ParseInLocation("2006-01-02", result.WeekStart, location)
-		weekEnd = weekStart.AddDate(0, 0, 6)
-		confidence = result.DateConfidence
-		dateSource = "ai_inference"
-	}
-	if !weekStart.IsZero() {
-		result.WeekStart = weekStart.Format("2006-01-02")
-		result.DateConfidence = confidence
-	}
-	status := "READY"
-	if weekStart.IsZero() || confidence < 0.75 || minimumItemConfidence(result.ReportItems) < 0.6 {
-		status = "NEEDS_REVIEW"
-		if weekStart.IsZero() {
-			result.Warnings = append(result.Warnings, "보고 주차를 확인하지 못했습니다. 확정 전에 날짜를 입력하세요.")
-		}
-	}
+	decision := finalizeImportedAIResult(&result, detected, extracted, a.setting(ctx, "workflow.week_start", "MONDAY"), location)
 	parsed, _ := json.Marshal(result)
 	var startValue, endValue any
-	if !weekStart.IsZero() {
-		startValue, endValue = weekStart, weekEnd
+	if !decision.WeekStart.IsZero() {
+		startValue, endValue = decision.WeekStart, decision.WeekEnd
 	}
 	_, err = a.db.Exec(ctx, `UPDATE import_files SET status=$1,detected_week_start=$2,detected_week_end=$3,confidence=$4,date_source=$5,
-		raw_text=$6,parsed_result=$7,ai_response=$8,error_message='',analyzed_at=now() WHERE id=$9`, status, startValue, endValue, confidence, dateSource,
+		raw_text=$6,parsed_result=$7,ai_response=$8,error_message='',analyzed_at=now() WHERE id=$9`, decision.Status, startValue, endValue, decision.Confidence, decision.DateSource,
 		trimRunes(extracted.Normalized, 200000), parsed, trimRunes(raw, 200000), fileID)
 	if err != nil {
 		a.failImportFile(ctx, fileID, "분석 결과를 저장할 수 없습니다.")
+		return
 	}
+	a.logger.Info("PPTX import analyzed", "job_id", jobID, "file_id", fileID, "slides", extracted.SlideCount,
+		"truncated", extracted.Truncated, "items", len(result.ReportItems), "status", decision.Status,
+		"date_confidence", decision.Confidence, "item_confidence", minimumItemConfidence(result.ReportItems),
+		"category_confidence", minimumCategoryConfidence(result.ReportItems), "duration_ms", time.Since(started).Milliseconds())
+}
+
+type importAnalysisDecision struct {
+	WeekStart  time.Time
+	WeekEnd    time.Time
+	Confidence float64
+	DateSource string
+	Status     string
+}
+
+func finalizeImportedAIResult(result *aiWeeklyResult, detected detectedWeek, extracted extractedPPTX, weekStartSetting string, location *time.Location) importAnalysisDecision {
+	if location == nil {
+		location = time.UTC
+	}
+	decision := importAnalysisDecision{WeekStart: detected.Start, Confidence: detected.Confidence, DateSource: detected.Source, Status: "READY"}
+	aiWeek := time.Time{}
+	if result.WeekStart != "" {
+		aiWeek, _ = time.ParseInLocation("2006-01-02", result.WeekStart, location)
+	}
+	if decision.WeekStart.IsZero() && !aiWeek.IsZero() {
+		decision.WeekStart = aiWeek
+		decision.Confidence = result.DateConfidence
+		decision.DateSource = "ai_inference"
+	}
+	if !decision.WeekStart.IsZero() {
+		original := decision.WeekStart
+		aligned := currentWeekStart(decision.WeekStart, weekStartSetting)
+		// For an explicit date range, prefer the configured weekday contained in
+		// that range instead of the weekday before the range.
+		if !detected.End.IsZero() {
+			candidate := currentWeekStart(detected.End, weekStartSetting)
+			if !candidate.Before(detected.Start) && !candidate.After(detected.End) {
+				aligned = candidate
+			}
+		}
+		if !aligned.Equal(original) {
+			decision.WeekStart = aligned
+			decision.Confidence = minimumConfidence(decision.Confidence, 0.7)
+			if decision.DateSource == "" {
+				decision.DateSource = "aligned"
+			} else {
+				decision.DateSource += "_aligned"
+			}
+			result.Warnings = append(result.Warnings, "PPTX의 날짜 범위를 관리자 주차 시작 요일에 맞춰 조정했습니다. 확정 전에 날짜를 확인하세요.")
+			decision.Status = "NEEDS_REVIEW"
+		}
+		decision.WeekEnd = decision.WeekStart.AddDate(0, 0, 6)
+		result.WeekStart = decision.WeekStart.Format("2006-01-02")
+		result.DateConfidence = decision.Confidence
+	}
+	if !detected.Start.IsZero() && !aiWeek.IsZero() && !aiWeek.Equal(detected.Start) && !aiWeek.Equal(decision.WeekStart) {
+		result.Warnings = append(result.Warnings, "PPTX에서 추출한 날짜와 AI가 추정한 날짜가 다릅니다. 결정적 파서 날짜를 적용했으므로 확인이 필요합니다.")
+		decision.Status = "NEEDS_REVIEW"
+	}
+	if extracted.Truncated {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("AI 입력 한도로 슬라이드 %s의 일부 내용이 생략되었습니다. 원본과 대조하세요.", joinImportSlideNumbers(extracted.TruncatedSlides)))
+		decision.Status = "NEEDS_REVIEW"
+	}
+	if decision.WeekStart.IsZero() {
+		result.Warnings = append(result.Warnings, "보고 주차를 확인하지 못했습니다. 확정 전에 날짜를 입력하세요.")
+		decision.Status = "NEEDS_REVIEW"
+	}
+	if decision.Confidence < 0.75 || minimumItemConfidence(result.ReportItems) < 0.6 || minimumCategoryConfidence(result.ReportItems) < 0.65 {
+		result.Warnings = append(result.Warnings, "날짜 또는 업무 분류 신뢰도가 낮습니다. 원본 슬라이드를 확인하세요.")
+		decision.Status = "NEEDS_REVIEW"
+	}
+	result.Warnings = uniqueNonEmptyStrings(result.Warnings)
+	return decision
+}
+
+func joinImportSlideNumbers(values []int) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	if len(parts) == 0 {
+		return "알 수 없음"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (a *App) failImportFile(ctx context.Context, fileID int64, message string) {
@@ -676,6 +852,16 @@ func minimumItemConfidence(items []aiReportItem) float64 {
 	for _, item := range items {
 		if item.Confidence < minimum {
 			minimum = item.Confidence
+		}
+	}
+	return minimum
+}
+
+func minimumCategoryConfidence(items []aiReportItem) float64 {
+	minimum := 1.0
+	for _, item := range items {
+		if item.CategoryConfidence < minimum {
+			minimum = item.CategoryConfidence
 		}
 	}
 	return minimum

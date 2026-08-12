@@ -523,6 +523,10 @@ func (a *App) processConfluenceGroup(ctx context.Context, client ConfluenceClien
 				}
 				return false, err
 			}
+			if !confluenceBodyMatchesActivity(body, activity) {
+				a.recordConfluenceError(ctx, activity.Page.ID, "BODY_VERSION_CHANGED", 0, fmt.Errorf("Confluence page changed during synchronization: metadata version %d, body version %d", activity.Page.Version, body.Version))
+				continue
+			}
 			cleaned := cleanConfluenceStorage(body.Storage, maximum)
 			bodies[activity.Page.ID] = cleaned
 			available = append(available, activity)
@@ -575,12 +579,26 @@ func (a *App) loadConfluenceBodyPreviews(ctx context.Context, client ConfluenceC
 			result = append(result, activity)
 			continue
 		}
+		if !confluenceBodyMatchesActivity(body, activity) {
+			a.recordConfluenceError(ctx, activity.Page.ID, "BODY_VERSION_CHANGED", 0, fmt.Errorf("Confluence page changed during synchronization: metadata version %d, body version %d", activity.Page.Version, body.Version))
+			continue
+		}
 		activity.BodyText = cleanConfluenceStorage(body.Storage, maximum)
 		activity.BodyLoaded = true
 		_, _ = a.db.Exec(ctx, `UPDATE confluence_pages SET body_hash=$2,last_error='',updated_at=now() WHERE id=$1`, activity.PageDBID, confluenceTextHash(activity.BodyText))
 		result = append(result, activity)
 	}
 	return result
+}
+
+func confluenceBodyMatchesActivity(body *ConfluencePageBody, activity confluenceActivity) bool {
+	if body == nil {
+		return false
+	}
+	if body.PageID != "" && body.PageID != activity.Page.ID {
+		return false
+	}
+	return body.Version <= 0 || activity.Page.Version <= 0 || body.Version == activity.Page.Version
 }
 
 func (a *App) upsertReportCandidate(ctx context.Context, group confluenceCandidateGroup, summary confluenceSummaryResult) (bool, error) {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -165,6 +166,129 @@ func TestReportItemLinesPreserveReadableListStructure(t *testing.T) {
 	if !strings.Contains(got, "• [플랫폼] 인증\n  - OIDC 연동\n  - 권한 검증") {
 		t.Fatalf("unexpected report lines: %q", got)
 	}
+}
+
+func TestDistributeReferenceItemsBalancesLargeSingleCategory(t *testing.T) {
+	items := make([]reportItem, 12)
+	for index := range items {
+		items[index] = reportItem{ID: int64(index + 1), Category: "플랫폼", Title: fmt.Sprintf("업무 %02d", index+1), CurrentResult: "구현 완료", NextPlan: "검증 예정"}
+	}
+
+	groups := distributeReferenceItems(items, 4)
+	for index, group := range groups {
+		if len(group) != 3 {
+			t.Fatalf("slide %d has %d items, want 3", index+1, len(group))
+		}
+		body := referenceTextBody(group, "current")
+		if count := strings.Count(body, "<a:t>플랫폼</a:t>"); count != 1 {
+			t.Fatalf("slide %d category heading count = %d, want 1", index+1, count)
+		}
+	}
+	assertReferenceDistribution(t, items, groups)
+}
+
+func TestDistributeReferenceItemsDoesNotPileExtraCategoriesOnLastSlide(t *testing.T) {
+	items := make([]reportItem, 7)
+	for index := range items {
+		items[index] = reportItem{ID: int64(index + 1), Category: fmt.Sprintf("구분 %d", index+1), Title: fmt.Sprintf("업무 %d", index+1), CurrentResult: "완료", NextPlan: "예정"}
+	}
+
+	groups := distributeReferenceItems(items, 4)
+	minimumSize, maximumSize := len(items), 0
+	for index, group := range groups {
+		if len(group) == 0 {
+			t.Fatalf("slide %d is empty", index+1)
+		}
+		if len(group) < minimumSize {
+			minimumSize = len(group)
+		}
+		if len(group) > maximumSize {
+			maximumSize = len(group)
+		}
+	}
+	if maximumSize-minimumSize > 1 || len(groups[len(groups)-1]) > 2 {
+		t.Fatalf("unbalanced category distribution: %v", referenceGroupSizes(groups))
+	}
+	assertReferenceDistribution(t, items, groups)
+}
+
+func TestDistributeReferenceItemsUsesLongerColumnAndExpectedWraps(t *testing.T) {
+	items := []reportItem{
+		{ID: 1, Category: "플랫폼", Title: "짧은 업무 1", CurrentResult: "완료", NextPlan: "예정"},
+		{ID: 2, Category: "플랫폼", Title: "짧은 업무 2", CurrentResult: "완료", NextPlan: "예정"},
+		{ID: 3, Category: "플랫폼", Title: "긴 업무", CurrentResult: "완료", NextPlan: strings.Repeat("장문 계획 ", 80)},
+		{ID: 4, Category: "플랫폼", Title: "짧은 업무 3", CurrentResult: "완료", NextPlan: "예정"},
+		{ID: 5, Category: "플랫폼", Title: "짧은 업무 4", CurrentResult: "완료", NextPlan: "예정"},
+	}
+
+	groups := distributeReferenceItems(items, 3)
+	if len(groups[1]) != 1 || groups[1][0].ID != 3 {
+		t.Fatalf("long item should occupy its own middle slide: sizes=%v groups=%#v", referenceGroupSizes(groups), groups)
+	}
+	assertReferenceDistribution(t, items, groups)
+}
+
+func TestDistributeReferenceItemsPreservesEveryItemExactlyOnce(t *testing.T) {
+	items := make([]reportItem, 19)
+	for index := range items {
+		items[index] = reportItem{
+			ID:            int64(index + 1),
+			Category:      fmt.Sprintf("구분 %d", index%5),
+			Title:         fmt.Sprintf("고유 업무 %02d", index+1),
+			CurrentResult: strings.Repeat("실적 ", index%4+1),
+			NextPlan:      strings.Repeat("계획 ", index%6+1),
+		}
+	}
+
+	groups := distributeReferenceItems(items, 4)
+	assertReferenceDistribution(t, items, groups)
+}
+
+func TestReferenceTextBodySplitsTwoCommasIntoSeparateParagraphs(t *testing.T) {
+	body := referenceTextBody([]reportItem{{
+		Category: "플랫폼", Title: "인증", CurrentResult: "OIDC 연동 완료, 권한 검증 완료, 운영 배포 준비",
+	}}, "current")
+
+	// One category, one title, and three independently rendered detail paragraphs.
+	if count := strings.Count(body, "<a:p>"); count != 5 {
+		t.Fatalf("paragraph count = %d, want 5: %s", count, body)
+	}
+	for _, detail := range []string{"OIDC 연동 완료", "권한 검증 완료", "운영 배포 준비"} {
+		if count := strings.Count(body, "<a:t>"+detail+"</a:t>"); count != 1 {
+			t.Fatalf("detail %q paragraph count = %d, want 1", detail, count)
+		}
+	}
+}
+
+func assertReferenceDistribution(t *testing.T, items []reportItem, groups [][]reportItem) {
+	t.Helper()
+	seen := make(map[int64]int, len(items))
+	flattened := make([]int64, 0, len(items))
+	for _, group := range groups {
+		for _, item := range group {
+			seen[item.ID]++
+			flattened = append(flattened, item.ID)
+		}
+	}
+	if len(flattened) != len(items) {
+		t.Fatalf("distributed item count = %d, want %d", len(flattened), len(items))
+	}
+	for index, item := range items {
+		if seen[item.ID] != 1 {
+			t.Fatalf("item %d occurrence count = %d, want 1", item.ID, seen[item.ID])
+		}
+		if flattened[index] != item.ID {
+			t.Fatalf("item order at %d = %d, want %d", index, flattened[index], item.ID)
+		}
+	}
+}
+
+func referenceGroupSizes(groups [][]reportItem) []int {
+	result := make([]int, len(groups))
+	for index := range groups {
+		result[index] = len(groups[index])
+	}
+	return result
 }
 
 func pptxXMLText(t *testing.T, body []byte) string {

@@ -15,7 +15,7 @@ export interface KeyView { id: number; name: string; prefix: string; keyVersion:
 export interface AdminUser extends User { managerId?: number; active: boolean; lastLoginAt?: string; createdAt: string }
 export interface Organization { id: number; parentId?: number; name: string; code: string; userCount: number }
 export interface Setting { key: string; value?: string; secret: boolean; configured: boolean; available: boolean; updatedAt: string }
-export type AIReportItem = Omit<ReportItem, 'id' | 'sortOrder'> & { confidence: number }
+export type AIReportItem = Omit<ReportItem, 'id' | 'sortOrder'> & { confidence: number; categoryConfidence?: number; sourceSlides?: number[] }
 export interface AIWeeklyResult { summary: string; weekStart: string; dateConfidence: number; reportItems: AIReportItem[]; warnings: string[] }
 export type ImportJobStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'PARTIAL' | 'FAILED' | 'CONFIRMED'
 export type ImportFileStatus = 'QUEUED' | 'PROCESSING' | 'READY' | 'NEEDS_REVIEW' | 'FAILED' | 'DUPLICATE' | 'CONFIRMED' | 'SKIPPED'

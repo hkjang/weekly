@@ -99,8 +99,27 @@ func TestConfluenceRuleScoringAndStorageCleaning(t *testing.T) {
 		t.Fatalf("leave/personal score should be excluded, got %d", score)
 	}
 	cleaned := cleanConfluenceStorage(`<p>OAuth &amp; 인증</p><table><tr><td>구현 완료</td><td>운영 검증</td></tr></table><script>secret-command</script><ac:structured-macro ac:name="toc"/>`, 100)
-	if cleaned != "OAuth & 인증\n구현 완료\n운영 검증" || strings.Contains(cleaned, "secret-command") {
+	if cleaned != "OAuth & 인증\n[ROW] 구현 완료 | 운영 검증" || strings.Contains(cleaned, "secret-command") {
 		t.Fatalf("cleaned storage = %q", cleaned)
+	}
+}
+
+func TestCleanConfluenceStoragePreservesDocumentStructureAndTail(t *testing.T) {
+	storage := `<h2>OAuth 전환</h2>
+<p>인증 &amp; 권한 작업</p>
+<ul><li><strong>OIDC 연동 완료</strong></li><li>권한 검증 완료</li></ul>
+<table><thead><tr><th>업무</th><th>금주 실적</th><th>차주 계획</th></tr></thead>
+<tbody><tr><td>인증</td><td>개발 완료<br/>시험 완료</td><td>운영 반영</td></tr></tbody></table>
+<style>.leak{display:block}</style><script>ignore-this()</script>`
+	want := "[H2] OAuth 전환\n인증 & 권한 작업\n• OIDC 연동 완료\n• 권한 검증 완료\n[ROW] 업무 | 금주 실적 | 차주 계획\n[ROW] 인증 | 개발 완료 시험 완료 | 운영 반영"
+	if got := cleanConfluenceStorage(storage, 2000); got != want {
+		t.Fatalf("structured Confluence text\n got: %q\nwant: %q", got, want)
+	}
+
+	long := "[H1] 시작\n" + strings.Repeat("중간 본문 ", 80) + "\n[H2] 다음 계획\n• 운영 반영"
+	got := cleanConfluenceStorage(long, 100)
+	if runeLength(got) > 100 || !strings.Contains(got, "[TRUNCATED: middle content omitted]") || !strings.Contains(got, "다음 계획") || !strings.Contains(got, "운영 반영") {
+		t.Fatalf("head/tail truncation lost structure or exceeded limit: %d %q", runeLength(got), got)
 	}
 }
 
@@ -150,6 +169,116 @@ func TestConfluenceClassifierTracksIncludedAndExcludedPages(t *testing.T) {
 	}
 	if included, exists := decisions["102"]; !exists || included {
 		t.Fatalf("excluded page decision = %v, exists = %v", included, exists)
+	}
+}
+
+func TestConfluenceSummarizerUsesAtomicEvidenceBackedFactsAndActivityMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if len(request.Messages) != 2 {
+			t.Fatalf("messages = %#v", request.Messages)
+		}
+		for _, expected := range []string{`"activityType":"MODIFIED"`, `"weekStart":"2026-08-03"`, `"version":7`, `"updatedAt":"2026-08-07T18:30:00+09:00"`} {
+			if !strings.Contains(request.Messages[1].Content, expected) {
+				t.Errorf("summarizer input omitted %s: %s", expected, request.Messages[1].Content)
+			}
+		}
+		content := `{"facts":[{"kind":"CURRENT_RESULT","text":"OAuth 구현 완료","evidencePageIds":["101"],"confidence":0.88},{"kind":"CURRENT_RESULT","text":"권한 검증 완료","evidencePageIds":["101"],"confidence":0.78},{"kind":"NEXT_PLAN","text":"운영 반영","evidencePageIds":["101"],"confidence":0.82}],"confidence":0.9}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
+	}))
+	defer server.Close()
+
+	updated := time.Date(2026, 8, 7, 18, 30, 0, 0, time.FixedZone("KST", 9*60*60))
+	group := confluenceCandidateGroup{Title: "OAuth 인증", Category: "개발", Activities: []confluenceActivity{{
+		Page:      ConfluencePage{ID: "101", Title: "OAuth 구현", SpaceKey: "AI", Version: 7, UpdatedAt: updated},
+		WeekStart: "2026-08-03", ActivityType: "MODIFIED",
+	}}}
+	result, err := callConfluenceSummarizer(t.Context(), aiConfiguration{Endpoint: server.URL, Model: "test", Timeout: 3 * time.Second, MaxInput: 50000}, group, map[string]string{"101": "OAuth 구현 완료\n다음: 운영 반영"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CurrentResult != "• OAuth 구현 완료\n• 권한 검증 완료" || result.NextPlan != "운영 반영" || result.Issue != "" || result.Confidence != 0.78 {
+		t.Fatalf("summary = %#v", result)
+	}
+}
+
+func TestConfluenceSummarizerCorrectsUnknownEvidenceOnce(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if calls == 2 && !strings.Contains(request.Messages[0].Content, `evidence page "999"`) {
+			t.Fatalf("corrective prompt omitted evidence failure: %s", request.Messages[0].Content)
+		}
+		pageID := "999"
+		if calls == 2 {
+			pageID = "101"
+		}
+		content := `{"facts":[{"kind":"CURRENT_RESULT","text":"구현 완료","evidencePageIds":["` + pageID + `"],"confidence":0.8}],"confidence":0.8}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
+	}))
+	defer server.Close()
+
+	group := confluenceCandidateGroup{Activities: []confluenceActivity{{Page: ConfluencePage{ID: "101"}}}}
+	result, err := callConfluenceSummarizer(t.Context(), aiConfiguration{Endpoint: server.URL, Model: "test", Timeout: 3 * time.Second, MaxInput: 50000}, group, map[string]string{"101": "구현 완료"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || result.CurrentResult != "구현 완료" {
+		t.Fatalf("result = %#v, calls = %d", result, calls)
+	}
+}
+
+func TestConfluenceSummarizerRejectsEmptyFactsAfterOneCorrection(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		content := `{"facts":[],"confidence":1}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
+	}))
+	defer server.Close()
+
+	group := confluenceCandidateGroup{Confidence: 0.45, Activities: []confluenceActivity{{Page: ConfluencePage{ID: "101", Title: "OAuth 구현"}}}}
+	_, err := callConfluenceSummarizer(t.Context(), aiConfiguration{Endpoint: server.URL, Model: "test", Timeout: 3 * time.Second, MaxInput: 50000}, group, map[string]string{"101": "OAuth 구현"})
+	if err == nil || !strings.Contains(err.Error(), "no evidence-backed facts") {
+		t.Fatalf("empty facts must be rejected, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("empty facts should receive exactly one corrective retry, calls = %d", calls)
+	}
+	fallback := fallbackConfluenceSummary(group)
+	if fallback.Confidence != 0.45 {
+		t.Fatalf("fallback confidence was inflated: %#v", fallback)
+	}
+}
+
+func TestConfluenceCandidateLegacyNormalizationAndCanonicalMerge(t *testing.T) {
+	legacy := confluenceCandidateView{CurrentResult: "OIDC 연동 완료, 권한 검증 완료.", NextPlan: "운영 배포 준비", UserEdited: false}
+	normalizeConfluenceCandidateView(&legacy)
+	if legacy.CurrentResult != "• OIDC 연동 완료\n• 권한 검증 완료." {
+		t.Fatalf("legacy candidate was not normalized: %#v", legacy)
+	}
+	edited := confluenceCandidateView{CurrentResult: "사용자, 작성 문장.", UserEdited: true}
+	normalizeConfluenceCandidateView(&edited)
+	if edited.CurrentResult != "사용자, 작성 문장." {
+		t.Fatalf("user-edited candidate was changed: %#v", edited)
+	}
+	if got := mergeUniqueLines("- 인증 완료", "• 인증 완료."); got != "• 인증 완료" {
+		t.Fatalf("list markers were not canonicalized for deduplication: %q", got)
+	}
+	fallback := fallbackConfluenceSummary(confluenceCandidateGroup{Activities: []confluenceActivity{{Page: ConfluencePage{Title: "OAuth 구현"}}}})
+	if fallback.CurrentResult != "• OAuth 구현" {
+		t.Fatalf("fallback list marker = %q", fallback.CurrentResult)
 	}
 }
 

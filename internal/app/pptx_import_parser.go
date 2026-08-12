@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -16,14 +17,45 @@ import (
 )
 
 type extractedPPTX struct {
-	Slides     []extractedSlide
-	Normalized string
+	Slides          []extractedSlide
+	Normalized      string
+	SlideCount      int
+	Truncated       bool
+	TruncatedSlides []int
 }
 
 type extractedSlide struct {
 	Number       int
+	Order        int
 	OutsideTexts []string
 	Cells        [][]string
+	Shapes       []extractedShape
+	Tables       []extractedTable
+}
+
+type extractedShape struct {
+	Name       string
+	Paragraphs []extractedParagraph
+}
+
+type extractedTable struct {
+	Rows []extractedRow
+}
+
+type extractedRow struct {
+	Cells []extractedCell
+}
+
+type extractedCell struct {
+	Paragraphs []extractedParagraph
+}
+
+type extractedParagraph struct {
+	Text      string
+	Bullet    string
+	Level     int
+	HasBullet bool
+	HasLevel  bool
 }
 
 type detectedWeek struct {
@@ -34,6 +66,7 @@ type detectedWeek struct {
 }
 
 var importSlidePattern = regexp.MustCompile(`^ppt/slides/slide(\d+)\.xml$`)
+var importSlideRelationshipTypePattern = regexp.MustCompile(`/slide$`)
 var fullNumericDatePattern = regexp.MustCompile(`(?i)(20\d{2})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})`)
 var koreanDatePattern = regexp.MustCompile(`(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일?`)
 var compactDatePattern = regexp.MustCompile(`(?:^|[^0-9])(20\d{2})(\d{2})(\d{2})(?:[^0-9]|$)`)
@@ -53,7 +86,8 @@ func extractPPTX(body []byte, maximumInput int) (extractedPPTX, error) {
 	}
 	var total uint64
 	presentationFound := false
-	slides := []extractedSlide{}
+	var presentationXML, presentationRelationshipsXML []byte
+	slidesByNumber := map[int]extractedSlide{}
 	for _, file := range reader.File {
 		total += file.UncompressedSize64
 		if total > 120<<20 {
@@ -61,6 +95,18 @@ func extractPPTX(body []byte, maximumInput int) (extractedPPTX, error) {
 		}
 		if file.Name == "ppt/presentation.xml" {
 			presentationFound = true
+			presentationXML, err = readPPTXEntry(file, 10<<20)
+			if err != nil {
+				return extractedPPTX{}, errors.New("PPTX 프레젠테이션 순서를 읽을 수 없습니다")
+			}
+			continue
+		}
+		if file.Name == "ppt/_rels/presentation.xml.rels" {
+			presentationRelationshipsXML, err = readPPTXEntry(file, 10<<20)
+			if err != nil {
+				return extractedPPTX{}, errors.New("PPTX 슬라이드 관계를 읽을 수 없습니다")
+			}
+			continue
 		}
 		match := importSlidePattern.FindStringSubmatch(file.Name)
 		if len(match) != 2 {
@@ -79,47 +125,32 @@ func extractPPTX(body []byte, maximumInput int) (extractedPPTX, error) {
 		if parseErr != nil {
 			return extractedPPTX{}, fmt.Errorf("슬라이드 %d XML 파싱 실패: %w", number, parseErr)
 		}
-		slides = append(slides, slide)
+		slidesByNumber[number] = slide
 	}
-	if !presentationFound || len(slides) == 0 {
+	if !presentationFound || len(slidesByNumber) == 0 {
 		return extractedPPTX{}, errors.New("PPTX 필수 프레젠테이션 또는 슬라이드가 없습니다")
 	}
-	sort.Slice(slides, func(i, j int) bool { return slides[i].Number < slides[j].Number })
-	var normalized strings.Builder
-	for _, slide := range slides {
-		fmt.Fprintf(&normalized, "\n=== SLIDE %d ===\n", slide.Number)
-		if len(slide.OutsideTexts) > 0 {
-			normalized.WriteString("[NON_TABLE_TEXT]\n")
-			for _, value := range slide.OutsideTexts {
-				normalized.WriteString(value + "\n")
-			}
-		}
-		if len(slide.Cells) > 0 {
-			normalized.WriteString("[TABLE_CELLS_IN_ORDER]\n")
-			for index, cell := range slide.Cells {
-				fmt.Fprintf(&normalized, "CELL %d:\n", index+1)
-				for _, value := range cell {
-					normalized.WriteString(value + "\n")
-				}
-			}
-		}
-	}
-	result := strings.TrimSpace(normalized.String())
+	slides := orderExtractedSlides(slidesByNumber, presentationXML, presentationRelationshipsXML)
+	result, truncated, truncatedSlides := normalizeExtractedSlides(slides, maximumInput)
 	if result == "" {
 		return extractedPPTX{}, errors.New("PPTX에서 텍스트를 찾을 수 없습니다")
 	}
-	if maximumInput > 0 && runeLength(result) > maximumInput {
-		result = trimRunes(result, maximumInput)
-		result += "\n[입력 길이 제한으로 이후 텍스트가 생략됨]"
-	}
-	return extractedPPTX{Slides: slides, Normalized: result}, nil
+	return extractedPPTX{
+		Slides: slides, Normalized: result, SlideCount: len(slides),
+		Truncated: truncated, TruncatedSlides: truncatedSlides,
+	}, nil
 }
 
 func parseImportSlideXML(source io.Reader, number int) (extractedSlide, error) {
-	result := extractedSlide{Number: number, OutsideTexts: []string{}, Cells: [][]string{}}
+	result := extractedSlide{
+		Number: number, OutsideTexts: []string{}, Cells: [][]string{},
+		Shapes: []extractedShape{}, Tables: []extractedTable{},
+	}
 	decoder := xml.NewDecoder(io.LimitReader(source, 10<<20))
-	inCell := false
-	cellIndex := -1
+	shapeIndex, tableIndex, rowIndex, cellIndex := -1, -1, -1, -1
+	inParagraph := false
+	paragraph := extractedParagraph{}
+	var paragraphText strings.Builder
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -130,43 +161,383 @@ func parseImportSlideXML(source io.Reader, number int) (extractedSlide, error) {
 		}
 		switch value := token.(type) {
 		case xml.StartElement:
-			if value.Name.Local == "tc" {
-				inCell = true
-				result.Cells = append(result.Cells, []string{})
-				cellIndex = len(result.Cells) - 1
-				continue
-			}
-			if value.Name.Local != "t" {
-				continue
-			}
-			var text string
-			if err := decoder.DecodeElement(&text, &value); err != nil {
-				return result, err
-			}
-			text = normalizeImportedText(text)
-			if text == "" {
-				continue
-			}
-			if inCell && cellIndex >= 0 {
-				result.Cells[cellIndex] = append(result.Cells[cellIndex], text)
-			} else {
-				result.OutsideTexts = append(result.OutsideTexts, text)
+			switch {
+			case isPresentationElement(value.Name, "sp"):
+				result.Shapes = append(result.Shapes, extractedShape{Paragraphs: []extractedParagraph{}})
+				shapeIndex = len(result.Shapes) - 1
+			case shapeIndex >= 0 && isPresentationElement(value.Name, "cNvPr"):
+				if result.Shapes[shapeIndex].Name == "" {
+					result.Shapes[shapeIndex].Name = trimRunes(strings.TrimSpace(xmlAttribute(value.Attr, "name")), 200)
+				}
+			case isDrawingElement(value.Name, "tbl"):
+				result.Tables = append(result.Tables, extractedTable{Rows: []extractedRow{}})
+				tableIndex = len(result.Tables) - 1
+				rowIndex, cellIndex = -1, -1
+			case tableIndex >= 0 && isDrawingElement(value.Name, "tr"):
+				result.Tables[tableIndex].Rows = append(result.Tables[tableIndex].Rows, extractedRow{Cells: []extractedCell{}})
+				rowIndex = len(result.Tables[tableIndex].Rows) - 1
+				cellIndex = -1
+			case tableIndex >= 0 && rowIndex >= 0 && isDrawingElement(value.Name, "tc"):
+				row := &result.Tables[tableIndex].Rows[rowIndex]
+				row.Cells = append(row.Cells, extractedCell{Paragraphs: []extractedParagraph{}})
+				cellIndex = len(row.Cells) - 1
+			case (cellIndex >= 0 || shapeIndex >= 0) && isDrawingElement(value.Name, "p"):
+				inParagraph = true
+				paragraph = extractedParagraph{}
+				paragraphText.Reset()
+			case inParagraph && isDrawingElement(value.Name, "pPr"):
+				if level := xmlAttribute(value.Attr, "lvl"); level != "" {
+					if parsed, parseErr := strconv.Atoi(level); parseErr == nil && parsed >= 0 {
+						paragraph.Level = parsed
+						paragraph.HasLevel = true
+					}
+				}
+			case inParagraph && isDrawingElement(value.Name, "buChar"):
+				paragraph.Bullet = normalizeImportedText(xmlAttribute(value.Attr, "char"))
+				paragraph.HasBullet = paragraph.Bullet != ""
+			case inParagraph && isDrawingElement(value.Name, "buAutoNum"):
+				paragraph.Bullet = "AUTO_NUMBER"
+				paragraph.HasBullet = true
+			case inParagraph && isDrawingElement(value.Name, "buBlip"):
+				paragraph.Bullet = "IMAGE"
+				paragraph.HasBullet = true
+			case inParagraph && isDrawingElement(value.Name, "buNone"):
+				paragraph.Bullet = ""
+				paragraph.HasBullet = false
+			case inParagraph && isDrawingElement(value.Name, "br"):
+				paragraphText.WriteString("\n")
+			case inParagraph && isDrawingElement(value.Name, "t"):
+				var text string
+				if err := decoder.DecodeElement(&text, &value); err != nil {
+					return result, err
+				}
+				paragraphText.WriteString(strings.ReplaceAll(text, "\x00", ""))
 			}
 		case xml.EndElement:
-			if value.Name.Local == "tc" {
-				inCell = false
+			switch {
+			case inParagraph && isDrawingElement(value.Name, "p"):
+				paragraph.Text = normalizeImportedText(paragraphText.String())
+				if paragraph.Text != "" {
+					if tableIndex >= 0 && rowIndex >= 0 && cellIndex >= 0 {
+						cell := &result.Tables[tableIndex].Rows[rowIndex].Cells[cellIndex]
+						cell.Paragraphs = append(cell.Paragraphs, paragraph)
+					} else if shapeIndex >= 0 {
+						result.Shapes[shapeIndex].Paragraphs = append(result.Shapes[shapeIndex].Paragraphs, paragraph)
+					}
+				}
+				inParagraph = false
+				paragraphText.Reset()
+			case isDrawingElement(value.Name, "tc"):
 				cellIndex = -1
+			case isDrawingElement(value.Name, "tr"):
+				rowIndex, cellIndex = -1, -1
+			case isDrawingElement(value.Name, "tbl"):
+				tableIndex, rowIndex, cellIndex = -1, -1, -1
+			case isPresentationElement(value.Name, "sp"):
+				shapeIndex = -1
 			}
 		}
 	}
-	filtered := result.Cells[:0]
-	for _, cell := range result.Cells {
-		if len(cell) > 0 {
-			filtered = append(filtered, cell)
+	populateLegacySlideFields(&result)
+	return result, nil
+}
+
+const (
+	drawingMLNamespace    = "http://schemas.openxmlformats.org/drawingml/2006/main"
+	presentationNamespace = "http://schemas.openxmlformats.org/presentationml/2006/main"
+	relationshipNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+)
+
+func isDrawingElement(name xml.Name, local string) bool {
+	return name.Local == local && (name.Space == drawingMLNamespace || name.Space == "")
+}
+
+func isPresentationElement(name xml.Name, local string) bool {
+	return name.Local == local && (name.Space == presentationNamespace || name.Space == "")
+}
+
+func xmlAttribute(attributes []xml.Attr, local string) string {
+	for _, attribute := range attributes {
+		if attribute.Name.Local == local {
+			return attribute.Value
 		}
 	}
-	result.Cells = filtered
-	return result, nil
+	return ""
+}
+
+func populateLegacySlideFields(slide *extractedSlide) {
+	for _, shape := range slide.Shapes {
+		for _, paragraph := range shape.Paragraphs {
+			slide.OutsideTexts = append(slide.OutsideTexts, paragraph.Text)
+		}
+	}
+	for _, table := range slide.Tables {
+		for _, row := range table.Rows {
+			for _, cell := range row.Cells {
+				texts := make([]string, 0, len(cell.Paragraphs))
+				for _, paragraph := range cell.Paragraphs {
+					texts = append(texts, paragraph.Text)
+				}
+				// Empty cells are intentionally retained. Their position is required to
+				// distinguish, for example, an empty actual column from a populated plan.
+				slide.Cells = append(slide.Cells, texts)
+			}
+		}
+	}
+}
+
+func readPPTXEntry(file *zip.File, limit int64) ([]byte, error) {
+	stream, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+	return io.ReadAll(io.LimitReader(stream, limit))
+}
+
+func orderExtractedSlides(slidesByNumber map[int]extractedSlide, presentationXML, relationshipsXML []byte) []extractedSlide {
+	orderedNumbers := presentationSlideNumbers(presentationXML, relationshipsXML)
+	seen := make(map[int]bool, len(slidesByNumber))
+	result := make([]extractedSlide, 0, len(slidesByNumber))
+	for _, number := range orderedNumbers {
+		slide, exists := slidesByNumber[number]
+		if !exists || seen[number] {
+			continue
+		}
+		seen[number] = true
+		result = append(result, slide)
+	}
+	remaining := make([]int, 0, len(slidesByNumber)-len(result))
+	for number := range slidesByNumber {
+		if !seen[number] {
+			remaining = append(remaining, number)
+		}
+	}
+	sort.Ints(remaining)
+	for _, number := range remaining {
+		result = append(result, slidesByNumber[number])
+	}
+	for index := range result {
+		result[index].Order = index + 1
+	}
+	return result
+}
+
+func presentationSlideNumbers(presentationXML, relationshipsXML []byte) []int {
+	relationshipIDs := parsePresentationSlideIDs(presentationXML)
+	targets := parsePresentationSlideRelationships(relationshipsXML)
+	result := make([]int, 0, len(relationshipIDs))
+	for _, relationshipID := range relationshipIDs {
+		target, exists := targets[relationshipID]
+		if !exists {
+			continue
+		}
+		target = strings.TrimPrefix(target, "/")
+		if !strings.HasPrefix(target, "ppt/") {
+			target = path.Join("ppt", target)
+		} else {
+			target = path.Clean(target)
+		}
+		match := importSlidePattern.FindStringSubmatch(target)
+		if len(match) == 2 {
+			number, _ := strconv.Atoi(match[1])
+			result = append(result, number)
+		}
+	}
+	return result
+}
+
+func parsePresentationSlideIDs(document []byte) []string {
+	decoder := xml.NewDecoder(bytes.NewReader(document))
+	result := []string{}
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return result
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || !isPresentationElement(start.Name, "sldId") {
+			continue
+		}
+		for _, attribute := range start.Attr {
+			if attribute.Name.Local == "id" && (attribute.Name.Space == relationshipNamespace || strings.HasPrefix(attribute.Value, "rId")) {
+				result = append(result, attribute.Value)
+				break
+			}
+		}
+	}
+}
+
+func parsePresentationSlideRelationships(document []byte) map[string]string {
+	decoder := xml.NewDecoder(bytes.NewReader(document))
+	result := map[string]string{}
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return result
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "Relationship" {
+			continue
+		}
+		identifier := xmlAttribute(start.Attr, "Id")
+		target := xmlAttribute(start.Attr, "Target")
+		typeName := xmlAttribute(start.Attr, "Type")
+		if identifier != "" && target != "" && importSlideRelationshipTypePattern.MatchString(typeName) {
+			result[identifier] = target
+		}
+	}
+}
+
+func normalizeExtractedSlides(slides []extractedSlide, maximumInput int) (string, bool, []int) {
+	segments := make([]string, 0, len(slides))
+	lengths := make([]int, 0, len(slides))
+	for _, slide := range slides {
+		segment := formatExtractedSlide(slide)
+		segments = append(segments, segment)
+		lengths = append(lengths, runeLength(segment))
+	}
+	full := strings.TrimSpace(strings.Join(segments, "\n\n"))
+	if maximumInput <= 0 || runeLength(full) <= maximumInput {
+		return full, false, nil
+	}
+
+	separatorCost := maximum(0, (len(segments)-1)*2)
+	budgets := fairTextBudgets(lengths, maximum(0, maximumInput-separatorCost))
+	truncatedSlides := make([]int, 0, len(slides))
+	for index := range segments {
+		if budgets[index] >= lengths[index] {
+			continue
+		}
+		truncatedSlides = append(truncatedSlides, slides[index].Order)
+		segments[index] = truncateSlideSegment(segments[index], budgets[index], slides[index].Order)
+	}
+	return strings.TrimSpace(strings.Join(segments, "\n\n")), true, truncatedSlides
+}
+
+func formatExtractedSlide(slide extractedSlide) string {
+	var normalized strings.Builder
+	fmt.Fprintf(&normalized, "=== SLIDE %d (SOURCE slide%d.xml) ===\n", slide.Order, slide.Number)
+	for shapeIndex, shape := range slide.Shapes {
+		if len(shape.Paragraphs) == 0 {
+			continue
+		}
+		fmt.Fprintf(&normalized, "[SHAPE %d", shapeIndex+1)
+		if shape.Name != "" {
+			fmt.Fprintf(&normalized, " name=%q", shape.Name)
+		}
+		normalized.WriteString("]\n")
+		writeExtractedParagraphs(&normalized, shape.Paragraphs)
+	}
+	for tableIndex, table := range slide.Tables {
+		fmt.Fprintf(&normalized, "[TABLE %d]\n", tableIndex+1)
+		for rowIndex, row := range table.Rows {
+			fmt.Fprintf(&normalized, "[ROW %d]\n", rowIndex+1)
+			for columnIndex, cell := range row.Cells {
+				fmt.Fprintf(&normalized, "[COL %d]\n", columnIndex+1)
+				if len(cell.Paragraphs) == 0 {
+					normalized.WriteString("[EMPTY]\n")
+					continue
+				}
+				writeExtractedParagraphs(&normalized, cell.Paragraphs)
+			}
+		}
+	}
+	return strings.TrimSpace(normalized.String())
+}
+
+func writeExtractedParagraphs(destination *strings.Builder, paragraphs []extractedParagraph) {
+	for index, paragraph := range paragraphs {
+		fmt.Fprintf(destination, "PARAGRAPH %d", index+1)
+		if paragraph.HasBullet {
+			fmt.Fprintf(destination, " bullet=%q", paragraph.Bullet)
+		}
+		if paragraph.HasLevel {
+			fmt.Fprintf(destination, " level=%d", paragraph.Level)
+		}
+		fmt.Fprintf(destination, ": %s\n", paragraph.Text)
+	}
+}
+
+func fairTextBudgets(lengths []int, total int) []int {
+	budgets := make([]int, len(lengths))
+	unresolved := make([]int, 0, len(lengths))
+	for index := range lengths {
+		unresolved = append(unresolved, index)
+	}
+	for len(unresolved) > 0 && total > 0 {
+		share := total / len(unresolved)
+		if share == 0 {
+			for _, index := range unresolved {
+				if total == 0 {
+					break
+				}
+				budgets[index]++
+				total--
+			}
+			break
+		}
+		next := make([]int, 0, len(unresolved))
+		resolvedAny := false
+		for _, index := range unresolved {
+			needed := lengths[index] - budgets[index]
+			if needed <= share {
+				budgets[index] += needed
+				total -= needed
+				resolvedAny = true
+			} else {
+				next = append(next, index)
+			}
+		}
+		if resolvedAny {
+			unresolved = next
+			continue
+		}
+		for _, index := range unresolved {
+			budgets[index] += share
+			total -= share
+		}
+		for _, index := range unresolved {
+			if total == 0 {
+				break
+			}
+			budgets[index]++
+			total--
+		}
+		break
+	}
+	return budgets
+}
+
+func truncateSlideSegment(segment string, budget, slideOrder int) string {
+	if budget <= 0 {
+		return ""
+	}
+	lines := strings.Split(segment, "\n")
+	header := lines[0]
+	notice := fmt.Sprintf("[SLIDE %d CONTENT TRUNCATED]", slideOrder)
+	if budget <= runeLength(header) {
+		return trimRunes(header, budget)
+	}
+	if budget <= runeLength(header)+1+runeLength(notice) {
+		return trimRunes(header+"\n"+notice, budget)
+	}
+	remaining := budget - runeLength(header) - 1 - runeLength(notice) - 1
+	kept := []string{header}
+	for _, line := range lines[1:] {
+		cost := runeLength(line) + 1
+		if cost <= remaining {
+			kept = append(kept, line)
+			remaining -= cost
+			continue
+		}
+		if remaining > 1 {
+			kept = append(kept, trimRunes(line, remaining-1))
+		}
+		break
+	}
+	kept = append(kept, notice)
+	return strings.Join(kept, "\n")
 }
 
 func normalizeImportedText(value string) string {

@@ -92,7 +92,7 @@ export default function App() {
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'rollup' && <RollupPage session={session} notify={notify} />}
-        {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} notify={notify} />}
+        {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage />}
         {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}

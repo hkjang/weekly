@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.6.0
-  description: 주간보고 작성·복제, Confluence 6.9.1 자동 초안, AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
+  version: 0.7.0
+  description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
 security:
@@ -271,10 +271,28 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /import/{id}/analyze:
     post:
-      summary: 보관 원본이 있는 실패 파일 재분석
+      summary: 보관 원본이 있는 미확정 PPTX 파일 재분석
+      description: 본문을 생략하면 기존 동작과 같이 실패 파일 전체를 재시도한다. fileIds를 지정하면 해당 작업에서 원본이 남은 FAILED, READY 또는 NEEDS_REVIEW 파일만 최신 파이프라인으로 재분석한다.
       parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                fileIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  uniqueItems: true
+                  items: { type: integer, format: int64, minimum: 1 }
       responses:
         "202": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /import/{id}/confirm:
     post:
       summary: 사용자가 수정한 과거 보고 미리보기 확정
@@ -513,6 +531,16 @@ components:
           required: [confidence]
           properties:
             confidence: { type: number, minimum: 0, maximum: 1 }
+            categoryConfidence:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: 업무 구분 판정 신뢰도. 기존 저장 결과에는 없을 수 있다.
+            sourceSlides:
+              type: array
+              uniqueItems: true
+              description: PPTX 분석 항목의 근거가 확인된 표시 순서 슬라이드 번호. 자유 텍스트 분석은 빈 배열이며 기존 저장 결과에는 없을 수 있다.
+              items: { type: integer, minimum: 1 }
     AIWeeklyResult:
       type: object
       required: [summary, weekStart, dateConfidence, reportItems, warnings]
@@ -573,7 +601,19 @@ components:
           type: array
           minItems: 1
           maxItems: 100
-          items: { $ref: "#/components/schemas/AIReportItem" }
+          items: { $ref: "#/components/schemas/ImportConfirmItem" }
+    ImportConfirmItem:
+      type: object
+      additionalProperties: false
+      required: [category, title, currentResult, nextPlan, issue, progress]
+      properties:
+        category: { type: string, maxLength: 80 }
+        title: { type: string, minLength: 1, maxLength: 240 }
+        currentResult: { type: string }
+        nextPlan: { type: string }
+        issue: { type: string }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        confidence: { type: number, minimum: 0, maximum: 1, description: 미리보기 표시용 값이며 확정 보고서에는 저장하지 않음 }
     ConfluenceSource:
       type: object
       required: [pageId, title, spaceKey, pageUrl, pageVersion, activityType]
