@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://hkjang.github.io/weekly/">🇰🇷 홍보 페이지</a> · <a href="https://hkjang.github.io/weekly/index_en.html">🇺🇸 English Page</a> · <a href="https://hkjang.github.io/">🌐 전체 서비스 모아보기</a> · <a href="https://github.com/sponsors/hkjang">💖 Sponsor</a>
+  <a href="https://hkjang.github.io/weekly/">🇰🇷 홍보 페이지</a> · <a href="https://hkjang.github.io/weekly/index_en.html">🇺🇸 English Page</a> · <a href="https://hkjang.github.io/">🌐 전체 서비스</a> · <a href="https://github.com/sponsors/hkjang">💖 Sponsor</a>
 </p>
 
 ---
