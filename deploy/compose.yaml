@@ -1,6 +1,6 @@
 services:
   weekly:
-    image: weekly:v${WEEKLY_VERSION:-0.7.0}
+    image: weekly:v${WEEKLY_VERSION:-0.7.2}
     container_name: weekly
     restart: unless-stopped
     ports:
@@ -16,7 +16,8 @@ services:
       WEEKLY_POSTGRES_DSN: ${WEEKLY_POSTGRES_DSN:?required}
       WEEKLY_BOOTSTRAP_ADMIN: ${WEEKLY_BOOTSTRAP_ADMIN:?required}
       WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: ${WEEKLY_BOOTSTRAP_ADMIN_PASSWORD:?required}
-      WEEKLY_ENCRYPTION_KEY: ${WEEKLY_ENCRYPTION_KEY:-}
+      WEEKLY_ENCRYPTION_KEY: ${WEEKLY_ENCRYPTION_KEY:?required}
+      WEEKLY_ALLOW_SECRET_RESET: ${WEEKLY_ALLOW_SECRET_RESET:-false}
     volumes:
       - weekly-data:/var/lib/weekly
     healthcheck:

@@ -7,7 +7,8 @@ stringData:
   WEEKLY_POSTGRES_DSN: "postgres://weekly:CHANGE_ME@postgres.internal:5432/weekly?sslmode=require"
   WEEKLY_BOOTSTRAP_ADMIN: "admin"
   WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: "CHANGE_ME_AT_LEAST_12_CHARS"
-  # `openssl rand -base64 32` 결과로 교체하고 모든 업그레이드에서 유지합니다.
+  # 필수. `openssl rand -base64 32` 결과로 교체하고 모든 업그레이드에서 유지합니다.
+  # 이 값을 잃으면 저장된 OIDC/AI/Confluence 비밀 설정을 복호화할 수 없습니다.
   WEEKLY_ENCRYPTION_KEY: "CHANGE_ME_BASE64_32_BYTE_KEY"
 ---
 apiVersion: v1
@@ -42,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: weekly
-          image: weekly:v0.7.0
+          image: weekly:v0.7.2
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:

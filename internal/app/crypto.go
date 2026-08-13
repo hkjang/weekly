@@ -21,11 +21,24 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-const stateDirectory = "/var/lib/weekly"
+// stateDirectory holds the fallback encryption key and uploaded templates. It
+// is a variable so tests can redirect it to a temporary path.
+var stateDirectory = "/var/lib/weekly"
 
 type secretBox struct{ aead cipher.AEAD }
 
-func loadSecretBoxes(configuredKey string) (active, legacy *secretBox, source string, err error) {
+// errSecretKeyMissing reports that the only key able to decrypt the stored
+// secrets is gone. Minting a replacement here would start the service with
+// every secret silently orphaned, so the caller must stop instead.
+var errSecretKeyMissing = errors.New("secret encryption key is unavailable")
+
+// loadSecretBoxes resolves the active key and, when the key has just changed,
+// the previous one so stored secrets can be re-encrypted.
+//
+// allowNewKey must only be true when losing the current secrets is acceptable:
+// either the database holds no encrypted secret yet, or the operator has
+// explicitly accepted a reset.
+func loadSecretBoxes(configuredKey string, allowNewKey bool) (active, legacy *secretBox, source string, err error) {
 	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
 		return nil, nil, "", fmt.Errorf("create state directory: %w", err)
 	}
@@ -49,7 +62,7 @@ func loadSecretBoxes(configuredKey string) (active, legacy *secretBox, source st
 		}
 		return active, legacy, "environment", nil
 	}
-	key, err := loadOrCreateInstanceKey()
+	key, err := loadOrCreateInstanceKey(allowNewKey)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -95,13 +108,19 @@ func readInstanceKey() ([]byte, error) {
 	return key, nil
 }
 
-func loadOrCreateInstanceKey() ([]byte, error) {
+func loadOrCreateInstanceKey(allowNewKey bool) ([]byte, error) {
 	key, err := readInstanceKey()
 	if err == nil {
 		return key, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read instance key: %w", err)
+	}
+	if !allowNewKey {
+		// The state volume lost instance.key while the database still holds
+		// secrets encrypted with it. Generating a new key here would leave the
+		// service running with unusable OIDC, AI and Confluence credentials.
+		return nil, errSecretKeyMissing
 	}
 	key = make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
@@ -134,6 +153,15 @@ func loadOrCreateInstanceKey() ([]byte, error) {
 type secretMigrationResult struct {
 	Migrated    int
 	Unavailable []string
+}
+
+// countEncryptedSecrets reports how many secret settings currently hold a
+// value. It is read before any key is resolved, so the caller can tell a first
+// install apart from an existing install whose key has gone missing.
+func countEncryptedSecrets(ctx context.Context, db *pgxpool.Pool) (int, error) {
+	var total int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM app_settings WHERE secret=true AND value<>''`).Scan(&total)
+	return total, err
 }
 
 type storedSecret struct {

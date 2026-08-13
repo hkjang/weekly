@@ -26,7 +26,8 @@ var pptxCellPattern = regexp.MustCompile(`(?s)<a:tc>.*?</a:tc>`)
 var pptxTextPattern = regexp.MustCompile(`(?s)<a:t>.*?</a:t>`)
 var pptxTextBodyPattern = regexp.MustCompile(`(?s)<a:txBody>.*?</a:txBody>`)
 
-const customPPTXPath = stateDirectory + "/templates/weekly-report.pptx"
+// Derived from stateDirectory at startup.
+var customPPTXPath = stateDirectory + "/templates/weekly-report.pptx"
 
 type pptxTemplateView struct {
 	Source       string     `json:"source"`

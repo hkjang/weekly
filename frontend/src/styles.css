@@ -24,3 +24,4 @@
 @media(max-width:1100px){.chart-duo{grid-template-columns:1fr}.rollup-detail-meta{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.rollup-controls{align-items:stretch;flex-direction:column}.tabs.rollup-tabs{justify-content:space-between}.composition-legend li{grid-template-columns:11px 1fr auto}.composition-legend small{grid-column:2/-1;text-align:left}.rank-row{grid-template-columns:90px 1fr 46px}}
 .state-chip.past{background:#f1f5f9;color:#64748b}
+.file-drop.dragging{border-color:var(--blue);border-style:solid;background:#eff6ff;box-shadow:0 0 0 3px #dbeafe}.file-drop.dragging strong{color:#1d4ed8}.file-drop .link-button{background:none;border:0;color:var(--blue);font-size:11px;margin-top:4px}

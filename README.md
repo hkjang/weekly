@@ -42,7 +42,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.7.0.tar.gz | docker load
+gzip -dc weekly-v0.7.2.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -55,11 +55,25 @@ Weekly는 세 개의 필수 환경변수와 한 개의 권장 보안 환경변�
 | `WEEKLY_POSTGRES_DSN` | PostgreSQL 연결 문자열 |
 | `WEEKLY_BOOTSTRAP_ADMIN` | 최초 관리자 아이디 |
 | `WEEKLY_BOOTSTRAP_ADMIN_PASSWORD` | 최초 관리자 비밀번호, 12자 이상 |
-| `WEEKLY_ENCRYPTION_KEY` | 권장: `openssl rand -base64 32`로 한 번 생성해 업그레이드마다 유지할 비밀 설정 암호화 키 |
+| `WEEKLY_ENCRYPTION_KEY` | 필수 권장: `openssl rand -base64 32`로 한 번 생성해 업그레이드마다 유지할 비밀 설정 암호화 키 |
+| `WEEKLY_ALLOW_SECRET_RESET` | 선택: 비밀 설정을 복호화할 수 없는 상태에서 기동을 강행할 때만 `true` |
 
 최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. `WEEKLY_ENCRYPTION_KEY`는 연결 비밀번호 자체가 아니라 관리자 화면에서 입력한 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 보호하는 마스터 키입니다. 같은 값을 유지하면 컨테이너나 상태 볼륨이 교체돼도 PostgreSQL의 암호화 설정을 계속 복호화할 수 있습니다. 기존 `instance.key`를 쓰던 환경은 기존 볼륨을 연결한 첫 업그레이드에 이 값을 설정하면 자동으로 재암호화됩니다.
 
-> `/var/lib/weekly` 볼륨과 `WEEKLY_ENCRYPTION_KEY`를 각각 백업하십시오. 환경 키를 설정하지 않은 하위 호환 모드에서는 볼륨의 `instance.key`가 유일한 복호화 키입니다.
+> `/var/lib/weekly` 볼륨과 `WEEKLY_ENCRYPTION_KEY`를 각각 백업하십시오. 환경 키를 설정하지 않은 하위 호환 모드에서는 볼륨의 `instance.key`가 유일한 복호화 키이며, 볼륨을 잃으면 비밀 설정도 함께 잃습니다.
+
+비밀 설정을 복호화할 수 없는 상태로는 기동하지 않습니다. 키가 사라진 채 기동하면 OIDC Client Secret이 함께 사라져 SSO 로그인이 전부 실패하므로, 서비스는 다음 안내와 함께 기동을 중단합니다.
+
+```
+3개의 비밀 설정을 현재 암호화 키로 복호화할 수 없습니다: ai.api_key, confluence.password, oidc.client_secret.
+이 설정을 암호화할 때 사용한 WEEKLY_ENCRYPTION_KEY를 설정하거나 /var/lib/weekly 볼륨을 복구하십시오.
+```
+
+복구 방법은 셋 중 하나입니다.
+
+1. 기존 `WEEKLY_ENCRYPTION_KEY`를 설정합니다. 가장 확실한 방법이며 상태 볼륨이 없어도 됩니다.
+2. `instance.key`가 있던 `/var/lib/weekly` 볼륨을 복구합니다.
+3. 값을 모두 다시 입력하기로 했다면 `WEEKLY_ALLOW_SECRET_RESET=true`로 기동합니다. 기존 암호문은 지우지 않고 관리자 화면에 `다시 입력 필요`로 표시합니다.
 
 ## Keycloak OIDC 설정
 

@@ -17,7 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const importDirectory = stateDirectory + "/imports"
+// Derived from stateDirectory at startup.
+var importDirectory = stateDirectory + "/imports"
 
 var errTooManyRetryFiles = errors.New("too many retry files")
 

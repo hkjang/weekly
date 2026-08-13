@@ -57,9 +57,24 @@ func New(ctx context.Context, options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	box, legacyBox, keySource, err := loadSecretBoxes(env.EncryptionKey)
+	// Losing the key orphans the OIDC client secret, the AI API key and the
+	// Confluence password at once. Starting anyway leaves a service that looks
+	// healthy but cannot log anyone in through SSO, so the decision to discard
+	// them has to be the operator's, not a silent side effect of a restart.
+	storedSecrets, err := countEncryptedSecrets(ctx, db)
 	if err != nil {
 		db.Close()
+		return nil, fmt.Errorf("inspect encrypted settings: %w", err)
+	}
+	box, legacyBox, keySource, err := loadSecretBoxes(env.EncryptionKey, storedSecrets == 0 || env.AllowSecretReset)
+	if err != nil {
+		db.Close()
+		if errors.Is(err, errSecretKeyMissing) {
+			return nil, fmt.Errorf("%w: %d개의 비밀 설정이 저장되어 있지만 이를 복호화할 키가 없습니다. "+
+				"%s 볼륨을 복구하거나, 기존에 사용하던 WEEKLY_ENCRYPTION_KEY를 설정하십시오. "+
+				"비밀 설정을 모두 다시 입력할 것이라면 WEEKLY_ALLOW_SECRET_RESET=true로 기동하십시오",
+				err, storedSecrets, stateDirectory)
+		}
 		return nil, err
 	}
 	migration, migrationErr := migrateSecretSettings(ctx, db, box, legacyBox)
@@ -70,10 +85,22 @@ func New(ctx context.Context, options Options) (*App, error) {
 	if migration.Migrated > 0 {
 		logger.Info("secret settings re-encrypted", "count", migration.Migrated)
 	}
-	if len(migration.Unavailable) > 0 {
-		logger.Error("secret settings cannot be decrypted and must be re-entered", "keys", migration.Unavailable)
+	if len(migration.Unavailable) > 0 && !env.AllowSecretReset {
+		db.Close()
+		return nil, fmt.Errorf("%d개의 비밀 설정을 현재 암호화 키로 복호화할 수 없습니다: %s. "+
+			"이 설정을 암호화할 때 사용한 WEEKLY_ENCRYPTION_KEY를 설정하거나 %s 볼륨을 복구하십시오. "+
+			"해당 값을 모두 다시 입력할 것이라면 WEEKLY_ALLOW_SECRET_RESET=true로 기동하십시오",
+			len(migration.Unavailable), strings.Join(migration.Unavailable, ", "), stateDirectory)
 	}
-	logger.Info("secret encryption initialized", "key_source", keySource)
+	if len(migration.Unavailable) > 0 {
+		logger.Warn("secret settings cannot be decrypted and must be re-entered",
+			"keys", migration.Unavailable, "reason", "WEEKLY_ALLOW_SECRET_RESET=true")
+	}
+	logger.Info("secret encryption initialized", "key_source", keySource, "stored_secrets", storedSecrets)
+	if keySource == "state_volume" && storedSecrets > 0 {
+		logger.Warn("secret encryption key lives only in the state volume; set WEEKLY_ENCRYPTION_KEY so upgrades survive a lost volume",
+			"state_directory", stateDirectory)
+	}
 	defaultPPTX := options.DefaultPPTX
 	defaultPPTXName := options.DefaultPPTXName
 	if len(defaultPPTX) == 0 {
