@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type settingDefinition struct {
@@ -277,6 +279,22 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{2,120}$`)
 
+// organizations.code is varchar(60), narrower than the username column, so it
+// needs its own bound rather than reusing the username pattern.
+var organizationCodePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{2,60}$`)
+
+// validateProfileLengths keeps display name and email inside their column
+// widths, counted in characters like PostgreSQL counts them.
+func validateProfileLengths(displayName, email string) error {
+	if runeLength(displayName) > 120 {
+		return errors.New("표시 이름은 120자 이하로 입력하세요.")
+	}
+	if runeLength(email) > 255 {
+		return errors.New("이메일은 255자 이하로 입력하세요.")
+	}
+	return nil
+}
+
 func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Username, DisplayName, Email, Password, Role string
@@ -287,9 +305,14 @@ func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Username = strings.TrimSpace(input.Username)
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Email = strings.TrimSpace(input.Email)
 	input.Role = strings.ToUpper(input.Role)
 	if !usernamePattern.MatchString(input.Username) || input.DisplayName == "" || !validRole(input.Role) {
 		writeError(w, 400, "INVALID_USER", "사용자 이름, 표시 이름 또는 역할이 올바르지 않습니다.")
+		return
+	}
+	if err := validateProfileLengths(input.DisplayName, input.Email); err != nil {
+		writeError(w, 400, "INVALID_USER", err.Error())
 		return
 	}
 	var passwordHash any
@@ -311,6 +334,7 @@ func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "users_username_key") {
 			writeError(w, 409, "USERNAME_EXISTS", "이미 사용 중인 아이디입니다.")
 		} else {
+			a.logger.Error("create user", "error", err, "trace", traceIDFromContext(r.Context()))
 			writeError(w, 500, "DATABASE_ERROR", "사용자를 만들 수 없습니다.")
 		}
 		return
@@ -333,9 +357,14 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Email = strings.TrimSpace(input.Email)
 	input.Role = strings.ToUpper(input.Role)
 	if input.DisplayName == "" || !validRole(input.Role) {
 		writeError(w, 400, "INVALID_USER", "표시 이름 또는 역할이 올바르지 않습니다.")
+		return
+	}
+	if err := validateProfileLengths(input.DisplayName, input.Email); err != nil {
+		writeError(w, 400, "INVALID_USER", err.Error())
 		return
 	}
 	var passwordHash string
@@ -417,14 +446,30 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Name = strings.TrimSpace(input.Name)
 	input.Code = strings.ToUpper(strings.TrimSpace(input.Code))
-	if input.Name == "" || !usernamePattern.MatchString(input.Code) {
-		writeError(w, 400, "INVALID_ORGANIZATION", "조직 이름 또는 코드가 올바르지 않습니다.")
+	if input.Name == "" || !organizationCodePattern.MatchString(input.Code) {
+		writeError(w, 400, "INVALID_ORGANIZATION", "조직 코드는 영문, 숫자와 ._@- 기호로 2~60자여야 합니다.")
+		return
+	}
+	if runeLength(input.Name) > 120 {
+		writeError(w, 400, "INVALID_ORGANIZATION", "조직 이름은 120자 이하로 입력하세요.")
 		return
 	}
 	var id int64
 	err := a.db.QueryRow(r.Context(), `INSERT INTO organizations(name,code,parent_id) VALUES($1,$2,$3) RETURNING id`, input.Name, input.Code, input.ParentID).Scan(&id)
 	if err != nil {
-		writeError(w, 409, "ORGANIZATION_EXISTS", "조직 코드를 확인하세요.")
+		// Only a duplicate code is the caller's mistake. Anything else is a
+		// server fault and must not be reported as a conflict.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			writeError(w, 409, "ORGANIZATION_EXISTS", "이미 사용 중인 조직 코드입니다.")
+			return
+		}
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			writeError(w, 400, "INVALID_PARENT", "상위 조직을 찾을 수 없습니다.")
+			return
+		}
+		a.logger.Error("create organization", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, 500, "DATABASE_ERROR", "조직을 만들 수 없습니다.")
 		return
 	}
 	a.audit(r, currentPrincipal(r.Context()), "organization.create", "organization", strconv.FormatInt(id, 10), map[string]any{"code": input.Code})
@@ -455,8 +500,10 @@ func (a *App) auditLogs(w http.ResponseWriter, r *http.Request) {
 	writeData(w, 200, result)
 }
 
+// bounded counts characters, not bytes, so a Korean value is measured the same
+// way an operator counts it while typing.
 func bounded(minimum, maximum int) func(string) bool {
-	return func(v string) bool { return len(v) >= minimum && len(v) <= maximum }
+	return func(v string) bool { return runeLength(v) >= minimum && runeLength(v) <= maximum }
 }
 func booleanValue(v string) bool { return v == "true" || v == "false" }
 func oneOf(values ...string) func(string) bool {

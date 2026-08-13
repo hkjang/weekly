@@ -122,7 +122,7 @@ func (a *App) issueSession(w http.ResponseWriter, r *http.Request, userID int64)
 		ip = host
 	}
 	_, err = a.db.Exec(r.Context(), `INSERT INTO user_sessions(user_id,token_hash,expires_at,ip_address,user_agent) VALUES($1,$2,$3,$4,$5)`,
-		userID, tokenHash(token), expires, ip, trimLength(r.UserAgent(), 500))
+		userID, tokenHash(token), expires, ip, trimRunes(r.UserAgent(), 500))
 	if err != nil {
 		return err
 	}
@@ -399,9 +399,3 @@ func remoteHost(r *http.Request) string {
 	return host
 }
 
-func trimLength(value string, maximum int) string {
-	if len(value) > maximum {
-		return value[:maximum]
-	}
-	return value
-}

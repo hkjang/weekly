@@ -124,7 +124,7 @@ func (a *App) uploadPPTXTemplate(w http.ResponseWriter, r *http.Request) {
 	_, err = a.db.Exec(r.Context(), `INSERT INTO pptx_templates(id,original_name,file_name,size_bytes,sha256,placeholders,uploaded_by,uploaded_at)
 		VALUES(1,$1,$2,$3,$4,$5,$6,now()) ON CONFLICT(id) DO UPDATE SET original_name=EXCLUDED.original_name,file_name=EXCLUDED.file_name,
 		size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256,placeholders=EXCLUDED.placeholders,uploaded_by=EXCLUDED.uploaded_by,uploaded_at=now()`,
-		trimLength(filepath.Base(header.Filename), 255), filepath.Base(customPPTXPath), len(body), fmt.Sprintf("%x", sum), placeholders, p.ID)
+		trimRunes(filepath.Base(header.Filename), 255), filepath.Base(customPPTXPath), len(body), fmt.Sprintf("%x", sum), placeholders, p.ID)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "템플릿 메타데이터를 저장할 수 없습니다.")
 		return

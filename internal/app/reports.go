@@ -178,17 +178,19 @@ func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	var id int64
 	sourceType := editableSourceType(input.SourceType)
-	err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,summary,source_type) VALUES($1,$2,$3,$4) RETURNING id`, p.ID, week, trimLength(input.Summary, 10000), sourceType).Scan(&id)
+	err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,summary,source_type) VALUES($1,$2,$3,$4) RETURNING id`, p.ID, week, trimRunes(input.Summary, 10000), sourceType).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "weekly_reports_user_id_week_start_key") {
 			writeError(w, http.StatusConflict, "REPORT_EXISTS", "해당 주차 보고서가 이미 있습니다.")
 		} else {
+			a.logger.Error("create report", "error", err, "userId", p.ID, "trace", traceIDFromContext(r.Context()))
 			writeError(w, 500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
 		}
 		return
 	}
 	for index, item := range input.Items {
 		if _, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.Progress, index); err != nil {
+			a.logger.Error("insert report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(r.Context()))
 			writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
 			return
 		}
@@ -258,13 +260,21 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	if previousStatus == "SUBMITTED" || previousStatus == "APPROVED" {
 		newStatus = "DRAFT"
 	}
+	// The branches are decided here rather than in SQL. Passing the same status
+	// parameter to both an assignment and a comparison made PostgreSQL deduce
+	// two different types for it and reject the whole statement.
+	relabelAsAI := strings.EqualFold(strings.TrimSpace(input.SourceType), "AI_TEXT")
+	clearReview := newStatus == "DRAFT"
 	_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,
-		source_type=CASE WHEN upper(trim($2))='AI_TEXT' THEN 'AI_TEXT' ELSE source_type END,
-		status=$3,submitted_at=CASE WHEN $3='DRAFT' THEN NULL ELSE submitted_at END,
-		reviewed_at=CASE WHEN $3='DRAFT' THEN NULL ELSE reviewed_at END,
-		reviewed_by=CASE WHEN $3='DRAFT' THEN NULL ELSE reviewed_by END,
-		version=version+1,updated_at=now() WHERE id=$4`, trimLength(input.Summary, 10000), input.SourceType, newStatus, id)
+		source_type=CASE WHEN $2 THEN 'AI_TEXT' ELSE source_type END,
+		status=$3,
+		submitted_at=CASE WHEN $4 THEN NULL ELSE submitted_at END,
+		reviewed_at=CASE WHEN $4 THEN NULL ELSE reviewed_at END,
+		reviewed_by=CASE WHEN $4 THEN NULL ELSE reviewed_by END,
+		version=version+1,updated_at=now() WHERE id=$5`,
+		trimRunes(input.Summary, 10000), relabelAsAI, newStatus, clearReview, id)
 	if err != nil {
+		a.logger.Error("update report", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
 		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 		return
 	}
@@ -275,6 +285,7 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	for index, item := range input.Items {
 		_, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.Progress, index)
 		if err != nil {
+			a.logger.Error("replace report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(r.Context()))
 			writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
 			return
 		}
@@ -562,13 +573,13 @@ func (a *App) reviewReport(w http.ResponseWriter, r *http.Request, target string
 		return
 	}
 	if strings.TrimSpace(input.Comment) != "" {
-		_, err = tx.Exec(r.Context(), `INSERT INTO report_comments(report_id,user_id,content) VALUES($1,$2,$3)`, id, p.ID, trimLength(strings.TrimSpace(input.Comment), 5000))
+		_, err = tx.Exec(r.Context(), `INSERT INTO report_comments(report_id,user_id,content) VALUES($1,$2,$3)`, id, p.ID, trimRunes(strings.TrimSpace(input.Comment), 5000))
 		if err != nil {
 			writeError(w, 500, "DATABASE_ERROR", "검토 의견을 저장할 수 없습니다.")
 			return
 		}
 	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment) VALUES($1,$2,'SUBMITTED',$3,$4)`, id, p.ID, target, trimLength(input.Comment, 5000))
+	_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment) VALUES($1,$2,'SUBMITTED',$3,$4)`, id, p.ID, target, trimRunes(input.Comment, 5000))
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeError(w, 500, "DATABASE_ERROR", "검토 결과를 저장할 수 없습니다.")
 		return
@@ -727,19 +738,26 @@ func editableSourceType(value string) string {
 	return "MANUAL"
 }
 
+// Every limit here is counted in characters so that it matches the varchar
+// column widths, which PostgreSQL also counts in characters. Counting bytes
+// rejected valid Korean input and, for fields with no check at all, let
+// oversized values reach the database and fail the request with a 500.
 func validateItems(items []reportItem) error {
 	if len(items) > 100 {
 		return errors.New("업무 항목은 최대 100개까지 입력할 수 있습니다.")
 	}
 	for _, item := range items {
-		if strings.TrimSpace(item.Title) == "" || len(item.Title) > 240 {
+		if strings.TrimSpace(item.Title) == "" || runeLength(item.Title) > 240 {
 			return errors.New("각 업무 항목의 제목은 1~240자여야 합니다.")
+		}
+		if runeLength(item.Category) > 80 {
+			return errors.New("업무 구분은 80자 이하로 입력하세요.")
 		}
 		if item.Progress < 0 || item.Progress > 100 {
 			return errors.New("진척도는 0~100 사이여야 합니다.")
 		}
-		if len(item.CurrentResult)+len(item.NextPlan)+len(item.Issue) > 60000 {
-			return errors.New("업무 항목 내용이 너무 깁니다.")
+		if runeLength(item.CurrentResult) > 20000 || runeLength(item.NextPlan) > 20000 || runeLength(item.Issue) > 20000 {
+			return errors.New("금주 실적, 차주 계획, 이슈는 각각 20000자 이하로 입력하세요.")
 		}
 	}
 	return nil

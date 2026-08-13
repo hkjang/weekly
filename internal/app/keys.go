@@ -49,7 +49,7 @@ func (a *App) createKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" || len(input.Name) > 120 {
+	if input.Name == "" || runeLength(input.Name) > 120 {
 		writeError(w, 400, "INVALID_KEY_NAME", "키 이름은 1~120자로 입력하세요.")
 		return
 	}
