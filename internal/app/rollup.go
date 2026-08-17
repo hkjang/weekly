@@ -204,7 +204,7 @@ func resolvePeriod(kind, period string, now time.Time) (periodRange, error) {
 		start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, location)
 		return periodRange{
 			Kind: periodMonth, Period: fmt.Sprintf("%04d-%02d", year, month),
-			Label: fmt.Sprintf("%d년 %d월", year, month),
+			Label:     fmt.Sprintf("%d년 %d월", year, month),
 			StartDate: start, EndDate: start.AddDate(0, 1, -1),
 		}.normalized(), nil
 
@@ -228,7 +228,7 @@ func resolvePeriod(kind, period string, now time.Time) (periodRange, error) {
 		start := time.Date(year, time.Month((quarter-1)*3+1), 1, 0, 0, 0, 0, location)
 		return periodRange{
 			Kind: periodQuarter, Period: fmt.Sprintf("%04d-Q%d", year, quarter),
-			Label: fmt.Sprintf("%d년 %d분기", year, quarter),
+			Label:     fmt.Sprintf("%d년 %d분기", year, quarter),
 			StartDate: start, EndDate: start.AddDate(0, 3, -1),
 		}.normalized(), nil
 
@@ -256,7 +256,7 @@ func resolvePeriod(kind, period string, now time.Time) (periodRange, error) {
 		names := map[int]string{1: "상반기", 2: "하반기"}
 		return periodRange{
 			Kind: periodHalf, Period: fmt.Sprintf("%04d-H%d", year, half),
-			Label: fmt.Sprintf("%d년 %s", year, names[half]),
+			Label:     fmt.Sprintf("%d년 %s", year, names[half]),
 			StartDate: start, EndDate: start.AddDate(0, 6, -1),
 		}.normalized(), nil
 
@@ -271,7 +271,7 @@ func resolvePeriod(kind, period string, now time.Time) (periodRange, error) {
 		start := time.Date(year, time.January, 1, 0, 0, 0, 0, location)
 		return periodRange{
 			Kind: periodYear, Period: fmt.Sprintf("%04d", year),
-			Label: fmt.Sprintf("%d년", year),
+			Label:     fmt.Sprintf("%d년", year),
 			StartDate: start, EndDate: start.AddDate(1, 0, -1),
 		}.normalized(), nil
 	}
@@ -391,14 +391,15 @@ func (s *lineSet) render() string {
 // Title level de-duplication
 // ---------------------------------------------------------------------------
 
+// titleTokens splits a title into comparison tokens. Single character tokens are
+// kept: they are often the only thing telling two tasks apart ("서버 A 점검" and
+// "서버 B 점검", "업무 1" and "업무 2"), and dropping them merged distinct work.
 func titleTokens(value string) map[string]bool {
 	result := map[string]bool{}
 	for _, field := range strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	}) {
-		if len([]rune(field)) >= 2 {
-			result[field] = true
-		}
+		result[field] = true
 	}
 	return result
 }

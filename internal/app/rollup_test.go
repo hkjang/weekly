@@ -68,8 +68,8 @@ func TestExpectedWeekStartsCoversOverlappingWeeks(t *testing.T) {
 func TestLineSetRemovesDuplicateLines(t *testing.T) {
 	set := newLineSet()
 	set.add("• API 설계 완료\n• 스키마 정의")
-	set.add("- api 설계 완료")   // same line, different marker and case
-	set.add("API설계 완료")      // same line, whitespace removed
+	set.add("- api 설계 완료") // same line, different marker and case
+	set.add("API설계 완료")    // same line, whitespace removed
 	set.add("성능 시험 착수")
 	if set.dropped != 2 {
 		t.Errorf("dropped = %d, want 2", set.dropped)
@@ -110,6 +110,26 @@ func TestTitleSimilarity(t *testing.T) {
 	// Sharing a prefix is not enough when the tails differ.
 	if score := titleSimilarity("AI 게이트웨이 구축", "AI 게이트웨이 폐기"); score >= 80 {
 		t.Errorf("divergent titles scored %d, want below 80", score)
+	}
+	// A single character is often the only distinguisher between real tasks and
+	// must not be discarded during tokenization.
+	if score := titleSimilarity("서버 A 점검", "서버 B 점검"); score >= 80 {
+		t.Errorf("titles differing only by one letter scored %d, want below 80", score)
+	}
+	if score := titleSimilarity("업무 항목 1", "업무 항목 2"); score >= 80 {
+		t.Errorf("numbered titles scored %d, want below 80", score)
+	}
+}
+
+func TestAggregateKeepsNumberedTasksApart(t *testing.T) {
+	entries := []sourceEntry{
+		entry("2026-08-03", "점검", "서버 A 점검", "완료", "", "", 100),
+		entry("2026-08-03", "점검", "서버 B 점검", "진행", "", "", 40),
+		entry("2026-08-03", "운영", "업무 항목 1", "a", "", "", 10),
+		entry("2026-08-03", "운영", "업무 항목 2", "b", "", "", 20),
+	}
+	if items := aggregateRollupItems(entries, defaultRollupConfig()); len(items) != 4 {
+		t.Fatalf("item count = %d, want 4 distinct tasks: %+v", len(items), items)
 	}
 }
 

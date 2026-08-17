@@ -199,6 +199,8 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "PPTX_RENDER_ERROR", "PPTX를 생성할 수 없습니다.")
 		return
 	}
+	// Screen captures become their own slides before or after the written report.
+	result = a.attachCaptureSlides(r.Context(), result, id)
 	filename := fmt.Sprintf("%s_%s_주간업무보고.pptx", strings.ReplaceAll(report.WeekStart, "-", ""), report.DisplayName)
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 	w.Header().Set("Content-Disposition", "attachment; filename=weekly-report.pptx; filename*=UTF-8''"+url.PathEscape(filename))

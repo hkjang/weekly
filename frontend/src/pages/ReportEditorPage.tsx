@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, del, patch, post, put } from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
+import AttachmentPanel from '../AttachmentPanel'
 import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', progress: 0, sortOrder: 0 })
@@ -47,6 +48,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
       <div className="form-grid title-grid"><label>구분<input value={item.category} disabled={!editable} maxLength={80} onChange={e => changeItem(index, { category: e.target.value })} placeholder="프로젝트 / 운영"/></label><label>업무 제목<input value={item.title} disabled={!editable} maxLength={240} onChange={e => changeItem(index, { title: e.target.value })} placeholder="업무명을 입력하세요"/></label><label>진척도 <b>{item.progress}%</b><input type="range" min="0" max="100" step="5" value={item.progress} disabled={!editable} onChange={e => changeItem(index, { progress: Number(e.target.value) })}/></label></div>
       <div className="form-grid content-grid"><label>이번 주 — 한 일<textarea value={item.currentResult} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { currentResult: e.target.value })} placeholder="완료한 일과 결과를 적으세요."/></label><label>다음 주 — 할 일<textarea value={item.nextPlan} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { nextPlan: e.target.value })} placeholder="다음 주 계획을 적으세요."/></label><label>이슈 / 지원 요청<textarea value={item.issue} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { issue: e.target.value })} placeholder="이슈가 없다면 비워 두세요."/></label></div>
     </Card>) : <Empty>업무 항목을 추가해 주세요.</Empty>}
+    {report && <AttachmentPanel reportId={report.id} editable notify={notify} />}
     {report?.comments.length ? <Card title="검토 의견"><div className="comments">{report.comments.map(comment => <div key={comment.id}><strong>{comment.displayName}</strong><span>{new Date(comment.createdAt).toLocaleString('ko-KR')}</span><p>{comment.content}</p></div>)}</div></Card> : null}
   </>
 }

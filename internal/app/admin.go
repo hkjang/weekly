@@ -43,6 +43,8 @@ var settingDefinitions = map[string]settingDefinition{
 	"rollup.stall_weeks":                  {Validate: integerRange(2, 12)},
 	"rollup.persistent_issue_weeks":       {Validate: integerRange(2, 12)},
 	"rollup.max_weeks":                    {Validate: integerRange(1, 400)},
+	"attachment.max_per_report":           {Validate: integerRange(1, 100)},
+	"attachment.max_file_mb":              {Validate: integerRange(1, 50)},
 	"ai.enabled":                          {Validate: booleanValue},
 	"ai.endpoint":                         {Validate: validOptionalURL},
 	"ai.api_key":                          {Secret: true, Validate: bounded(0, 4096)},

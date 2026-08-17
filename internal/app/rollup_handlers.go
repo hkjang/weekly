@@ -3,11 +3,9 @@ package app
 import (
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -243,43 +241,12 @@ func (a *App) exportRollupPPTX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "EMPTY_ROLLUP", "내보낼 업무가 없습니다.")
 		return
 	}
-	template, err := os.ReadFile(customPPTXPath)
-	customTemplate := err == nil
-	if errors.Is(err, os.ErrNotExist) && len(a.defaultPPTX) > 0 {
-		template = a.defaultPPTX
-		err = nil
-	} else if errors.Is(err, os.ErrNotExist) {
-		template, err = defaultPPTX()
-	}
+	// A period rollup can carry a year of merged work, which the fixed four
+	// slide weekly frame cannot hold. The rollup builds its own paginated deck
+	// so every slide stays readable no matter how long the period is.
+	result, err := buildRollupDeck(view)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "PPTX_TEMPLATE_ERROR", "PPTX 템플릿을 읽을 수 없습니다.")
-		return
-	}
-
-	report := &reportView{
-		ID: 0, UserID: p.ID, DisplayName: view.ScopeLabel, WeekStart: view.Start,
-		Status: "CLOSED", Summary: view.Summary, Items: rollupItemsAsReportItems(view.Items),
-		Comments: []reportComment{},
-	}
-	values := map[string]string{
-		"{{WEEK_START}}":    strings.ReplaceAll(view.Start, "-", "."),
-		"{{WEEK_END}}":      strings.ReplaceAll(view.End, "-", "."),
-		"{{WEEK_SCHEDULE}}": view.Label,
-		"{{AUTHOR}}":        view.ScopeLabel,
-		"{{TEAM}}":          view.ScopeLabel,
-		"{{THIS_WEEK}}":     reportItemLines(report.Items, "current"),
-		"{{NEXT_WEEK}}":     reportItemLines(report.Items, "next"),
-		"{{ISSUES}}":        reportItemLines(report.Items, "issue"),
-	}
-	var result []byte
-	if !customTemplate && len(a.defaultPPTX) > 0 {
-		start, _ := time.Parse("2006-01-02", view.Start)
-		result, err = renderReferencePPTX(template, report, view.ScopeLabel, start)
-	} else {
-		result, err = renderPPTX(template, values)
-	}
-	if err != nil {
-		a.logger.Error("render rollup PPTX", "error", err)
+		a.logger.Error("render rollup PPTX", "error", err, "kind", view.Kind, "period", view.Period)
 		writeError(w, http.StatusInternalServerError, "PPTX_RENDER_ERROR", "PPTX를 생성할 수 없습니다.")
 		return
 	}

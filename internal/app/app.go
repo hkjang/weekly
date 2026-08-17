@@ -154,6 +154,11 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/reports/{id}/reject", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(a.csrf(http.HandlerFunc(a.rejectReport))))
 	a.mux.Handle("POST /api/v1/reports/{id}/comments", a.requireAuth(a.csrf(http.HandlerFunc(a.addComment))))
 	a.mux.Handle("GET /api/v1/reports/{id}/export.pptx", a.requireAuth(http.HandlerFunc(a.exportReportPPTX)))
+	a.mux.Handle("GET /api/v1/reports/{id}/attachments", a.requireAuth(http.HandlerFunc(a.listAttachments)))
+	a.mux.Handle("POST /api/v1/reports/{id}/attachments", a.requireAuth(a.csrf(http.HandlerFunc(a.uploadAttachments))))
+	a.mux.Handle("GET /api/v1/reports/{id}/attachments/{attachmentId}", a.requireAuth(http.HandlerFunc(a.serveAttachment)))
+	a.mux.Handle("PATCH /api/v1/reports/{id}/attachments/{attachmentId}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateAttachment))))
+	a.mux.Handle("DELETE /api/v1/reports/{id}/attachments/{attachmentId}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteAttachment))))
 	a.mux.Handle("GET /api/v1/team/reports", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.teamReports)))
 	a.mux.Handle("GET /api/v1/rollups", a.requireAuth(http.HandlerFunc(a.periodRollup)))
 	a.mux.Handle("GET /api/v1/rollups/export.csv", a.requireAuth(http.HandlerFunc(a.exportRollupCSV)))
@@ -305,6 +310,7 @@ func (a *App) maintenance(ctx context.Context) {
 			retention := a.settingInt(ctx, "analytics.retention_days", 90)
 			_, _ = a.db.Exec(ctx, `DELETE FROM api_request_metrics WHERE bucket < now() - ($1 || ' days')::interval`, retention)
 			a.cleanupImportSources(ctx)
+			a.cleanupAttachmentFiles(ctx)
 		}
 	}
 }

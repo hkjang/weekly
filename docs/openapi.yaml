@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.7.2
+  version: 0.8.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -197,9 +197,70 @@ paths:
       parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /reports/{id}/attachments:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+    get:
+      summary: 보고서 화면 캡처 목록
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: 화면 캡처 이미지 첨부, 본인 보고서만
+      description: multipart/form-data. `files`에 PNG, JPEG, GIF를 담고 `placement`로 본문 앞뒤를 지정한다.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+                placement: { type: string, enum: [BEFORE, AFTER], default: AFTER }
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /reports/{id}/attachments/{attachmentId}:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+      - { in: path, name: attachmentId, required: true, schema: { type: integer, format: int64 } }
+    get:
+      summary: 첨부 이미지 원본
+      responses:
+        "200":
+          description: 이미지 바이트
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/gif: { schema: { type: string, format: binary } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: 캡처 설명, 삽입 위치와 순서 변경
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                caption: { type: string, maxLength: 240 }
+                placement: { type: string, enum: [BEFORE, AFTER] }
+                sortOrder: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: 첨부 이미지 삭제
+      responses:
+        "204": { description: 삭제 완료 }
+        "403": { $ref: "#/components/responses/Error" }
   /reports/{id}/export.pptx:
     get:
-      summary: 템플릿 기반 PPTX 다운로드
+      summary: 템플릿 기반 PPTX 다운로드, 첨부한 화면 캡처를 본문 앞뒤 슬라이드로 포함
       parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
         "200":
@@ -359,7 +420,7 @@ paths:
   /rollups/export.pptx:
     get:
       summary: 기간 보고 PPTX 내보내기
-      description: 주간보고와 동일한 관리자 등록 PPTX 규격으로 기간 집계 결과를 내보냅니다.
+      description: 표지, 경영 인사이트, 업무 현황표, 업무 상세, 이슈로 구성된 기간 보고 전용 레이아웃을 내용량에 맞춰 분면해 내보냅니다.
       parameters:
         - { name: kind, in: query, schema: { type: string, enum: [MONTH, QUARTER, HALF, YEAR], default: MONTH } }
         - { name: period, in: query, schema: { type: string } }

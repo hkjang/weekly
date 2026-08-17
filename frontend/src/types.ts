@@ -43,6 +43,12 @@ export interface ConfluenceMapping {
   userId: number; username: string; displayName: string; email: string; externalUsername?: string; mappingSource?: 'EXPLICIT' | 'EMAIL_LOCALPART' | 'USERNAME'
   active?: boolean; suggestedUsername: string; suggestionSource: 'EMAIL_LOCALPART' | 'USERNAME'
 }
+export type AttachmentPlacement = 'BEFORE' | 'AFTER'
+export interface ReportAttachment {
+  id: number; filename: string; caption: string; placement: AttachmentPlacement
+  sortOrder: number; sizeBytes: number; width: number; height: number; createdAt: string
+}
+
 export type PeriodKind = 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'
 export type RollupScope = 'SELF' | 'TEAM'
 export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'

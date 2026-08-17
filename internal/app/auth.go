@@ -398,4 +398,3 @@ func remoteHost(r *http.Request) string {
 	}
 	return host
 }
-
