@@ -36,3 +36,50 @@
 .palette-foot{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--line);background:#f8fafc;font-size:10px;color:#94a3b8;flex-wrap:wrap}.palette-foot kbd{font:600 10px/1 ui-monospace,monospace;background:#fff;border:1px solid var(--line);border-radius:4px;padding:3px 5px;color:#475569;margin-right:3px}.palette-user{margin-left:auto;font-weight:700;color:#64748b}
 @media(max-width:760px){.palette-backdrop{padding:8vh 12px 12px}.palette-trigger-text{display:none}.palette-trigger{margin-right:0}.palette-foot>span:nth-child(3){display:none}}
 .palette-busy{color:#2563eb;font-weight:700}.palette-item small{font-family:inherit}.palette-item .palette-snippet{font-family:inherit}
+/* Import, AI preview and Confluence editors reflow by available width instead of
+   at fixed breakpoints. Form controls default to an intrinsic width that a 1fr
+   track cannot shrink below, so without min-width:0 the grid grows past its
+   container and pushes the page sideways once the column gets narrow. */
+.import-layout{grid-template-columns:minmax(0,310px) minmax(0,1fr)}
+.import-layout>*{min-width:0}
+.card-head h2{min-width:0;overflow-wrap:anywhere}
+.card-head>*{min-width:0}
+.import-job-list>button{min-width:0}
+.import-job-list>button>span,.import-job-list>button small{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.import-progress>div{min-width:0}
+/* Headers wrap instead of overflowing: a wrapped control is readable, a clipped one is not. */
+.ai-preview-list section>header,.import-item-editor section>header,.confluence-candidates>section>header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;grid-template-columns:none}
+.ai-preview-list section>header>input:first-child,.import-item-editor section>header>input:first-child,.confluence-candidates>section>header>input:first-child{flex:1 1 120px}
+.ai-preview-list section>header>input:nth-child(2),.import-item-editor section>header>input:nth-child(2),.confluence-candidates>section>header>input:nth-child(2){flex:3 1 200px}
+.ai-preview-list section>header>.confidence,.import-item-editor section>header>.confidence,.confluence-candidates>section>header>.confidence,.ai-preview-list section>header>.item-controls,.import-item-editor section>header>.item-controls,.ai-preview-list section>header>.remove-button{flex:0 0 auto}
+.ai-preview-list section>div,.import-item-editor section>div,.candidate-fields{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.import-decision{grid-template-columns:none;display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px}
+.import-decision>label{flex:1 1 200px}
+.import-decision>.checkbox-line{flex:1 1 100%}
+.import-decision>.conflict-warning{flex:1 1 100%}
+.import-upload{grid-template-columns:minmax(0,1fr) auto}
+.import-upload>*{min-width:0}
+.ai-preview-list label,.import-item-editor label,.candidate-fields label,.import-decision label,.ai-summary,.import-summary{min-width:0}
+.ai-preview-list input,.ai-preview-list textarea,.ai-preview-list select,.import-item-editor input,.import-item-editor textarea,.import-item-editor select,.candidate-fields input,.candidate-fields textarea,.import-decision input,.import-decision select,.ai-summary textarea,.import-summary textarea{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+.ai-preview-list section,.import-item-editor section,.confluence-candidates>section{min-width:0;overflow-wrap:anywhere}
+.import-file-meta{min-width:0}
+.import-file-meta>span,.import-file-meta>button{min-width:0;overflow-wrap:anywhere}
+.import-confirm-bar{min-width:0}.import-confirm-bar span{min-width:0}
+@media(max-width:1100px){.import-job-list{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}}
+/* The base rule above sits after the 1100px media query, so the single column
+   collapse has to be restated to keep winning at narrow widths. */
+@media(max-width:1100px){.import-layout{grid-template-columns:minmax(0,1fr)}}
+/* min(floor,100%) keeps the track floor from ever exceeding its container, so a
+   narrow column falls back to one full width column instead of overflowing. */
+.ai-preview-list section>div,.import-item-editor section>div,.candidate-fields{grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr))}
+.import-decision>label{flex:1 1 min(200px,100%)}
+.ai-preview-list section>header>input:first-child,.import-item-editor section>header>input:first-child,.confluence-candidates>section>header>input:first-child{flex:1 1 min(120px,100%)}
+.ai-preview-list section>header>input:nth-child(2),.import-item-editor section>header>input:nth-child(2),.confluence-candidates>section>header>input:nth-child(2){flex:3 1 min(200px,100%)}
+.capture-list{grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr))}
+.insight-grid{grid-template-columns:repeat(auto-fit,minmax(min(270px,100%),1fr))}
+/* width:100% must not apply to checkboxes, radios or range sliders: stretching a
+   checkbox pushes its own label across the row. */
+.import-decision input[type=checkbox],.import-item-editor input[type=checkbox],.ai-preview-list input[type=checkbox],.candidate-fields input[type=checkbox]{width:17px;min-width:17px;height:17px;flex:0 0 auto}
+.import-decision input[type=range],.import-item-editor input[type=range],.ai-preview-list input[type=range]{width:100%;min-width:0;padding:0;box-shadow:none;border:0}
+.import-decision>.checkbox-line{display:flex;flex-direction:row;align-items:center;gap:8px;justify-content:flex-start}
+.import-decision>.checkbox-line input[type=checkbox]{margin:0}
