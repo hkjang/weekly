@@ -119,6 +119,8 @@ func New(ctx context.Context, options Options) (*App, error) {
 		return nil, err
 	}
 	a.routes()
+	// Existing report items predate work items, so they are linked once on start.
+	a.backfillWorkItems(ctx)
 	go a.maintenance(ctx)
 	go a.importWorker(ctx)
 	go a.confluenceWorker(ctx)
@@ -161,6 +163,7 @@ func (a *App) routes() {
 	a.mux.Handle("DELETE /api/v1/reports/{id}/attachments/{attachmentId}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteAttachment))))
 	a.mux.Handle("GET /api/v1/search", a.requireAuth(http.HandlerFunc(a.searchReports)))
 	a.mux.Handle("GET /api/v1/team/reports", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.teamReports)))
+	a.mux.Handle("GET /api/v1/work-items", a.requireAuth(http.HandlerFunc(a.listWorkItems)))
 	a.mux.Handle("GET /api/v1/rollups", a.requireAuth(http.HandlerFunc(a.periodRollup)))
 	a.mux.Handle("GET /api/v1/rollups/export.csv", a.requireAuth(http.HandlerFunc(a.exportRollupCSV)))
 	a.mux.Handle("GET /api/v1/rollups/export.pptx", a.requireAuth(http.HandlerFunc(a.exportRollupPPTX)))

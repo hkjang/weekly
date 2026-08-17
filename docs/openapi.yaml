@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.10.0
+  version: 0.11.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -433,6 +433,18 @@ paths:
                                       label: { type: string }
                                       title: { type: string }
                                       snippet: { type: string }
+  /work-items:
+    get:
+      summary: 주차를 넘어 이어지는 업무와 경과 추적
+      description: |
+        업무별로 경과 주차, 보고 누락 주차, 진척 정체 구간, 이슈 지속 주차, 계획 반복 횟수와
+        주차별 기록을 반환한다. 모든 값은 주차 스냅샷에서 파생하므로 별도 갱신이 필요 없다.
+      parameters:
+        - { name: scope, in: query, description: "TEAM은 팀장 이상만 조회할 수 있습니다.", schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /rollups:
     get:
       summary: 월간·분기·반기·연간 기간 보고 집계

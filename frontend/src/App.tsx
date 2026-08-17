@@ -15,12 +15,13 @@ import ProfilePage from './pages/ProfilePage'
 import AdminPage from './pages/AdminPage'
 import ImportPage from './pages/ImportPage'
 import RollupPage from './pages/RollupPage'
+import WorkItemsPage from './pages/WorkItemsPage'
 
 type Page = PageName
 
 // Single letter jumps after pressing `g`, the way keyboard driven tools do it.
 const gotoKeys: Record<string, Page> = {
-  d: 'dashboard', c: 'current', h: 'history', r: 'rollup',
+  d: 'dashboard', c: 'current', h: 'history', w: 'work', r: 'rollup',
   i: 'import', t: 'team', a: 'analytics', p: 'profile', s: 'admin',
 }
 
@@ -123,6 +124,7 @@ export default function App() {
     { page: 'dashboard', label: '대시보드', keywords: ['dashboard', 'home', '홈'], visible: true },
     { page: 'current', label: '내 주간보고', keywords: ['current', 'weekly', '작성', '임시저장', '제출'], visible: true },
     { page: 'history', label: '과거 보고', keywords: ['history', 'past', '이전', '복제'], visible: true },
+    { page: 'work', label: '업무 추적', keywords: ['work', 'workitem', '업무', '정체', '경과', 'aging'], visible: true },
     { page: 'rollup', label: '기간 업무보고', keywords: ['rollup', 'period', '월간', '분기', '반기', '연간'], visible: true },
     { page: 'import', label: 'PPTX 가져오기', keywords: ['import', 'pptx', '업로드'], visible: true },
     { page: 'team', label: '팀 주간보고', keywords: ['team', '조직', '승인', '검토'], visible: canTeam },
@@ -154,6 +156,7 @@ export default function App() {
         <Nav active={page === 'dashboard'} icon="⌂" onClick={() => navigate('dashboard')}>대시보드</Nav>
         <Nav active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>
         <Nav active={page === 'history'} icon="◷" onClick={() => navigate('history')}>과거 보고</Nav>
+        <Nav active={page === 'work'} icon="◎" onClick={() => navigate('work')}>업무 추적</Nav>
         <Nav active={page === 'rollup'} icon="▤" onClick={() => navigate('rollup')}>기간 업무보고</Nav>
         <Nav active={page === 'import'} icon="⇧" onClick={() => navigate('import')}>PPTX 가져오기</Nav>
         {canTeam && <><span className="nav-label">조직</span><Nav active={page === 'team'} icon="♙" onClick={() => navigate('team')}>팀 주간보고</Nav><Nav active={page === 'analytics'} icon="▥" onClick={() => navigate('analytics')}>보고 분석</Nav></>}
@@ -177,6 +180,7 @@ export default function App() {
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} openReportId={Number(params.report) || undefined} notify={notify} />}
+        {page === 'work' && <WorkItemsPage session={session} notify={notify} />}
         {page === 'rollup' && <RollupPage session={session} route={params} notify={notify} />}
         {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}

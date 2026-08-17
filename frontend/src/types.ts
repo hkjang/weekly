@@ -5,7 +5,7 @@ export interface BuildInfo { version: string; commit: string; builtAt: string }
 export interface User { id: number; username: string; displayName: string; email: string; role: Role; organizationId?: number; keyVersion: number }
 export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; currentWeekStart: string; serviceName: string; notice: string; build: BuildInfo }
 export interface Providers { local: boolean; oidc: boolean; name: string; notice: string; build: BuildInfo }
-export interface ReportItem { id?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; progress: number; sortOrder: number }
+export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number }
 export interface ReportComment { id: number; userId: number; displayName: string; content: string; createdAt: string }
 export type ReportSource = 'MANUAL' | 'AI_TEXT' | 'PPTX_IMPORT' | 'CONFLUENCE_AI' | 'CLONED' | 'API' | 'JIRA'
 export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[] }
@@ -15,7 +15,10 @@ export interface KeyView { id: number; name: string; prefix: string; keyVersion:
 export interface AdminUser extends User { managerId?: number; active: boolean; lastLoginAt?: string; createdAt: string }
 export interface Organization { id: number; parentId?: number; name: string; code: string; userCount: number }
 export interface Setting { key: string; value?: string; secret: boolean; configured: boolean; available: boolean; updatedAt: string }
-export type AIReportItem = Omit<ReportItem, 'id' | 'sortOrder'> & { confidence: number; categoryConfidence?: number; sourceSlides?: number[] }
+export type AIReportItem = {
+  category: string; title: string; currentResult: string; nextPlan: string; issue: string; progress: number
+  confidence: number; categoryConfidence?: number; sourceSlides?: number[]
+}
 export interface AIWeeklyResult { summary: string; weekStart: string; dateConfidence: number; reportItems: AIReportItem[]; warnings: string[] }
 export type ImportJobStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'PARTIAL' | 'FAILED' | 'CONFIRMED'
 export type ImportFileStatus = 'QUEUED' | 'PROCESSING' | 'READY' | 'NEEDS_REVIEW' | 'FAILED' | 'DUPLICATE' | 'CONFIRMED' | 'SKIPPED'
@@ -43,6 +46,16 @@ export interface ConfluenceMapping {
   userId: number; username: string; displayName: string; email: string; externalUsername?: string; mappingSource?: 'EXPLICIT' | 'EMAIL_LOCALPART' | 'USERNAME'
   active?: boolean; suggestedUsername: string; suggestionSource: 'EMAIL_LOCALPART' | 'USERNAME'
 }
+export interface WorkItemWeek { weekStart: string; reportId: number; progress: number; currentResult: string; nextPlan: string; issue: string; managementAsk: string }
+export interface WorkItem {
+  id: number; title: string; category: string; userId: number; displayName: string; dueDate?: string
+  firstWeek: string; lastWeek: string; reportedWeeks: number; ageWeeks: number; silentWeeks: number
+  progress: number; startProgress: number; progressGain: number
+  stalledWeeks: number; issueWeeks: number; repeatedPlan: number
+  completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean
+  latestIssue: string; latestManagementAsk: string; weeks: WorkItemWeek[]
+}
+
 export interface AnalysisTerm { term: string; count: number; documents: number; weight: number; delta: number; phrase: boolean }
 export interface KeywordAnalytics {
   start: string; end: string; weeks: number; field: string; documents: number; reports: number
@@ -83,7 +96,7 @@ export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
 export interface RollupItemWeek { weekStart: string; progress: number; hasIssue: boolean }
 export interface RollupItem {
   key: string; category: string; title: string; currentResult: string; nextPlan: string; issue: string
-  progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number
+  managementAsk: string; progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number
   owners: string[]; weeks: RollupItemWeek[]; mergedTitles: string[]
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean; duplicatesCut: number
 }
@@ -98,7 +111,7 @@ export interface RollupInsights {
   totalItems: number; completedItems: number; inProgressItems: number; notStartedItems: number
   completionRate: number; averageProgress: number; progressGain: number
   continuingItems: number; oneOffItems: number; stalledItems: number; carryoverItems: number
-  issueItems: number; persistentIssues: number
+  issueItems: number; persistentIssues: number; askItems: number
   expectedWeeks: number; reportedWeeks: number; reportCoverage: number
   sourceReports: number; sourceItems: number; duplicatesCut: number; mergedTitles: number; dedupRate: number
 }

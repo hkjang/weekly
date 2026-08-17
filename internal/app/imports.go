@@ -473,7 +473,7 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 			err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,status,summary,source_type,source_ref)
 				VALUES($1,$2,'CLOSED',$3,'PPTX_IMPORT',$4) RETURNING id`, p.ID, week, trimRunes(file.Summary, 10000), strconv.FormatInt(file.ID, 10)).Scan(&reportID)
 			if err == nil {
-				err = insertImportedItems(r.Context(), tx, reportID, items, 0)
+				err = insertImportedItems(r.Context(), tx, reportID, p.ID, items, 0)
 			}
 			if err == nil {
 				_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,to_status,comment) VALUES($1,$2,'CLOSED','PPTX 과거 보고 Import')`, reportID, p.ID)
@@ -487,10 +487,10 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 				_, err = tx.Exec(r.Context(), `DELETE FROM report_items WHERE report_id=$1`, reportID)
 			}
 			if err == nil {
-				err = insertImportedItems(r.Context(), tx, reportID, items, 0)
+				err = insertImportedItems(r.Context(), tx, reportID, p.ID, items, 0)
 			}
 		} else {
-			err = mergeImportedItems(r.Context(), tx, reportID, items)
+			err = mergeImportedItems(r.Context(), tx, reportID, p.ID, items)
 			if err == nil {
 				_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,status='CLOSED',source_type='PPTX_IMPORT',source_ref=$2,version=version+1,updated_at=now() WHERE id=$3`,
 					trimRunes(mergeText(existingSummary, file.Summary), 10000), strconv.FormatInt(file.ID, 10), reportID)
@@ -557,10 +557,15 @@ func normalizeImportedItems(items []reportItem) []reportItem {
 	return result
 }
 
-func insertImportedItems(ctx context.Context, tx pgx.Tx, reportID int64, items []reportItem, offset int) error {
+func insertImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem, offset int) error {
 	for index, item := range items {
-		_, err := tx.Exec(ctx, `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, reportID, trimRunes(strings.TrimSpace(item.Category), 80), trimRunes(strings.TrimSpace(item.Title), 240),
+		// Imported history joins the same work item timeline as manual entry.
+		workItemID, resolveErr := resolveWorkItem(ctx, tx, ownerID, item.Title, item.Category)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,progress,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, reportID, workItemID, trimRunes(strings.TrimSpace(item.Category), 80), trimRunes(strings.TrimSpace(item.Title), 240),
 			trimRunes(strings.TrimSpace(item.CurrentResult), 20000), trimRunes(strings.TrimSpace(item.NextPlan), 20000), trimRunes(strings.TrimSpace(item.Issue), 20000), item.Progress, offset+index)
 		if err != nil {
 			return err
@@ -569,7 +574,7 @@ func insertImportedItems(ctx context.Context, tx pgx.Tx, reportID int64, items [
 	return nil
 }
 
-func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID int64, items []reportItem) error {
+func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem) error {
 	var sortOrder int
 	_ = tx.QueryRow(ctx, `SELECT coalesce(max(sort_order),-1)+1 FROM report_items WHERE report_id=$1`, reportID).Scan(&sortOrder)
 	for _, item := range items {
@@ -580,7 +585,7 @@ func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID int64, items []
 			WHERE report_id=$1 AND lower(trim(category))=lower(trim($2)) AND lower(trim(title))=lower(trim($3)) ORDER BY id LIMIT 1`, reportID, item.Category, item.Title).
 			Scan(&id, &current, &next, &issue, &progress)
 		if errors.Is(err, pgx.ErrNoRows) {
-			if err := insertImportedItems(ctx, tx, reportID, []reportItem{item}, sortOrder); err != nil {
+			if err := insertImportedItems(ctx, tx, reportID, ownerID, []reportItem{item}, sortOrder); err != nil {
 				return err
 			}
 			sortOrder++

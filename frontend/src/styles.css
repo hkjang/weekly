@@ -89,3 +89,12 @@
 .term-table .table-wrap{max-height:430px;overflow:auto}.term-table th{position:sticky;top:0;z-index:1}.term-table td{padding:8px 10px;font-size:12px}.term-table tbody tr.selected{background:#eff6ff}.rank-cell{color:#94a3b8;font-size:11px;width:34px}.term-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}.delta-up{color:#1d4ed8;font-weight:700}.delta-down{color:#94a3b8}
 .analytics-metrics{margin-top:16px}.analytics-metrics .card{margin-bottom:0}
 @media(max-width:1100px){.analytics-split{grid-template-columns:minmax(0,1fr)}.term-table .table-wrap{max-height:none}}
+.content-grid{grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))}
+.inline-select{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:700;color:#475569}.inline-select select{height:38px;padding:0 10px;min-width:140px}
+.state-chip.ask{background:#ede9fe;color:#6d28d9}.ask-line{color:#6d28d9}.warn-text{color:#b45309}
+.ask-panel{background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:13px 15px;margin-bottom:16px}.ask-panel strong{font-size:11px;color:#6d28d9;text-transform:uppercase;letter-spacing:.05em}.ask-panel p{margin:6px 0 0;color:#4c1d95;font-size:13px;white-space:pre-wrap}
+.timeline-heading{margin:18px 0 10px;font-size:12px;color:#475569;text-transform:uppercase;letter-spacing:.05em}
+.work-timeline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.work-timeline li{border:1px solid var(--line);border-left:3px solid #2563eb;border-radius:9px;padding:12px 14px;background:#fbfdff}
+.work-timeline-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.work-timeline-head strong{font-size:13px;color:#0f172a}.work-progress{font-size:11px;font-weight:800;color:#1d4ed8;background:#dbeafe;border-radius:99px;padding:3px 9px}
+.work-timeline-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px}.work-timeline-body b{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.work-timeline-body p{margin:4px 0 0;font-size:12px;color:#334155;white-space:pre-wrap}

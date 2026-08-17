@@ -135,7 +135,7 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 
 	entries := []sourceEntry{}
 	if len(reportIDs) > 0 {
-		itemRows, err := a.db.Query(ctx, `SELECT i.report_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.progress
+		itemRows, err := a.db.Query(ctx, `SELECT i.report_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.management_ask,i.progress
 			FROM report_items i WHERE i.report_id = ANY($1) ORDER BY i.report_id,i.sort_order,i.id`, reportIDs)
 		if err != nil {
 			return rollupView{}, err
@@ -148,7 +148,7 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 		for itemRows.Next() {
 			var entry sourceEntry
 			var id int64
-			if err := itemRows.Scan(&id, &entry.Category, &entry.Title, &entry.CurrentResult, &entry.NextPlan, &entry.Issue, &entry.Progress); err != nil {
+			if err := itemRows.Scan(&id, &entry.Category, &entry.Title, &entry.CurrentResult, &entry.NextPlan, &entry.Issue, &entry.ManagementAsk, &entry.Progress); err != nil {
 				return rollupView{}, err
 			}
 			report := byReport[id]
@@ -200,7 +200,7 @@ func (a *App) exportRollupCSV(w http.ResponseWriter, r *http.Request) {
 	// Excel needs the BOM to detect UTF-8 in Korean locales.
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(w)
-	_ = writer.Write([]string{"구분", "업무", "담당", "실적", "다음 계획", "이슈", "진척도", "수행 주차", "시작 주차", "최종 주차", "상태"})
+	_ = writer.Write([]string{"구분", "업무", "담당", "실적", "다음 계획", "이슈", "상위 조직 요청", "진척도", "수행 주차", "시작 주차", "최종 주차", "상태"})
 	for _, item := range view.Items {
 		state := "진행"
 		switch {
@@ -215,7 +215,7 @@ func (a *App) exportRollupCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = writer.Write([]string{
 			item.Category, item.Title, strings.Join(item.Owners, ", "),
-			item.CurrentResult, item.NextPlan, item.Issue,
+			item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk,
 			fmt.Sprintf("%d%%", item.Progress), fmt.Sprint(item.WeekCount),
 			item.FirstWeek, item.LastWeek, state,
 		})

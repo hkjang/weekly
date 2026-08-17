@@ -15,11 +15,16 @@ import (
 
 type reportItem struct {
 	ID            int64  `json:"id,omitempty"`
+	WorkItemID    *int64 `json:"workItemId,omitempty"`
 	Category      string `json:"category"`
 	Title         string `json:"title"`
 	CurrentResult string `json:"currentResult"`
 	NextPlan      string `json:"nextPlan"`
 	Issue         string `json:"issue"`
+	// ManagementAsk is what the reporting line must decide or supply. It is
+	// deliberately separate from Issue: an issue states what is wrong, an ask
+	// states what is needed from above.
+	ManagementAsk string `json:"managementAsk"`
 	Progress      int    `json:"progress"`
 	SortOrder     int    `json:"sortOrder"`
 }
@@ -119,14 +124,14 @@ func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 		return nil, err
 	}
 	result.WeekStart = week.Format("2006-01-02")
-	rows, err := a.db.Query(ctx, `SELECT id,category,title,current_result,next_plan,issue,progress,sort_order FROM report_items WHERE report_id=$1 ORDER BY sort_order,id`, id)
+	rows, err := a.db.Query(ctx, `SELECT id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order FROM report_items WHERE report_id=$1 ORDER BY sort_order,id`, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var item reportItem
-		if err := rows.Scan(&item.ID, &item.Category, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.Progress, &item.SortOrder); err != nil {
+		if err := rows.Scan(&item.ID, &item.WorkItemID, &item.Category, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.ManagementAsk, &item.Progress, &item.SortOrder); err != nil {
 			return nil, err
 		}
 		result.Items = append(result.Items, item)
@@ -189,7 +194,15 @@ func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for index, item := range input.Items {
-		if _, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.Progress, index); err != nil {
+		workItemID, resolveErr := resolveWorkItem(r.Context(), tx, p.ID, item.Title, item.Category)
+		if resolveErr != nil {
+			a.logger.Error("resolve work item", "error", resolveErr, "reportId", id, "trace", traceIDFromContext(r.Context()))
+			writeError(w, 500, "DATABASE_ERROR", "업무 식별자를 만들 수 없습니다.")
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			id, workItemID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk, item.Progress, index); err != nil {
 			a.logger.Error("insert report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(r.Context()))
 			writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
 			return
@@ -278,17 +291,13 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM report_items WHERE report_id=$1`, id); err != nil {
+	// Reconcile rather than delete and re-insert. Re-inserting would issue new
+	// row ids on every save, which discards the work item link and any future
+	// reference to a specific item.
+	if err = a.persistReportItems(r.Context(), tx, id, ownerID, input.Items); err != nil {
+		a.logger.Error("persist report items", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
 		writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
 		return
-	}
-	for index, item := range input.Items {
-		_, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.Progress, index)
-		if err != nil {
-			a.logger.Error("replace report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(r.Context()))
-			writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
-			return
-		}
 	}
 	if newStatus != previousStatus {
 		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment)
@@ -758,6 +767,9 @@ func validateItems(items []reportItem) error {
 		}
 		if runeLength(item.CurrentResult) > 20000 || runeLength(item.NextPlan) > 20000 || runeLength(item.Issue) > 20000 {
 			return errors.New("금주 실적, 차주 계획, 이슈는 각각 20000자 이하로 입력하세요.")
+		}
+		if runeLength(item.ManagementAsk) > 5000 {
+			return errors.New("상위 조직 요청은 5000자 이하로 입력하세요.")
 		}
 	}
 	return nil

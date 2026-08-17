@@ -56,6 +56,7 @@ type sourceEntry struct {
 	CurrentResult string
 	NextPlan      string
 	Issue         string
+	ManagementAsk string
 	Progress      int
 }
 
@@ -83,6 +84,7 @@ type rollupItem struct {
 	CurrentResult string           `json:"currentResult"`
 	NextPlan      string           `json:"nextPlan"`
 	Issue         string           `json:"issue"`
+	ManagementAsk string           `json:"managementAsk"`
 	Progress      int              `json:"progress"`
 	StartProgress int              `json:"startProgress"`
 	FirstWeek     string           `json:"firstWeek"`
@@ -139,6 +141,7 @@ type rollupInsights struct {
 	CarryoverItems   int     `json:"carryoverItems"`
 	IssueItems       int     `json:"issueItems"`
 	PersistentIssues int     `json:"persistentIssues"`
+	AskItems         int     `json:"askItems"`
 	ExpectedWeeks    int     `json:"expectedWeeks"`
 	ReportedWeeks    int     `json:"reportedWeeks"`
 	ReportCoverage   float64 `json:"reportCoverage"`
@@ -446,6 +449,7 @@ type itemAccumulator struct {
 	current       *lineSet
 	next          *lineSet
 	issue         *lineSet
+	ask           *lineSet
 	owners        []string
 	ownerSeen     map[string]bool
 	weeks         []rollupItemWeek
@@ -459,7 +463,7 @@ type itemAccumulator struct {
 func newAccumulator(key string, entry sourceEntry) *itemAccumulator {
 	return &itemAccumulator{
 		key: key, category: entry.Category, title: entry.Title,
-		titles: map[string]bool{}, current: newLineSet(), next: newLineSet(), issue: newLineSet(),
+		titles: map[string]bool{}, current: newLineSet(), next: newLineSet(), issue: newLineSet(), ask: newLineSet(),
 		ownerSeen: map[string]bool{}, weekSeen: map[string]int{}, firstProgress: entry.Progress,
 	}
 }
@@ -485,6 +489,7 @@ func (acc *itemAccumulator) absorb(entry sourceEntry) {
 	acc.current.add(entry.CurrentResult)
 	acc.next.add(entry.NextPlan)
 	acc.issue.add(entry.Issue)
+	acc.ask.add(entry.ManagementAsk)
 	if !acc.ownerSeen[entry.DisplayName] && strings.TrimSpace(entry.DisplayName) != "" {
 		acc.ownerSeen[entry.DisplayName] = true
 		acc.owners = append(acc.owners, entry.DisplayName)
@@ -562,12 +567,12 @@ func aggregateRollupItems(entries []sourceEntry, cfg rollupConfig) []rollupItem 
 		sort.SliceStable(acc.weeks, func(i, j int) bool { return acc.weeks[i].WeekStart < acc.weeks[j].WeekStart })
 		item := rollupItem{
 			Key: key, Category: acc.category, Title: acc.title,
-			CurrentResult: acc.current.render(), NextPlan: nextPlan, Issue: acc.issue.render(),
+			CurrentResult: acc.current.render(), NextPlan: nextPlan, Issue: acc.issue.render(), ManagementAsk: acc.ask.render(),
 			Progress: acc.lastProgress, StartProgress: acc.firstProgress,
 			FirstWeek: acc.weeks[0].WeekStart, LastWeek: acc.weeks[len(acc.weeks)-1].WeekStart,
 			WeekCount: len(acc.weeks), IssueWeeks: acc.issueWeeks, Owners: acc.owners, Weeks: acc.weeks,
 			MergedTitles:  acc.mergedTitles,
-			DuplicatesCut: acc.current.dropped + acc.next.dropped + acc.issue.dropped + planDropped,
+			DuplicatesCut: acc.current.dropped + acc.next.dropped + acc.issue.dropped + acc.ask.dropped + planDropped,
 		}
 		item.Completed = item.Progress >= 100
 		item.Stalled = isStalled(acc.weeks, cfg.StallWeeks)
@@ -669,6 +674,9 @@ func buildRollup(period periodRange, scope, scopeLabel string, entries []sourceE
 		}
 		if strings.TrimSpace(item.Issue) != "" {
 			insights.IssueItems++
+		}
+		if strings.TrimSpace(item.ManagementAsk) != "" {
+			insights.AskItems++
 		}
 		if item.AtRisk {
 			insights.PersistentIssues++
@@ -864,6 +872,12 @@ func buildHighlights(insights rollupInsights, items []rollupItem, cfg rollupConf
 		result = append(result, rollupHighlight{Severity: "WATCH", Category: "RISK",
 			Title:  fmt.Sprintf("%d주 이상 진척이 멈춘 업무 %d건", cfg.StallWeeks, insights.StalledItems),
 			Detail: fmt.Sprintf("%s. 진척도가 연속으로 변하지 않아 일정 재계획 또는 리소스 재배치 검토가 필요합니다.", strings.Join(names, ", "))})
+	}
+	if insights.AskItems > 0 {
+		names := topTitles(items, func(item rollupItem) bool { return strings.TrimSpace(item.ManagementAsk) != "" }, 3)
+		result = append(result, rollupHighlight{Severity: "RISK", Category: "RISK",
+			Title:  fmt.Sprintf("상위 조직 결정·지원 요청 %d건", insights.AskItems),
+			Detail: fmt.Sprintf("%s. 담당 조직이 스스로 해결할 수 없어 상위 결정이나 자원 배정이 필요한 항목입니다.", strings.Join(names, ", "))})
 	}
 	if insights.CarryoverItems > 0 {
 		result = append(result, rollupHighlight{Severity: "INFO", Category: "DELIVERY",

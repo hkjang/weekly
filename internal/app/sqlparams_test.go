@@ -74,3 +74,28 @@ func truncate(value string, maximum int) string {
 	}
 	return value[:maximum] + "…"
 }
+
+// A SELECT list and its Scan destinations must line up. They are written in two
+// different places, so adding a column to one and not the other compiles fine
+// and only fails at runtime, which is how the rollup query broke once.
+func TestSelectColumnsMatchScanDestinations(t *testing.T) {
+	cases := []struct {
+		file, selectMarker string
+		wantColumns        int
+	}{
+		{"rollup_handlers.go", "SELECT i.report_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.management_ask,i.progress", 8},
+	}
+	for _, testCase := range cases {
+		body, err := os.ReadFile(filepath.Join("./", testCase.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), testCase.selectMarker) {
+			t.Errorf("%s no longer contains the expected select list; update this test with the new one", testCase.file)
+			continue
+		}
+		if got := strings.Count(testCase.selectMarker, ",") + 1; got != testCase.wantColumns {
+			t.Errorf("%s select lists %d columns, want %d", testCase.file, got, testCase.wantColumns)
+		}
+	}
+}
