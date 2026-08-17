@@ -202,6 +202,9 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/admin/confluence/users/{id}/mapping", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateConfluenceMapping))))
 
 	a.mux.Handle("GET /api/v1/analytics/overview", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.analyticsOverview)))
+	a.mux.Handle("GET /api/v1/admin/analytics/keywords", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsKeywords)))
+	a.mux.Handle("GET /api/v1/admin/analytics/organizations", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsOrganizations)))
+	a.mux.Handle("GET /api/v1/admin/analytics/participation", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsParticipation)))
 	a.mux.Handle("GET /api/v1/analytics/endpoints", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsEndpoints)))
 	a.mux.Handle("POST /mcp", a.requireAuth(http.HandlerFunc(a.mcp)))
 	a.mux.Handle("GET /mcp", a.requireAuth(http.HandlerFunc(a.mcpGet)))

@@ -43,6 +43,27 @@ export interface ConfluenceMapping {
   userId: number; username: string; displayName: string; email: string; externalUsername?: string; mappingSource?: 'EXPLICIT' | 'EMAIL_LOCALPART' | 'USERNAME'
   active?: boolean; suggestedUsername: string; suggestionSource: 'EMAIL_LOCALPART' | 'USERNAME'
 }
+export interface AnalysisTerm { term: string; count: number; documents: number; weight: number; delta: number; phrase: boolean }
+export interface KeywordAnalytics {
+  start: string; end: string; weeks: number; field: string; documents: number; reports: number
+  terms: AnalysisTerm[]; comparedStart: string; comparedEnd: string; comparedReports: number
+}
+export interface OrganizationAnalyticsRow {
+  organizationId: number; name: string; members: number; reports: number; expectedReports: number
+  submissionRate: number; items: number; completedItems: number; completionRate: number
+  issueItems: number; issueRate: number; averageProgress: number
+}
+export interface OrganizationAnalytics { start: string; end: string; weeks: number; organizations: OrganizationAnalyticsRow[] }
+export interface ParticipationWeek {
+  weekStart: string; activeUsers: number; reports: number; submitted: number
+  onTime: number; late: number; submissionRate: number; onTimeRate: number
+}
+export interface MissingReporter { userId: number; displayName: string; username: string; organization: string; missedWeeks: number; lastWeek: string }
+export interface ParticipationAnalytics {
+  start: string; end: string; weeks: number; activeUsers: number
+  trend: ParticipationWeek[]; missing: MissingReporter[]
+}
+
 export interface SearchMatch { field: string; label: string; title?: string; snippet: string }
 export interface SearchHit {
   reportId: number; userId: number; displayName: string; weekStart: string

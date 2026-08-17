@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, del, post, put } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner, formatDate } from '../components'
+import AdminAnalyticsTab from './AdminAnalyticsTab'
 import type { AdminUser, ConfluenceMapping, ConfluenceSyncStatus, Organization, Setting } from '../types'
 
 const weekdays = [
@@ -10,13 +11,13 @@ const weekdays = [
   { value: 'SUNDAY', label: '일요일' },
 ]
 
-type Tab = 'settings' | 'confluence' | 'users' | 'organizations' | 'pptx' | 'audit'
+type Tab = 'analytics' | 'settings' | 'confluence' | 'users' | 'organizations' | 'pptx' | 'audit'
 interface TemplateInfo { source: string; originalName: string; sizeBytes: number; sha256: string; placeholders: string[]; uploadedAt?: string }
 
 export default function AdminPage({ notify, onSettingsChanged }: { notify: (message: string, kind?: 'success' | 'error') => void; onSettingsChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<Tab>('settings')
-  return <><PageHeader title="관리자 관리" description="서비스 운영 설정과 계정·조직·템플릿·감사 이력을 중앙에서 관리합니다."/><div className="tabs"><TabButton value="settings" active={tab} set={setTab}>서비스 설정</TabButton><TabButton value="confluence" active={tab} set={setTab}>Confluence 자동화</TabButton><TabButton value="users" active={tab} set={setTab}>사용자</TabButton><TabButton value="organizations" active={tab} set={setTab}>조직</TabButton><TabButton value="pptx" active={tab} set={setTab}>PPTX 템플릿</TabButton><TabButton value="audit" active={tab} set={setTab}>감사 로그</TabButton></div>
-    {tab === 'settings' && <SettingsTab notify={notify} changed={onSettingsChanged}/>} {tab === 'confluence' && <ConfluenceTab notify={notify}/>} {tab === 'users' && <UsersTab notify={notify}/>} {tab === 'organizations' && <OrganizationsTab notify={notify}/>} {tab === 'pptx' && <PPTXTab notify={notify}/>} {tab === 'audit' && <AuditTab/>}
+  return <><PageHeader title="관리자 관리" description="서비스 운영 설정과 계정·조직·템플릿·감사 이력을 중앙에서 관리합니다."/><div className="tabs"><TabButton value="analytics" active={tab} set={setTab}>분석</TabButton><TabButton value="settings" active={tab} set={setTab}>서비스 설정</TabButton><TabButton value="confluence" active={tab} set={setTab}>Confluence 자동화</TabButton><TabButton value="users" active={tab} set={setTab}>사용자</TabButton><TabButton value="organizations" active={tab} set={setTab}>조직</TabButton><TabButton value="pptx" active={tab} set={setTab}>PPTX 템플릿</TabButton><TabButton value="audit" active={tab} set={setTab}>감사 로그</TabButton></div>
+    {tab === 'analytics' && <AdminAnalyticsTab notify={notify}/>} {tab === 'settings' && <SettingsTab notify={notify} changed={onSettingsChanged}/>} {tab === 'confluence' && <ConfluenceTab notify={notify}/>} {tab === 'users' && <UsersTab notify={notify}/>} {tab === 'organizations' && <OrganizationsTab notify={notify}/>} {tab === 'pptx' && <PPTXTab notify={notify}/>} {tab === 'audit' && <AuditTab/>}
   </>
 }
 

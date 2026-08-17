@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.9.1
+  version: 0.10.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -484,6 +484,34 @@ paths:
   /analytics/endpoints:
     get:
       summary: 최근 24시간 API 분석, 관리자 전용
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/analytics/keywords:
+    get:
+      summary: 보고 내용 키워드 분석, 관리자 전용
+      description: |
+        보고서 한 건을 문서 하나로 보고 용어를 추출한다. 어미와 조사를 규칙으로 제거하되
+        명사의 마지막 글자일 수 있는 조사는 어근이 말뭉치에 관찰될 때만 제거하며,
+        인접한 두 단어를 복합어로 함께 집계한다. 가중치는 로그 빈도에 역문서빈도를 곱한 값이다.
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 104, default: 12 } }
+        - { name: field, in: query, schema: { type: string, enum: [ALL, TITLE, CURRENT, NEXT, ISSUE], default: ALL } }
+        - { name: organizationId, in: query, description: 하위 조직 포함, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+  /admin/analytics/organizations:
+    get:
+      summary: 조직별 제출률·완료율·이슈율 비교, 관리자 전용
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 104, default: 12 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /admin/analytics/participation:
+    get:
+      summary: 주차별 제출률·기한 내 제출률과 미제출 인원, 관리자 전용
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 104, default: 12 } }
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /admin/settings:
