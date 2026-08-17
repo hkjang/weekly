@@ -43,6 +43,13 @@ export interface ConfluenceMapping {
   userId: number; username: string; displayName: string; email: string; externalUsername?: string; mappingSource?: 'EXPLICIT' | 'EMAIL_LOCALPART' | 'USERNAME'
   active?: boolean; suggestedUsername: string; suggestionSource: 'EMAIL_LOCALPART' | 'USERNAME'
 }
+export interface SearchMatch { field: string; label: string; title?: string; snippet: string }
+export interface SearchHit {
+  reportId: number; userId: number; displayName: string; weekStart: string
+  status: ReportStatus; sourceType: ReportSource; matches: SearchMatch[]; score: number
+}
+export interface SearchResponse { query: string; terms: string[]; hits: SearchHit[]; truncated: boolean }
+
 export type AttachmentPlacement = 'BEFORE' | 'AFTER'
 export interface ReportAttachment {
   id: number; filename: string; caption: string; placement: AttachmentPlacement

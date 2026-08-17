@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, post } from './api'
 import { Button, Spinner, Toast } from './components'
+import CommandPalette, { periodCommands } from './CommandPalette'
+import type { Command } from './CommandPalette'
+import { navigateTo, parseRoute, replaceRoute } from './router'
+import type { PageName } from './router'
 import type { Providers, SessionInfo } from './types'
 import DashboardPage from './pages/DashboardPage'
 import ReportEditorPage from './pages/ReportEditorPage'
@@ -12,24 +16,30 @@ import AdminPage from './pages/AdminPage'
 import ImportPage from './pages/ImportPage'
 import RollupPage from './pages/RollupPage'
 
-type Page = 'dashboard' | 'current' | 'history' | 'rollup' | 'import' | 'team' | 'analytics' | 'profile' | 'admin'
-const pages: Page[] = ['dashboard', 'current', 'history', 'rollup', 'import', 'team', 'analytics', 'profile', 'admin']
+type Page = PageName
 
-function pageFromLocation(): Page | undefined {
-  const value = window.location.hash.replace(/^#\/?/, '')
-  return pages.includes(value as Page) ? value as Page : undefined
+// Single letter jumps after pressing `g`, the way keyboard driven tools do it.
+const gotoKeys: Record<string, Page> = {
+  d: 'dashboard', c: 'current', h: 'history', r: 'rollup',
+  i: 'import', t: 'team', a: 'analytics', p: 'profile', s: 'admin',
 }
 
-function replacePageLocation(page: Page) {
-  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/${page}`)
+/** typingInFormField keeps shortcuts from firing while the user writes a report. */
+function typingInFormField(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  const tag = element.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element.isContentEditable
 }
 
 export default function App() {
   const [providers, setProviders] = useState<Providers>()
   const [session, setSession] = useState<SessionInfo>()
   const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState<Page>(() => pageFromLocation() ?? 'dashboard')
+  const [page, setPage] = useState<Page>(() => parseRoute()?.page ?? 'dashboard')
+  const [params, setParams] = useState<Record<string, string>>(() => parseRoute()?.params ?? {})
   const [profileOpen, setProfileOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error' }>()
 
   const notify = (message: string, kind: 'success' | 'error' = 'success') => setToast({ message, kind })
@@ -39,8 +49,12 @@ export default function App() {
       .then(([p, s]) => { setProviders(p); setSession(s) }).finally(() => setLoading(false))
   }, [])
   useEffect(() => {
-    if (!pageFromLocation()) replacePageLocation('dashboard')
-    const syncPage = () => setPage(pageFromLocation() ?? 'dashboard')
+    if (!parseRoute()) replaceRoute('dashboard')
+    const syncPage = () => {
+      const route = parseRoute()
+      setPage(route?.page ?? 'dashboard')
+      setParams(route?.params ?? {})
+    }
     window.addEventListener('hashchange', syncPage)
     return () => window.removeEventListener('hashchange', syncPage)
   }, [])
@@ -49,10 +63,52 @@ export default function App() {
     const teamOnly = page === 'team' || page === 'analytics'
     const denied = (teamOnly && session.user.role === 'USER') || (page === 'admin' && session.user.role !== 'ADMIN')
     if (denied) {
-      replacePageLocation('dashboard')
+      replaceRoute('dashboard')
       setPage('dashboard')
+      setParams({})
     }
   }, [page, session])
+
+  const go = useCallback((next: Page, nextParams?: Record<string, string>) => {
+    setProfileOpen(false)
+    navigateTo(next, nextParams)
+    setPage(next)
+    setParams(nextParams ?? {})
+  }, [])
+
+  // Ctrl+K opens the palette anywhere; `g` then a letter jumps straight to a
+  // screen. Both stay silent while the caret is in a form field.
+  useEffect(() => {
+    if (!session) return
+    let awaitingGoto = false
+    let timer = 0
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen(current => !current)
+        return
+      }
+      if (event.key === 'Escape' && paletteOpen) { setPaletteOpen(false); return }
+      if (paletteOpen || event.ctrlKey || event.metaKey || event.altKey || typingInFormField(event.target)) return
+      if (event.key === '/' || event.key === '?') { event.preventDefault(); setPaletteOpen(true); return }
+      if (awaitingGoto) {
+        window.clearTimeout(timer)
+        awaitingGoto = false
+        const target = gotoKeys[event.key.toLowerCase()]
+        if (!target) return
+        const allowed = target === 'admin' ? session.user.role === 'ADMIN'
+          : (target === 'team' || target === 'analytics') ? session.user.role !== 'USER' : true
+        if (allowed) { event.preventDefault(); go(target) }
+        return
+      }
+      if (event.key.toLowerCase() === 'g') {
+        awaitingGoto = true
+        timer = window.setTimeout(() => { awaitingGoto = false }, 1200)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown); window.clearTimeout(timer) }
+  }, [session, paletteOpen, go])
 
   if (loading) return <div className="splash"><div className="brand-mark">W</div><Spinner /></div>
   if (!providers) return <div className="splash"><p>서비스 정보를 불러올 수 없습니다.</p></div>
@@ -60,8 +116,35 @@ export default function App() {
 
   const canTeam = session.user.role !== 'USER'
   const isAdmin = session.user.role === 'ADMIN'
-  const navigate = (next: Page) => { if (page !== next) window.location.hash = `/${next}`; setPage(next); setProfileOpen(false) }
-  const logout = async () => { await post('/api/v1/auth/logout'); replacePageLocation('dashboard'); setPage('dashboard'); setSession(undefined); setProfileOpen(false) }
+  const navigate = (next: Page) => go(next)
+  const logout = async () => { await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
+
+  const screens: { page: Page; label: string; keywords: string[]; visible: boolean }[] = [
+    { page: 'dashboard', label: '대시보드', keywords: ['dashboard', 'home', '홈'], visible: true },
+    { page: 'current', label: '내 주간보고', keywords: ['current', 'weekly', '작성', '임시저장', '제출'], visible: true },
+    { page: 'history', label: '과거 보고', keywords: ['history', 'past', '이전', '복제'], visible: true },
+    { page: 'rollup', label: '기간 업무보고', keywords: ['rollup', 'period', '월간', '분기', '반기', '연간'], visible: true },
+    { page: 'import', label: 'PPTX 가져오기', keywords: ['import', 'pptx', '업로드'], visible: true },
+    { page: 'team', label: '팀 주간보고', keywords: ['team', '조직', '승인', '검토'], visible: canTeam },
+    { page: 'analytics', label: '보고 분석', keywords: ['analytics', '분석', '제출률'], visible: canTeam },
+    { page: 'profile', label: '개인 설정 · API 키', keywords: ['profile', 'api', 'key', '키'], visible: true },
+    { page: 'admin', label: '관리자 설정', keywords: ['admin', 'settings', '설정'], visible: isAdmin },
+  ]
+  const paletteCommands: Command[] = [
+    ...screens.filter(screen => screen.visible).map(screen => ({
+      id: `screen:${screen.page}`,
+      label: screen.label,
+      hint: gotoHint(screen.page),
+      group: '화면',
+      keywords: screen.keywords,
+      run: () => go(screen.page),
+    })),
+    ...periodCommands(new Date(), go),
+    {
+      id: 'action:logout', label: '로그아웃', group: '액션',
+      keywords: ['logout', 'signout', '나가기'], run: () => { void logout() },
+    },
+  ]
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -81,6 +164,9 @@ export default function App() {
     <main className="main-shell">
       <header className="topbar">
         <div className="mobile-title">{session.serviceName}</div>
+        <button className="palette-trigger" onClick={() => setPaletteOpen(true)} aria-label="빠른 이동 열기">
+          <span aria-hidden="true">⌕</span><span className="palette-trigger-text">빠른 이동</span><kbd>{shortcutLabel()}</kbd>
+        </button>
         <div className="profile-wrap">
           <button className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><span className="avatar">{session.user.displayName.slice(0, 1)}</span><span><strong>{session.user.displayName}</strong><small>{roleName(session.user.role)}</small></span><b>⌄</b></button>
           {profileOpen && <div className="profile-menu"><button onClick={() => navigate('profile')}>개인 설정 · API 키</button><div className="version-row"><span>서비스 버전</span><strong>v{session.build.version}</strong><small>{session.build.commit.slice(0, 8)}</small></div><button onClick={logout}>로그아웃</button></div>}
@@ -90,8 +176,8 @@ export default function App() {
       <div className="page-content">
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
-        {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} notify={notify} />}
-        {page === 'rollup' && <RollupPage session={session} notify={notify} />}
+        {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} openReportId={Number(params.report) || undefined} notify={notify} />}
+        {page === 'rollup' && <RollupPage session={session} route={params} notify={notify} />}
         {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage />}
@@ -99,8 +185,19 @@ export default function App() {
         {page === 'admin' && isAdmin && <AdminPage notify={notify} onSettingsChanged={refreshSession} />}
       </div>
     </main>
+    <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} session={session} go={go} commands={paletteCommands} />
     {toast && <Toast {...toast} onClose={() => setToast(undefined)} />}
   </div>
+}
+
+function gotoHint(page: Page): string {
+  const key = Object.entries(gotoKeys).find(([, value]) => value === page)?.[0]
+  return key ? `g ${key}` : ''
+}
+
+function shortcutLabel(): string {
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+  return mac ? '⌘K' : 'Ctrl K'
 }
 
 function Nav({ active, icon, children, onClick }: { active: boolean; icon: string; children: string; onClick: () => void }) { return <button className={active ? 'active' : ''} onClick={onClick}><i>{icon}</i>{children}</button> }

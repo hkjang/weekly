@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import { CompositionBar, ProgressTrendChart, RankBars, TaskTimeline, WeeklyStateChart } from '../charts'
+import { replaceRoute } from '../router'
 import type { PeriodKind, Rollup, RollupItem, RollupScope, SessionInfo } from '../types'
 
 const kinds: { key: PeriodKind; name: string }[] = [
@@ -46,11 +47,21 @@ const filters = [
 ] as const
 type FilterKey = typeof filters[number]['key']
 
-export default function RollupPage({ session, notify }: { session: SessionInfo; notify: (message: string, kind?: 'success' | 'error') => void }) {
+export default function RollupPage({ session, route, notify }: {
+  session: SessionInfo
+  route?: Record<string, string>
+  notify: (message: string, kind?: 'success' | 'error') => void
+}) {
   const today = useMemo(() => new Date(), [])
-  const [kind, setKind] = useState<PeriodKind>('MONTH')
-  const [period, setPeriod] = useState(() => periodOptions('MONTH', new Date())[0].value)
-  const [scope, setScope] = useState<RollupScope>('SELF')
+  // Quick navigation links straight to a period, so the route wins over defaults.
+  const routeKind = kinds.some(item => item.key === route?.kind) ? route?.kind as PeriodKind : undefined
+  const [kind, setKind] = useState<PeriodKind>(routeKind ?? 'MONTH')
+  const [period, setPeriod] = useState(() => {
+    const initialKind = routeKind ?? 'MONTH'
+    const options = periodOptions(initialKind, new Date())
+    return options.some(option => option.value === route?.period) ? route!.period : options[0].value
+  })
+  const [scope, setScope] = useState<RollupScope>(route?.scope === 'TEAM' ? 'TEAM' : 'SELF')
   const [rollup, setRollup] = useState<Rollup>()
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterKey>('ALL')
@@ -60,6 +71,9 @@ export default function RollupPage({ session, notify }: { session: SessionInfo; 
   const options = useMemo(() => periodOptions(kind, today), [kind, today])
 
   const changeKind = (next: PeriodKind) => { setKind(next); setPeriod(periodOptions(next, today)[0].value) }
+
+  // Keep the address bar in step so the current view stays linkable.
+  useEffect(() => { replaceRoute('rollup', { kind, period, scope }) }, [kind, period, scope])
 
   useEffect(() => {
     let stale = false

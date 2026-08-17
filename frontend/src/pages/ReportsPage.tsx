@@ -5,7 +5,11 @@ import type { Report, ReportItem, ReportListItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', progress: 0, sortOrder: 0 })
 
-export default function ReportsPage({ currentWeekStart, notify }: { currentWeekStart: string; notify: (message: string, kind?: 'success' | 'error') => void }) {
+export default function ReportsPage({ currentWeekStart, openReportId, notify }: {
+  currentWeekStart: string
+  openReportId?: number
+  notify: (message: string, kind?: 'success' | 'error') => void
+}) {
   const [reports, setReports] = useState<ReportListItem[]>()
   const [selected, setSelected] = useState<Report>()
   const [status, setStatus] = useState('')
@@ -18,6 +22,8 @@ export default function ReportsPage({ currentWeekStart, notify }: { currentWeekS
   const [cloneMode, setCloneMode] = useState<'STRUCTURE' | 'FULL'>('STRUCTURE')
   const load = () => api<ReportListItem[]>(`/api/v1/reports${status ? `?status=${status}` : ''}`).then(setReports).catch(error => notify(error.message, 'error'))
   useEffect(() => { void load() }, [status])
+  // Quick navigation can name a report; open it once the list has loaded.
+  useEffect(() => { if (openReportId) void open(openReportId) }, [openReportId])
   const open = async (id: number) => { try { const report = await api<Report>(`/api/v1/reports/${id}`); setSelected(report); setSummary(report.summary); setItems(report.items.map(item => ({ ...item }))); setEditing(false); setCloning(false) } catch (error) { notify(error instanceof Error ? error.message : '보고서를 열 수 없습니다.', 'error') } }
   const close = () => { setSelected(undefined); setEditing(false); setCloning(false) }
   const updateItem = (index: number, values: Partial<ReportItem>) => setItems(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...values } : item))
