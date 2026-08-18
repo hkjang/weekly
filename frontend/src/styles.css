@@ -109,8 +109,8 @@
 
 .presentation{position:fixed;inset:0;z-index:200;background:linear-gradient(150deg,#0b1220,#111c3a 55%,#0f2a3d);color:#e2e8f0;display:flex;flex-direction:column;outline:none}
 .presentation-bar{height:4px;background:#ffffff14}.presentation-bar span{display:block;height:100%;background:linear-gradient(90deg,#60a5fa,#2dd4bf);transition:width .2s ease}
-.presentation-slide{flex:1;display:grid;place-items:center;padding:clamp(28px,6vw,90px);text-align:left}
-.presentation-slide>div{width:min(1100px,100%)}
+.presentation-slide{flex:1;min-height:0;overflow:hidden;display:grid;place-items:center;padding:clamp(28px,6vw,90px);text-align:left}
+.presentation-slide>div{width:min(1100px,100%);max-height:100%;min-height:0}
 .slide-eyebrow{display:inline-block;font-size:clamp(12px,1.4vw,15px);letter-spacing:.16em;text-transform:uppercase;color:#7dd3fc;margin-bottom:18px}
 .presentation h1{font-size:clamp(30px,5.2vw,64px);line-height:1.15;margin:0 0 18px;color:#fff;letter-spacing:-.02em;overflow-wrap:anywhere}
 .slide-cover p,.slide-section p{font-size:clamp(15px,2vw,24px);color:#bfdbfe;margin:0 0 10px}
@@ -160,3 +160,11 @@
 .presentation-slide.tone-progress .slide-eyebrow{color:#86efac}.presentation-slide.tone-duplicate .slide-eyebrow{color:#67e8f9}
 .presentation-label{margin-right:auto;padding-left:8px;color:#7f93ba;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}
 @media(max-width:820px){.presentation-label{display:none}.presentation-controls{flex-wrap:wrap}}
+
+/* 발표 모드 이미지 캡처 슬라이드 */
+.presentation-slide.kind-image>div{display:flex;flex-direction:column;height:100%;min-height:0}
+.slide-image{margin:0;flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.slide-image img{max-width:100%;max-height:100%;min-height:0;object-fit:contain;border-radius:12px;background:#0b1220;border:1px solid #ffffff1f;box-shadow:0 20px 60px #00000055}
+.slide-image figcaption{color:#93c5fd;font-size:clamp(12px,1.3vw,16px);text-align:center}
+.presentation-slide.kind-image h1{font-size:clamp(20px,3vw,38px);margin-bottom:12px}
+.presentation-loading{display:flex;align-items:center;justify-content:center;gap:14px;color:#bfdbfe;font-size:14px}

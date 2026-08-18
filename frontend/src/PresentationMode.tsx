@@ -22,8 +22,16 @@ export interface SlideBlock {
   tone?: 'issue' | 'ask' | 'plan'
 }
 
+export interface SlideImage {
+  url: string
+  /** Shown under the image and used as the alt text. */
+  caption: string
+  width: number
+  height: number
+}
+
 export interface PresentSlide {
-  kind: 'cover' | 'section' | 'entry' | 'end'
+  kind: 'cover' | 'section' | 'entry' | 'end' | 'image'
   /** Small label above the title: which section this is, and where in it. */
   eyebrow?: string
   title: string
@@ -36,6 +44,8 @@ export interface PresentSlide {
   note?: string
   /** Colour key, used for the eyebrow accent. */
   tone?: string
+  /** A capture slide: the image is the slide, so it gets the whole frame. */
+  image?: SlideImage
 }
 
 export default function PresentationMode({ slides, label, notes, onClose }: {
@@ -107,6 +117,12 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
         {slide.meta && slide.meta.length > 0 && <div className="slide-meta">
           {slide.meta.map(fact => <span key={fact}>{fact}</span>)}
         </div>}
+        {slide.image && <figure className="slide-image">
+          {/* Contained rather than cropped: a screen capture loses its point
+              when its edges are cut off. */}
+          <img src={slide.image.url} alt={slide.image.caption} width={slide.image.width} height={slide.image.height} />
+          {slide.image.caption && <figcaption>{slide.image.caption}</figcaption>}
+        </figure>}
         {slide.body && <p className="slide-body">{slide.body}</p>}
         {slide.blocks && slide.blocks.length > 0 && <div className="slide-blocks">
           {slide.blocks.map(block => <section key={block.label} className={block.tone ? `tone-${block.tone}` : undefined}>

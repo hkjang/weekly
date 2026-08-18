@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, post } from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
-import PresentationMode from '../PresentationMode'
-import { reportSlides } from '../presentSlides'
+import ReportPresentation from '../ReportPresentation'
 import type { Report, ReportListItem } from '../types'
 
 export default function TeamPage({ workflowEnabled, currentUserId, notify }: { workflowEnabled: boolean; currentUserId: number; notify: (message: string, kind?: 'success' | 'error') => void }) {
@@ -16,7 +15,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
   return <><PageHeader title="팀 주간보고" description={workflowEnabled ? '구성원의 보고서를 검토하고 승인 또는 반려합니다.' : '승인 절차 없이 확정된 구성원 보고서를 조회합니다.'}/>
     {!reports ? <Spinner/> : !reports.length ? <Empty>조회할 팀 보고서가 없습니다.</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>상태</th><th>진행</th></tr></thead><tbody>{reports.map(report => <tr key={report.id} onClick={() => open(report.id)}><td>{report.weekStart}</td><td><strong>{report.displayName}</strong><small className="cell-sub">{report.username}</small></td><td className="truncate">{report.summary || '-'}</td><td><StatusBadge status={report.status}/></td><td><button className="text-button">열기 →</button></td></tr>)}</tbody></table></div></Card>}
     {selected && <div className="modal-backdrop" onClick={() => { setSelected(undefined); setPresenting(false) }}><div className="modal wide" onClick={e => e.stopPropagation()}><header><div><StatusBadge status={selected.status}/> <SourceBadge source={selected.sourceType}/><h2>{selected.displayName} · {selected.weekStart}</h2></div><button onClick={() => setSelected(undefined)}>×</button></header><p>{selected.summary}</p><div className="detail-items">{selected.items.map(item => <section key={item.id}><h3>{item.title} <small>{item.progress}%</small></h3><div><b>금주 실적</b><p>{item.currentResult || '-'}</p><b>차주 계획</b><p>{item.nextPlan || '-'}</p><b>이슈</b><p>{item.issue || '-'}</p></div></section>)}</div><footer><Button variant="secondary" onClick={() => setPresenting(true)}>▶ 발표 모드</Button><a className="button secondary" href={`/api/v1/reports/${selected.id}/export.pptx`}>PPTX 다운로드</a>{workflowEnabled && selected.status === 'SUBMITTED' && selected.userId !== currentUserId && <><Button variant="danger" onClick={() => review('reject')}>반려</Button><Button onClick={() => review('approve')}>승인</Button></>}</footer></div></div>}
-    {presenting && selected && <PresentationMode label={`${selected.displayName} · ${selected.weekStart}`}
-      slides={reportSlides(selected)} onClose={() => setPresenting(false)} />}
+    {presenting && selected && <ReportPresentation label={`${selected.displayName} · ${selected.weekStart}`}
+      report={selected} onClose={() => setPresenting(false)} />}
   </>
 }

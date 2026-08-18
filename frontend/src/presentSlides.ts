@@ -1,4 +1,5 @@
 import type { PresentSlide } from './PresentationMode'
+import type { ReportAttachment } from './types'
 import type { MeetingView, Report, Rollup } from './types'
 
 /**
@@ -34,15 +35,41 @@ const reportStatusLabel: Record<string, string> = {
   APPROVED: '승인', CLOSED: '확정',
 }
 
-export function reportSlides(report: Report): PresentSlide[] {
+/**
+ * captureSlides turns attached screen captures into slides, one image each,
+ * exactly as the PPTX export does.
+ *
+ * Placement follows the panel's own labels: BEFORE is "본문 앞", so the captures
+ * sit between the cover and the work items rather than ahead of the cover. The
+ * export grafts them onto the very start of the file; on screen the presenter
+ * needs the cover for context first, and starting a meeting on an unlabelled
+ * screenshot tells the room nothing.
+ */
+function captureSlides(reportId: number, attachments: ReportAttachment[], placement: 'BEFORE' | 'AFTER'): PresentSlide[] {
+  const group = attachments.filter(item => item.placement === placement)
+  return group.map((item, index) => ({
+    kind: 'image' as const,
+    eyebrow: `${placement === 'BEFORE' ? '본문 앞 캡처' : '본문 뒤 캡처'} ${index + 1}/${group.length}`,
+    title: item.caption || item.filename,
+    image: {
+      url: `/api/v1/reports/${reportId}/attachments/${item.id}`,
+      caption: item.caption && item.caption !== item.filename ? item.filename : '',
+      width: item.width, height: item.height,
+    },
+  }))
+}
+
+export function reportSlides(report: Report, attachments: ReportAttachment[] = []): PresentSlide[] {
   const slides: PresentSlide[] = [{
     kind: 'cover',
     eyebrow: '주간 업무보고',
     title: `${report.weekStart} 주차`,
     subtitle: `${report.displayName} · ${reportStatusLabel[report.status] ?? report.status}`,
-    meta: [`업무 ${report.items.length}건`],
+    meta: [`업무 ${report.items.length}건`, attachments.length ? `캡처 ${attachments.length}장` : ''].filter(Boolean),
     body: clamp(report.summary, SLIDE_TEXT_LIMIT),
   }]
+
+  slides.push(...captureSlides(report.id, attachments, 'BEFORE'))
 
   report.items.forEach((item, index) => {
     slides.push({
@@ -58,6 +85,8 @@ export function reportSlides(report: Report): PresentSlide[] {
       ],
     })
   })
+
+  slides.push(...captureSlides(report.id, attachments, 'AFTER'))
 
   slides.push({
     kind: 'end',

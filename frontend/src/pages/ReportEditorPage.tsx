@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, del, patch, post, put } from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import AttachmentPanel from '../AttachmentPanel'
-import PresentationMode from '../PresentationMode'
-import { reportSlides } from '../presentSlides'
+import ReportPresentation from '../ReportPresentation'
 import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
@@ -58,8 +57,8 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
     {report?.comments.length ? <Card title="검토 의견"><div className="comments">{report.comments.map(comment => <div key={comment.id}><strong>{comment.displayName}</strong><span>{new Date(comment.createdAt).toLocaleString('ko-KR')}</span><p>{comment.content}</p></div>)}</div></Card> : null}
     {/* Presents what is on screen, including unsaved edits: a report is often
         walked through immediately after being written. */}
-    {presenting && report && <PresentationMode label={`${report.weekStart} 주간보고`}
-      slides={reportSlides({ ...report, summary, items: validItems() })}
+    {presenting && report && <ReportPresentation label={`${report.weekStart} 주간보고`}
+      report={{ ...report, summary, items: validItems() }}
       onClose={() => setPresenting(false)} />}
   </>
 }
