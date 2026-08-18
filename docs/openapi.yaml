@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.12.0
+  version: 0.13.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -512,6 +512,82 @@ paths:
       summary: 최근 24시간 API 분석, 관리자 전용
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /meeting:
+    get:
+      summary: 회의 모드 안건
+      description: |
+        해당 주차에서 회의가 다뤄야 할 것만 구획으로 나눠 반환한다. 지난주와 비교해
+        달라지지 않은 업무는 포함하지 않는다.
+
+        구획은 결정 필요(상위 조직 요청), 신규 이슈, 지속 이슈, 변경점(신규·완료·진척 변화·정체),
+        보고 누락 순이며 회의가 먼저 해결해야 하는 순서를 따른다.
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+        - { name: week, in: query, description: "생략하면 현재 주차", schema: { type: string, format: date } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /digest:
+    get:
+      summary: 경영 요약, 팀장 이상
+      description: |
+        조회 권한 범위의 업무 중 확인이 필요한 최대 10건을 선정한다. 점수는 관측 가능한
+        사실의 합이며 각 항목은 선정 근거(grounds)를 함께 반환한다.
+
+        완료 업무의 과거 이슈 이력은 위험으로 집계하지 않으며, 진척 변화 없이 매주 100%로
+        보고되는 운영성 업무는 완료로 집계하지 않는다.
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 52, default: 8 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /insights/work-graph:
+    get:
+      summary: 조직 간 유사·중복 업무와 협업 지도, 팀장 이상
+      description: |
+        제목 토큰 일치로 담당자가 다른 업무를 연결한다. 상투어만 겹치는 제목과 같은
+        담당자의 업무는 제외한다. 판정은 모두 사람이 확인할 후보이며 확정 사실이 아니다.
+
+        duplicates는 조직이 다르고 유사도 70 이상이며 양쪽 모두 미완료이고 보고 기간이
+        겹치는 경우, similar는 유사도 50 이상의 나머지 연결이다. collaboration은 조직 쌍별
+        연결 업무 수와 주제, recurring은 4주 이상·주기 60% 이상·진척 변화 10% 이하인
+        운영성 업무다.
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 104, default: 12 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /handover:
+    get:
+      summary: 담당자 인수인계 자료
+      description: |
+        주차 스냅샷에서 진행 경과, 이슈 이력과 해소 여부, 미해결 요청, 관련 업무를 모은다.
+        진행 경과는 진척이 실제로 변한 주차만 남긴다.
+
+        userId를 생략하면 본인 자료를 반환한다. 다른 담당자를 조회하려면 팀장 이상이어야 하며,
+        조회 권한 범위 밖 담당자는 결과가 비어 있다.
+      parameters:
+        - { name: userId, in: query, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /work-items/search:
+    get:
+      summary: 자연어 과거 업무·사례 검색
+      description: |
+        업무의 전체 이력(제목, 구분, 실적, 계획, 이슈, 요청)에서 찾는다. 이슈가 사라진
+        다음 주의 실적을 resolution으로 함께 반환해 해결 경과를 확인할 수 있게 한다.
+
+        pgvector와 임베딩 모델이 설정돼 있으면 표현이 다른 업무도 함께 찾으며 해당 결과의
+        semantic이 true가 된다. 확장이 없으면 문자열 일치만 사용한다.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: scope, in: query, schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
   /admin/embeddings:
     get:
       summary: 의미 검색 임베딩 현황, 관리자 전용

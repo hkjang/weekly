@@ -209,6 +209,11 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/admin/confluence/users/{id}/mapping", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateConfluenceMapping))))
 
 	a.mux.Handle("GET /api/v1/analytics/overview", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.analyticsOverview)))
+	a.mux.Handle("GET /api/v1/work-items/search", a.requireAuth(http.HandlerFunc(a.searchWorkItems)))
+	a.mux.Handle("GET /api/v1/meeting", a.requireAuth(http.HandlerFunc(a.meetingMode)))
+	a.mux.Handle("GET /api/v1/digest", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.executiveDigest)))
+	a.mux.Handle("GET /api/v1/insights/work-graph", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.workGraph)))
+	a.mux.Handle("GET /api/v1/handover", a.requireAuth(http.HandlerFunc(a.handover)))
 	a.mux.Handle("GET /api/v1/admin/embeddings", a.requireRole("ADMIN")(http.HandlerFunc(a.embeddingStatus)))
 	a.mux.Handle("POST /api/v1/admin/embeddings/rebuild", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.rebuildEmbeddings))))
 	a.mux.Handle("GET /api/v1/admin/analytics/keywords", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsKeywords)))

@@ -8,10 +8,13 @@
 
 export type PageName =
   | 'dashboard' | 'current' | 'history' | 'work' | 'rollup'
+  | 'meeting' | 'digest' | 'insights' | 'handover'
   | 'import' | 'team' | 'analytics' | 'profile' | 'admin'
 
 export const pageNames: PageName[] = [
-  'dashboard', 'current', 'history', 'work', 'rollup', 'import', 'team', 'analytics', 'profile', 'admin',
+  'dashboard', 'current', 'history', 'work', 'rollup',
+  'meeting', 'digest', 'insights', 'handover',
+  'import', 'team', 'analytics', 'profile', 'admin',
 ]
 
 export interface Route {

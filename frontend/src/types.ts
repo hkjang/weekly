@@ -134,3 +134,62 @@ export interface EmbeddingStatus {
   vectorAvailable: boolean; enabled: boolean; model: string
   items: number; embedded: number; reason?: string
 }
+
+// --- 회의 모드 · 경영 요약 · 업무 인사이트 -----------------------------------
+
+export interface MeetingEntry {
+  workItemId: number; title: string; category: string; displayName: string
+  organizationName: string; detail: string; note: string
+  progress: number; progressDelta: number; weeks: number
+}
+export interface MeetingSection { key: string; title: string; purpose: string; entries: MeetingEntry[] }
+export interface MeetingView {
+  week: string; previousWeek: string; scope: RollupScope
+  people: number; workItems: number; sections: MeetingSection[]
+}
+
+export type DigestKind = 'DECISION' | 'RISK' | 'DUPLICATE' | 'PROGRESS'
+export interface DigestEntry {
+  kind: DigestKind; score: number; title: string; workItemId: number
+  displayName: string; organizationName: string
+  headline: string; detail: string; grounds: string[]
+}
+export interface DigestView { weeks: number; since: string; scope: RollupScope; considered: number; entries: DigestEntry[] }
+
+export interface WorkRef {
+  workItemId: number; title: string; category: string; userId: number; displayName: string
+  organizationId?: number; organizationName: string; progress: number; lastWeek: string; completed: boolean
+}
+export interface WorkLink {
+  similarity: number; sharedTerms: string[]; crossOrganization: boolean
+  duplicateCandidate: boolean; overlapWeeks: number; left: WorkRef; right: WorkRef; reason: string
+}
+export interface CollaborationEdge {
+  leftOrganization: string; rightOrganization: string
+  sharedWork: number; people: number; topics: string[]
+}
+export interface RecurringWork extends WorkRef {
+  reportedWeeks: number; ageWeeks: number; cadencePercent: number
+  progressGain: number; issueWeeks: number; reason: string
+}
+export interface WorkGraphView {
+  weeks: number; since: string; workItems: number
+  similar: WorkLink[]; duplicates: WorkLink[]
+  collaboration: CollaborationEdge[]; recurring: RecurringWork[]
+}
+
+export interface WorkSearchHit extends WorkRef {
+  score: number; semantic: boolean; ageWeeks: number; issueWeeks: number; resolved: boolean
+  matched: string[]; issue: string; resolution: string; why: string
+}
+export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; hits: WorkSearchHit[] }
+
+export interface HandoverIssue { week: string; text: string; resolved: boolean }
+export interface HandoverItem {
+  workItemId: number; title: string; category: string; organizationName: string
+  firstWeek: string; lastWeek: string; ageWeeks: number; reportedWeeks: number
+  progress: number; completed: boolean; stalled: boolean
+  openIssue: string; openAsk: string; nextPlan: string
+  issueHistory: HandoverIssue[]; milestones: string[]; relatedWork: WorkRef[]; caution: string
+}
+export interface HandoverView { userId: number; displayName: string; active: number; completed: number; items: HandoverItem[] }

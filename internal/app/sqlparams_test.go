@@ -32,6 +32,10 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// PREPARE deduces {vector, text, integer, double precision}: the reused
 		// parameter is the query vector in both the filter and the ORDER BY.
 		"semantic.go": "the reused query embedding is cast to vector in every use",
+		// PREPARE deduces {vector, text, integer, bigint[], double precision}:
+		// the reused parameter is the query vector in the projection and the
+		// HAVING clause, cast to vector in both.
+		"worksearch.go": "the reused query embedding is cast to vector in every use",
 	}
 	placeholder := regexp.MustCompile(`\$(\d+)`)
 	sqlLiteral := regexp.MustCompile("(?s)`([^`]*)`")

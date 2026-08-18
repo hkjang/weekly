@@ -14,6 +14,10 @@ import AnalyticsPage from './pages/AnalyticsPage'
 import ProfilePage from './pages/ProfilePage'
 import AdminPage from './pages/AdminPage'
 import ImportPage from './pages/ImportPage'
+import MeetingPage from './pages/MeetingPage'
+import DigestPage from './pages/DigestPage'
+import InsightsPage from './pages/InsightsPage'
+import HandoverPage from './pages/HandoverPage'
 import RollupPage from './pages/RollupPage'
 import WorkItemsPage from './pages/WorkItemsPage'
 
@@ -61,7 +65,7 @@ export default function App() {
   }, [])
   useEffect(() => {
     if (!session) return
-    const teamOnly = page === 'team' || page === 'analytics'
+    const teamOnly = page === 'team' || page === 'analytics' || page === 'digest' || page === 'insights'
     const denied = (teamOnly && session.user.role === 'USER') || (page === 'admin' && session.user.role !== 'ADMIN')
     if (denied) {
       replaceRoute('dashboard')
@@ -125,6 +129,10 @@ export default function App() {
     { page: 'current', label: '내 주간보고', keywords: ['current', 'weekly', '작성', '임시저장', '제출'], visible: true },
     { page: 'history', label: '과거 보고', keywords: ['history', 'past', '이전', '복제'], visible: true },
     { page: 'work', label: '업무 추적', keywords: ['work', 'workitem', '업무', '정체', '경과', 'aging'], visible: true },
+    { page: 'meeting', label: '회의 모드', keywords: ['meeting', '회의', '안건', '발표', 'agenda', 'presentation'], visible: true },
+    { page: 'handover', label: '인수인계', keywords: ['handover', '인수', '인계', '이관', '담당자 변경'], visible: true },
+    { page: 'digest', label: '경영 요약', keywords: ['digest', '경영', '요약', 'executive', '핵심'], visible: canTeam },
+    { page: 'insights', label: '업무 인사이트', keywords: ['insight', '인사이트', '중복', '유사', '협업', '반복'], visible: canTeam },
     { page: 'rollup', label: '기간 업무보고', keywords: ['rollup', 'period', '월간', '분기', '반기', '연간'], visible: true },
     { page: 'import', label: 'PPTX 가져오기', keywords: ['import', 'pptx', '업로드'], visible: true },
     { page: 'team', label: '팀 주간보고', keywords: ['team', '조직', '승인', '검토'], visible: canTeam },
@@ -157,9 +165,11 @@ export default function App() {
         <Nav active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>
         <Nav active={page === 'history'} icon="◷" onClick={() => navigate('history')}>과거 보고</Nav>
         <Nav active={page === 'work'} icon="◎" onClick={() => navigate('work')}>업무 추적</Nav>
+        <Nav active={page === 'meeting'} icon="◍" onClick={() => navigate('meeting')}>회의 모드</Nav>
+        <Nav active={page === 'handover'} icon="⇄" onClick={() => navigate('handover')}>인수인계</Nav>
         <Nav active={page === 'rollup'} icon="▤" onClick={() => navigate('rollup')}>기간 업무보고</Nav>
         <Nav active={page === 'import'} icon="⇧" onClick={() => navigate('import')}>PPTX 가져오기</Nav>
-        {canTeam && <><span className="nav-label">조직</span><Nav active={page === 'team'} icon="♙" onClick={() => navigate('team')}>팀 주간보고</Nav><Nav active={page === 'analytics'} icon="▥" onClick={() => navigate('analytics')}>보고 분석</Nav></>}
+        {canTeam && <><span className="nav-label">조직</span><Nav active={page === 'team'} icon="♙" onClick={() => navigate('team')}>팀 주간보고</Nav><Nav active={page === 'analytics'} icon="▥" onClick={() => navigate('analytics')}>보고 분석</Nav><Nav active={page === 'digest'} icon="★" onClick={() => navigate('digest')}>경영 요약</Nav><Nav active={page === 'insights'} icon="⌘" onClick={() => navigate('insights')}>업무 인사이트</Nav></>}
         {isAdmin && <><span className="nav-label">관리</span><Nav active={page === 'admin'} icon="⚙" onClick={() => navigate('admin')}>관리자 설정</Nav></>}
       </nav>
       <div className="sidebar-foot">오프라인 운영 준비됨</div>
@@ -182,6 +192,10 @@ export default function App() {
         {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} openReportId={Number(params.report) || undefined} notify={notify} />}
         {page === 'work' && <WorkItemsPage session={session} notify={notify} />}
         {page === 'rollup' && <RollupPage session={session} route={params} notify={notify} />}
+        {page === 'meeting' && <MeetingPage session={session} notify={notify} />}
+        {page === 'handover' && <HandoverPage session={session} notify={notify} />}
+        {page === 'digest' && canTeam && <DigestPage notify={notify} navigate={navigate} />}
+        {page === 'insights' && canTeam && <InsightsPage notify={notify} />}
         {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage />}

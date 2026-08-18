@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
-import type { SessionInfo, WorkItem } from '../types'
+import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
  * Work item tracking. Each row is a task followed across every week it was
@@ -28,6 +28,12 @@ export default function WorkItemsPage({ session, notify }: {
   const [items, setItems] = useState<WorkItem[]>()
   const [filter, setFilter] = useState<FilterKey>('ALL')
   const [detail, setDetail] = useState<WorkItem>()
+  // Natural language lookup over past work: "인증 연동하다 막혔던 사례".
+  // Separate from the filters above because it answers a different question —
+  // not "what needs attention now" but "has anyone done this before".
+  const [query, setQuery] = useState('')
+  const [found, setFound] = useState<WorkSearchResponse>()
+  const [searching, setSearching] = useState(false)
   const canTeam = session.user.role !== 'USER'
 
   useEffect(() => {
@@ -67,6 +73,17 @@ export default function WorkItemsPage({ session, notify }: {
     }
   }, [items])
 
+  const runSearch = async (text: string) => {
+    const trimmed = text.trim()
+    if (trimmed.length < 2) { setFound(undefined); return }
+    setSearching(true)
+    try {
+      setFound(await api<WorkSearchResponse>(`/api/v1/work-items/search?scope=${scope}&q=${encodeURIComponent(trimmed)}`))
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '업무를 검색할 수 없습니다.', 'error')
+    } finally { setSearching(false) }
+  }
+
   return <>
     <PageHeader title="업무 추적"
       description="주차를 넘어 이어지는 업무를 하나의 흐름으로 따라갑니다. 얼마나 오래 진행됐고, 몇 주 보고가 빠졌고, 언제부터 진척이 멈췄는지 확인합니다."
@@ -74,6 +91,34 @@ export default function WorkItemsPage({ session, notify }: {
         <select value={scope} onChange={event => setScope(event.target.value as 'SELF' | 'TEAM')}>
           <option value="SELF">본인</option><option value="TEAM">소속 조직</option>
         </select></label> : undefined} />
+
+    <Card title="과거 사례 찾기">
+      <p className="muted">비슷한 업무나 장애를 겪은 기록을 문장으로 찾습니다. 이슈와 그 이후 진행이 함께 표시되므로 해결 경과를 확인할 수 있습니다.</p>
+      <form className="work-search" onSubmit={event => { event.preventDefault(); void runSearch(query) }}>
+        <input value={query} onChange={event => setQuery(event.target.value)}
+          placeholder="예: 인증 연동하다 막혔던 사례, 결산 자동화 실패 원인" maxLength={200} />
+        <button className="button" type="submit" disabled={searching || query.trim().length < 2}>
+          {searching ? '찾는 중…' : '찾기'}</button>
+        {found && <button className="button secondary" type="button"
+          onClick={() => { setFound(undefined); setQuery('') }}>지우기</button>}
+      </form>
+      {found && (found.hits.length === 0
+        ? <Empty>비슷한 과거 업무를 찾지 못했습니다.</Empty>
+        : <ul className="work-search-results">
+            {found.semantic && <li className="muted work-search-note">표현이 달라도 내용이 가까운 업무를 함께 찾았습니다.</li>}
+            {found.hits.map(hit => <li key={hit.workItemId}>
+              <div className="work-search-head">
+                <strong>{hit.title}</strong>
+                <span className="muted-chip">{hit.displayName}{hit.organizationName ? ` · ${hit.organizationName}` : ''}</span>
+                <span className="muted-chip">{hit.lastWeek}</span>
+                {hit.semantic && <span className="muted-chip">의미 유사</span>}
+              </div>
+              {hit.issue && <p className="work-search-issue"><strong>이슈</strong> {hit.issue}</p>}
+              {hit.resolution && <p className="work-search-fix"><strong>이후 경과</strong> {hit.resolution}</p>}
+              <p className="muted">{hit.why}</p>
+            </li>)}
+          </ul>)}
+    </Card>
 
     {items === undefined ? <Spinner /> : !items.length ? <Empty>
       아직 추적할 업무가 없습니다. 주간보고를 저장하면 업무가 자동으로 만들어집니다.

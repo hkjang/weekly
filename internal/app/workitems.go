@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -32,6 +31,10 @@ type workItemView struct {
 	UserID      int64  `json:"userId"`
 	DisplayName string `json:"displayName"`
 	DueDate     string `json:"dueDate,omitempty"`
+	// Organization is carried so cross-team analysis does not need a second
+	// query with a different join and a different idea of who owns what.
+	OrganizationID   *int64 `json:"organizationId,omitempty"`
+	OrganizationName string `json:"organizationName,omitempty"`
 
 	FirstWeek string `json:"firstWeek"`
 	LastWeek  string `json:"lastWeek"`
@@ -162,76 +165,11 @@ func (a *App) listWorkItems(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", "조직 단위 조회는 팀장 이상만 가능합니다.")
 		return
 	}
-	statement := `SELECT w.id, w.title, w.category, w.user_id, u.display_name, w.due_date,
-			r.week_start, r.id, i.progress, i.current_result, i.next_plan, i.issue, i.management_ask
-		FROM work_items w
-		JOIN users u ON u.id = w.user_id
-		JOIN report_items i ON i.work_item_id = w.id
-		JOIN weekly_reports r ON r.id = i.report_id
-		WHERE 1=1`
-	args := []any{}
-	if scope == scopeSelf {
-		args = append(args, p.ID)
-		statement += fmt.Sprintf(" AND w.user_id=$%d", len(args))
-	} else if p.Role != "ADMIN" {
-		if p.OrganizationID == nil {
-			writeData(w, http.StatusOK, []workItemView{})
-			return
-		}
-		args = append(args, *p.OrganizationID)
-		statement += fmt.Sprintf(` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d
-			UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`, len(args))
-	}
-	statement += " ORDER BY w.id, r.week_start, i.id"
-
-	rows, err := a.db.Query(r.Context(), statement, args...)
+	result, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, scope == scopeSelf), "")
 	if err != nil {
 		a.logger.Error("list work items", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무를 조회할 수 없습니다.")
 		return
-	}
-	defer rows.Close()
-
-	order := []int64{}
-	byID := map[int64]*workItemView{}
-	for rows.Next() {
-		var id, userID, reportID int64
-		var title, category, displayName string
-		var dueDate *time.Time
-		var week time.Time
-		var progress int
-		var current, next, issue, ask string
-		if err := rows.Scan(&id, &title, &category, &userID, &displayName, &dueDate,
-			&week, &reportID, &progress, &current, &next, &issue, &ask); err != nil {
-			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무를 읽을 수 없습니다.")
-			return
-		}
-		item, exists := byID[id]
-		if !exists {
-			item = &workItemView{ID: id, Title: title, Category: category, UserID: userID,
-				DisplayName: displayName, Weeks: []workItemWeek{}}
-			if dueDate != nil {
-				item.DueDate = dueDate.Format("2006-01-02")
-			}
-			byID[id] = item
-			order = append(order, id)
-		}
-		item.Weeks = append(item.Weeks, workItemWeek{
-			WeekStart: week.Format("2006-01-02"), ReportID: reportID, Progress: progress,
-			CurrentResult: current, NextPlan: next, Issue: issue, ManagementAsk: ask,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무를 읽을 수 없습니다.")
-		return
-	}
-
-	cfg := a.rollupConfig(r.Context())
-	result := make([]workItemView, 0, len(order))
-	for _, id := range order {
-		item := byID[id]
-		summarizeWorkItem(item, cfg)
-		result = append(result, *item)
 	}
 	// Surface the work that needs attention: open risk, then stalled, then the
 	// longest running, then the least complete.
