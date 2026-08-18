@@ -56,7 +56,7 @@ export interface WorkItem {
   latestIssue: string; latestManagementAsk: string; weeks: WorkItemWeek[]
 }
 
-export interface AnalysisTerm { term: string; count: number; documents: number; weight: number; delta: number; phrase: boolean }
+export interface AnalysisTerm { term: string; count: number; documents: number; weight: number; delta: number; phrase: boolean; variants?: string[] }
 export interface KeywordAnalytics {
   start: string; end: string; weeks: number; field: string; documents: number; reports: number
   terms: AnalysisTerm[]; comparedStart: string; comparedEnd: string; comparedReports: number
@@ -79,10 +79,10 @@ export interface ParticipationAnalytics {
 
 export interface SearchMatch { field: string; label: string; title?: string; snippet: string }
 export interface SearchHit {
-  reportId: number; userId: number; displayName: string; weekStart: string
+  approximate?: boolean; semantic?: boolean; reportId: number; userId: number; displayName: string; weekStart: string
   status: ReportStatus; sourceType: ReportSource; matches: SearchMatch[]; score: number
 }
-export interface SearchResponse { query: string; terms: string[]; hits: SearchHit[]; truncated: boolean }
+export interface SearchResponse { query: string; terms: string[]; hits: SearchHit[]; truncated: boolean; fuzzy?: boolean; semantic?: boolean }
 
 export type AttachmentPlacement = 'BEFORE' | 'AFTER'
 export interface ReportAttachment {
@@ -127,4 +127,10 @@ export interface ConfluenceSyncStatus {
   enabled: boolean; status: string; lastSuccessAt?: string; lastAttemptAt?: string; currentStartedAt?: string; errorMessage: string
   pagesScanned: number; pagesChanged: number; candidatesCreated: number; pagesFailed: number; mappedUsers: number; unmappedUsers: number
   recentErrors: { id: number; pageId?: string; phase: string; statusCode?: number; message: string; createdAt: string }[]
+}
+
+/** Coverage of the optional semantic search index. */
+export interface EmbeddingStatus {
+  vectorAvailable: boolean; enabled: boolean; model: string
+  items: number; embedded: number; reason?: string
 }

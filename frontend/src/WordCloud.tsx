@@ -92,7 +92,8 @@ export default function WordCloud({ terms, onSelect, showTrend = true }: {
         style={onSelect ? { cursor: 'pointer' } : undefined}
         onClick={onSelect ? () => onSelect(item.term) : undefined}>
         {item.term.term}
-        <title>{`${item.term.term} · ${item.term.count}회 · ${item.term.documents}개 보고서 · 이전 대비 ${item.term.delta >= 0 ? '+' : ''}${item.term.delta}`}</title>
+        <title>{`${item.term.term} · ${item.term.count}회 · ${item.term.documents}개 보고서 · 이전 대비 ${item.term.delta >= 0 ? '+' : ''}${item.term.delta}`
+          + (item.term.variants?.length ? ` · 같은 표기로 합침: ${item.term.variants.join(', ')}` : '')}</title>
       </text>)}
     </svg>
     {showTrend ? <ul className="chart-legend">

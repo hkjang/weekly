@@ -40,6 +40,7 @@ type App struct {
 	mux             *http.ServeMux
 	defaultPPTX     []byte
 	defaultPPTXName string
+	capabilities    databaseCapabilities
 	importWake      chan struct{}
 	confluenceWake  chan struct{}
 }
@@ -118,12 +119,15 @@ func New(ctx context.Context, options Options) (*App, error) {
 		db.Close()
 		return nil, err
 	}
+	a.capabilities = detectCapabilities(ctx, db)
+	logger.Info("database capabilities detected", "pg_trgm", a.capabilities.Trigram, "pgvector", a.capabilities.Vector)
 	a.routes()
 	// Existing report items predate work items, so they are linked once on start.
 	a.backfillWorkItems(ctx)
 	go a.maintenance(ctx)
 	go a.importWorker(ctx)
 	go a.confluenceWorker(ctx)
+	go a.embeddingWorker(ctx)
 	return a, nil
 }
 
@@ -205,6 +209,8 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/admin/confluence/users/{id}/mapping", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateConfluenceMapping))))
 
 	a.mux.Handle("GET /api/v1/analytics/overview", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.analyticsOverview)))
+	a.mux.Handle("GET /api/v1/admin/embeddings", a.requireRole("ADMIN")(http.HandlerFunc(a.embeddingStatus)))
+	a.mux.Handle("POST /api/v1/admin/embeddings/rebuild", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.rebuildEmbeddings))))
 	a.mux.Handle("GET /api/v1/admin/analytics/keywords", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsKeywords)))
 	a.mux.Handle("GET /api/v1/admin/analytics/organizations", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsOrganizations)))
 	a.mux.Handle("GET /api/v1/admin/analytics/participation", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsParticipation)))

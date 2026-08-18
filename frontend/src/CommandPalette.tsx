@@ -121,7 +121,7 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
       id: `content:${hit.reportId}`,
       label: first ? first.snippet : `${hit.weekStart} 주간보고`,
       hint: `${hit.weekStart} · ${hit.displayName}${where ? ` · ${where}` : ''}`,
-      group: '보고서 내용',
+      group: hit.semantic ? '의미가 비슷한 내용' : hit.approximate ? '비슷한 내용' : '보고서 내용',
       // The server already decided this hit matches, so it must never be
       // filtered out again by the local matcher.
       keywords: [query],
@@ -192,6 +192,8 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
       <footer className="palette-foot">
         {searching && <span className="palette-busy">보고서 내용 검색 중…</span>}
         {search?.truncated && <span className="palette-busy">결과가 많아 일부만 표시합니다</span>}
+        {(search?.fuzzy || search?.semantic) && <span className="palette-busy">
+          정확히 일치하는 결과가 적어 {search.semantic ? '표기가 비슷하거나 의미가 가까운' : '비슷한'} 내용도 함께 찾았습니다</span>}
         <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
         <span><kbd>Enter</kbd> 열기</span>
         <span><kbd>g</kbd> 다음 <kbd>d</kbd>·<kbd>c</kbd>·<kbd>h</kbd>·<kbd>r</kbd> 바로가기</span>

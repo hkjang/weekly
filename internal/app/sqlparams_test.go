@@ -26,6 +26,12 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// PREPARE deduces {text, boolean, character varying, boolean, bigint}:
 		// the reused parameter only ever appears as a CASE WHEN condition.
 		"reports.go": "the reused review-reset flag is a boolean in every branch",
+		// PREPARE deduces {text}: the query is compared against several columns
+		// but word_similarity takes text on both sides everywhere.
+		"search.go": "the reused query text is text in every word_similarity call",
+		// PREPARE deduces {vector, text, integer, double precision}: the reused
+		// parameter is the query vector in both the filter and the ORDER BY.
+		"semantic.go": "the reused query embedding is cast to vector in every use",
 	}
 	placeholder := regexp.MustCompile(`\$(\d+)`)
 	sqlLiteral := regexp.MustCompile("(?s)`([^`]*)`")

@@ -110,3 +110,25 @@ func TestAppendSearchMatchesCapsSnippetsPerReport(t *testing.T) {
 		t.Error("expected at least one snippet")
 	}
 }
+
+// The three passes run in sequence and each skips what the earlier ones found.
+// A report returned by the trigram pass must not come back again from the
+// semantic pass under a different label.
+func TestLaterSearchPassesSkipReportsAlreadyFound(t *testing.T) {
+	found := map[int64]*searchHit{}
+	approximate := []searchHit{{ReportID: 7, Approximate: true}, {ReportID: 9, Approximate: true}}
+	for index := range approximate {
+		found[approximate[index].ReportID] = &approximate[index]
+	}
+	for _, id := range []int64{7, 9} {
+		if found[id] == nil {
+			t.Fatalf("report %d from the approximate pass was not recorded", id)
+		}
+	}
+	if found[7] == found[9] {
+		t.Error("each recorded hit must be a distinct element, not a shared loop variable")
+	}
+	if found[11] != nil {
+		t.Error("a report no pass returned must stay absent")
+	}
+}

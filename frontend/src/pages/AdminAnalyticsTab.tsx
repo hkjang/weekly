@@ -74,7 +74,9 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
                 className={selected?.term === term.term ? 'selected' : ''} onClick={() => setSelected(term)}>
                 <td className="rank-cell">{index + 1}</td>
                 <td><span className="term-dot" style={{ background: trendColors[termTrend(term)] }} />
-                  {term.term}{term.phrase && <small className="cell-sub">복합어</small>}</td>
+                  {term.term}{term.phrase && <small className="cell-sub">복합어</small>}
+                  {term.variants?.length ? <small className="cell-sub" title={term.variants.join(', ')}>
+                    띄어쓰기 다른 표기 {term.variants.length}건 합산</small> : null}</td>
                 <td>{term.count}</td>
                 <td>{term.documents}</td>
                 <td className={term.delta > 0 ? 'delta-up' : term.delta < 0 ? 'delta-down' : ''}>

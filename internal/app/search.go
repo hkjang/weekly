@@ -8,10 +8,20 @@ import (
 	"time"
 )
 
-// Content search across the reports the caller is allowed to read. Korean text
-// has no reliable whitespace tokenization without a database extension, so this
-// stays on case-insensitive substring matching, which behaves predictably
-// offline and needs no contrib modules.
+// Content search across the reports the caller is allowed to read, in three
+// passes that run only as far as they need to.
+//
+//  1. Case-insensitive substring match. Always available, needs no extension,
+//     and answers most queries. Korean has no reliable whitespace tokenization
+//     without a morphological analyzer, so this stays on substrings.
+//  2. Trigram similarity, when pg_trgm is installed. Catches misspellings and
+//     the different endings Korean attaches to the same noun.
+//  3. Embedding similarity, when pgvector is installed and an embedding model
+//     is configured. Catches work described in entirely different words.
+//
+// Each pass runs only when the previous ones came back thin, and skips the
+// reports they already returned. Passes 2 and 3 are optional: with neither, the
+// search still works exactly as it did before they existed.
 
 const (
 	searchMaxTerms      = 6
@@ -29,6 +39,8 @@ type searchMatch struct {
 }
 
 type searchHit struct {
+	Approximate bool          `json:"approximate"`
+	Semantic    bool          `json:"semantic"`
 	ReportID    int64         `json:"reportId"`
 	UserID      int64         `json:"userId"`
 	DisplayName string        `json:"displayName"`
@@ -44,6 +56,11 @@ type searchResponse struct {
 	Terms     []string    `json:"terms"`
 	Hits      []searchHit `json:"hits"`
 	Truncated bool        `json:"truncated"`
+	// Fuzzy reports that some hits came from trigram similarity rather than an
+	// exact substring, so the caller can say so instead of implying an exact match.
+	Fuzzy bool `json:"fuzzy"`
+	// Semantic reports that meaning-based matches are included.
+	Semantic bool `json:"semantic"`
 }
 
 // searchTerms splits the query into at most searchMaxTerms non-empty terms.
@@ -162,11 +179,45 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 		}
 		return hits[left].WeekStart > hits[right].WeekStart
 	})
+	// A substring search finds nothing when the query is misspelled or uses a
+	// different ending. When trigram similarity is available and the exact pass
+	// came back thin, offer approximate matches rather than an empty screen.
+	fuzzy := false
+	if a.capabilities.Trigram && len(hits) < 5 {
+		approximate, approxErr := a.searchApproximate(r, p, terms, byReport)
+		if approxErr != nil {
+			a.logger.Warn("approximate search", "error", approxErr, "trace", traceIDFromContext(r.Context()))
+		} else if len(approximate) > 0 {
+			fuzzy = true
+			hits = append(hits, approximate...)
+			// The semantic pass skips reports already found, so what the
+			// trigram pass returned has to be recorded here too. Without this
+			// the same report can appear twice under two different labels.
+			for index := range approximate {
+				byReport[approximate[index].ReportID] = &approximate[index]
+			}
+		}
+	}
+
+	// Meaning based matching finds work described in different words entirely.
+	// It costs an embedding call, so it only runs when the cheaper passes came
+	// back thin and the feature is configured.
+	semantic := false
+	if a.capabilities.Vector && len(hits) < 5 {
+		matches, semanticErr := a.searchSemantic(r, p, query, byReport)
+		if semanticErr != nil {
+			a.logger.Warn("semantic search", "error", semanticErr, "trace", traceIDFromContext(r.Context()))
+		} else if len(matches) > 0 {
+			semantic = true
+			hits = append(hits, matches...)
+		}
+	}
+
 	truncated := scanned >= searchScanLimit || len(hits) > searchReportLimit
 	if len(hits) > searchReportLimit {
 		hits = hits[:searchReportLimit]
 	}
-	writeData(w, http.StatusOK, searchResponse{Query: query, Terms: terms, Hits: hits, Truncated: truncated})
+	writeData(w, http.StatusOK, searchResponse{Query: query, Terms: terms, Hits: hits, Truncated: truncated, Fuzzy: fuzzy, Semantic: semantic})
 }
 
 // appendSearchMatches records the highest value snippets for one scanned row.
@@ -259,4 +310,92 @@ func buildSnippet(value string, terms []string) (string, bool) {
 		snippet += "…"
 	}
 	return snippet, true
+}
+
+// searchApproximate finds reports whose text is similar to the query without
+// containing it exactly, which covers typos and inflected endings. It only runs
+// where pg_trgm is installed and never returns a report the exact pass already
+// found.
+func (a *App) searchApproximate(r *http.Request, p *principal, terms []string, seen map[int64]*searchHit) ([]searchHit, error) {
+	threshold := float64(a.settingInt(r.Context(), "search.similarity_threshold", 35)) / 100
+	if threshold <= 0 || threshold >= 1 {
+		threshold = 0.35
+	}
+	needle := strings.Join(terms, " ")
+	statement := `SELECT r.id,r.user_id,u.display_name,r.week_start,r.status,r.source_type,
+			coalesce(i.title,''), coalesce(i.category,''), coalesce(r.summary,''),
+			greatest(
+			  word_similarity($1, coalesce(i.title,'')),
+			  word_similarity($1, coalesce(i.category,'')),
+			  word_similarity($1, coalesce(r.summary,'')),
+			  word_similarity($1, coalesce(i.current_result,'')),
+			  word_similarity($1, coalesce(i.next_plan,'')),
+			  word_similarity($1, coalesce(i.issue,''))
+			) AS score
+		FROM weekly_reports r JOIN users u ON u.id=r.user_id
+		LEFT JOIN report_items i ON i.report_id=r.id
+		WHERE 1=1`
+	args := []any{needle}
+	switch {
+	case p.Role == "ADMIN":
+	case p.Role == "TEAM_LEADER" || p.Role == "ORG_MANAGER":
+		if p.OrganizationID == nil {
+			args = append(args, p.ID)
+			statement += fmt.Sprintf(" AND r.user_id=$%d", len(args))
+		} else {
+			args = append(args, p.ID, *p.OrganizationID)
+			statement += fmt.Sprintf(` AND (r.user_id=$%d OR u.organization_id IN (WITH RECURSIVE orgs AS
+				(SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id)
+				SELECT id FROM orgs))`, len(args)-1, len(args))
+		}
+	default:
+		args = append(args, p.ID)
+		statement += fmt.Sprintf(" AND r.user_id=$%d", len(args))
+	}
+	args = append(args, threshold)
+	statement += fmt.Sprintf(` AND greatest(
+			word_similarity($1, coalesce(i.title,'')),
+			word_similarity($1, coalesce(i.category,'')),
+			word_similarity($1, coalesce(r.summary,'')),
+			word_similarity($1, coalesce(i.current_result,'')),
+			word_similarity($1, coalesce(i.next_plan,'')),
+			word_similarity($1, coalesce(i.issue,''))) >= $%d
+		ORDER BY score DESC, r.week_start DESC LIMIT %d`, len(args), searchReportLimit)
+
+	rows, err := a.db.Query(r.Context(), statement, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []searchHit{}
+	added := map[int64]bool{}
+	for rows.Next() {
+		var reportID, userID int64
+		var displayName, status, sourceType, title, category, summary string
+		var week time.Time
+		var score float64
+		if err := rows.Scan(&reportID, &userID, &displayName, &week, &status, &sourceType,
+			&title, &category, &summary, &score); err != nil {
+			return nil, err
+		}
+		if seen[reportID] != nil || added[reportID] {
+			continue
+		}
+		added[reportID] = true
+		snippet := strings.TrimSpace(title)
+		label := "업무"
+		if snippet == "" {
+			snippet, label = strings.TrimSpace(summary), "주간 요약"
+		}
+		if snippet == "" {
+			continue
+		}
+		result = append(result, searchHit{
+			Approximate: true, ReportID: reportID, UserID: userID, DisplayName: displayName,
+			WeekStart: week.Format("2006-01-02"), Status: status, SourceType: sourceType,
+			Score:   int(score * 100),
+			Matches: []searchMatch{{Field: "similar", Label: label + " · 유사", Snippet: trimRunes(snippet, 80)}},
+		})
+	}
+	return result, rows.Err()
 }

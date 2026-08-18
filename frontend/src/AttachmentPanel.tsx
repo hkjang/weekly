@@ -8,17 +8,21 @@ import type { AttachmentPlacement, ReportAttachment } from './types'
  * exported deck, placed before or after the written content in the order shown
  * here, so the list is the slide order.
  */
-export default function AttachmentPanel({ reportId, editable, notify }: {
+export default function AttachmentPanel({ reportId, editable, notify, onCountChange }: {
   reportId: number
   editable: boolean
   notify: (message: string, kind?: 'success' | 'error') => void
+  onCountChange?: (count: number) => void
 }) {
   const [items, setItems] = useState<ReportAttachment[]>()
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const load = () => api<ReportAttachment[]>(`/api/v1/reports/${reportId}/attachments`).then(setItems)
+  const load = () => api<ReportAttachment[]>(`/api/v1/reports/${reportId}/attachments`).then(value => {
+    setItems(value)
+    onCountChange?.(value.length)
+  })
   useEffect(() => { load().catch(() => setItems([])) }, [reportId])
 
   const upload = async (files: File[]) => {
@@ -110,7 +114,9 @@ export default function AttachmentPanel({ reportId, editable, notify }: {
       <strong>{busy ? '업로드 중…' : dragging ? '여기에 놓으면 슬라이드가 추가됩니다' : '이미지를 끌어다 놓거나 클릭해 선택하세요'}</strong>
       <span>PNG · JPEG · GIF · 클립보드에서 Ctrl+V로 붙여넣기도 지원합니다.</span>
     </div>}
-    {items === undefined ? null : !items.length ? <Empty>첨부한 이미지가 없습니다.</Empty> : <div className="capture-groups">
+    {/* The drop zone already says the list is empty, so the empty state is only
+        for readers who cannot add anything. */}
+    {items === undefined ? null : !items.length ? (editable ? null : <Empty>첨부한 이미지가 없습니다.</Empty>) : <div className="capture-groups">
       {groups.map(group => {
         const groupItems = items.filter(item => item.placement === group.placement)
         if (!groupItems.length) return null

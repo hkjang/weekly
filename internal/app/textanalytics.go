@@ -61,6 +61,8 @@ type analysisTerm struct {
 	Weight    float64 `json:"weight"`
 	Delta     int     `json:"delta"`
 	Phrase    bool    `json:"phrase"`
+	// Variants are the other spellings counted under this term.
+	Variants []string `json:"variants,omitempty"`
 }
 
 // surfaceToken lowercases a token and removes the suffixes that can never be
@@ -174,6 +176,9 @@ type termAccumulator struct {
 	phrase    map[string]bool
 	total     int
 	docTokens []documentTokens
+	// variantOf records the spellings folded into each canonical term, so the
+	// screen can explain why a count is higher than a reader expects.
+	variantOf map[string][]string
 }
 
 func newTermAccumulator() *termAccumulator {
@@ -239,6 +244,54 @@ func (a *termAccumulator) resolve() {
 			a.documentF[term]++
 		}
 	}
+	a.mergeSpacingVariants()
+}
+
+// mergeSpacingVariants folds terms that differ only in spacing into one entry,
+// so "전표 검증" and "전표검증" are one concept in the cloud rather than two
+// half-weight ones. Korean compound nouns are written both ways by different
+// authors, and the split is an artefact of that habit, not a real distinction.
+//
+// The merge is by exact match after removing spaces, not by similarity. Trigram
+// similarity was measured against this corpus and cannot do the job: the pairs
+// that must merge ("전표 검증"/"전표검증", 0.375) score lower than the pairs that
+// must never merge ("서버 A 점검"/"서버 B 점검", 0.600), so no threshold
+// separates them. Exact match after normalization has no false positives.
+func (a *termAccumulator) mergeSpacingVariants() {
+	// Group the surface forms that collapse to the same spaceless key.
+	groups := map[string][]string{}
+	for term := range a.counts {
+		key := strings.ReplaceAll(term, " ", "")
+		groups[key] = append(groups[key], term)
+	}
+	for _, variants := range groups {
+		if len(variants) < 2 {
+			continue
+		}
+		// The form the corpus uses most often is the one readers recognise.
+		sort.SliceStable(variants, func(left, right int) bool {
+			if a.counts[variants[left]] != a.counts[variants[right]] {
+				return a.counts[variants[left]] > a.counts[variants[right]]
+			}
+			return variants[left] < variants[right]
+		})
+		canonical := variants[0]
+		for _, variant := range variants[1:] {
+			a.counts[canonical] += a.counts[variant]
+			// Document frequency cannot be summed: the same report may contain
+			// both spellings, and double counting would understate rarity.
+			if a.documentF[variant] > a.documentF[canonical] {
+				a.documentF[canonical] = a.documentF[variant]
+			}
+			if a.variantOf == nil {
+				a.variantOf = map[string][]string{}
+			}
+			a.variantOf[canonical] = append(a.variantOf[canonical], variant)
+			delete(a.counts, variant)
+			delete(a.documentF, variant)
+			delete(a.phrase, variant)
+		}
+	}
 }
 
 // rank scores terms and drops the ones a reader would not act on.
@@ -278,6 +331,7 @@ func (a *termAccumulator) rank(limit int, previous map[string]int) []analysisTer
 			Term: term, Count: count, Documents: documents,
 			Weight: math.Round(weight*100) / 100,
 			Delta:  count - previous[term], Phrase: isPhrase,
+			Variants: a.variantOf[term],
 		})
 	}
 	terms = suppressRedundantParts(terms)

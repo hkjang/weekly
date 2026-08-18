@@ -239,3 +239,56 @@ func TestSublinearFrequencyLetsRareTermsCompete(t *testing.T) {
 		t.Errorf("raw repetition beat the distinctive term: rare=%d common=%d", rare, common)
 	}
 }
+
+// Korean compound nouns are written with and without a space by different
+// authors. Both spellings are the same concept and must not split the cloud.
+func TestSpacingVariantsMergeIntoOneTerm(t *testing.T) {
+	accumulator := newTermAccumulator()
+	for range 3 {
+		accumulator.addDocument("전표검증 자동화를 진행했습니다\n전표검증 결과를 확인했습니다")
+	}
+	for range 2 {
+		accumulator.addDocument("전표 검증 절차를 정리했습니다\n전표 검증 담당자를 지정했습니다")
+	}
+	terms := accumulator.rank(30, nil)
+	found := map[string]analysisTerm{}
+	for _, term := range terms {
+		found[term.Term] = term
+	}
+	if _, split := found["전표 검증"]; split {
+		if _, also := found["전표검증"]; also {
+			t.Fatalf("both spellings survived as separate terms: %+v", terms)
+		}
+	}
+	merged, ok := found["전표검증"]
+	if !ok {
+		t.Fatalf("the more frequent spelling should be the canonical term, got %+v", terms)
+	}
+	if merged.Count < 10 {
+		t.Errorf("merged count = %d, want every occurrence of both spellings", merged.Count)
+	}
+	if len(merged.Variants) == 0 {
+		t.Errorf("the folded spelling should be reported as a variant, got %+v", merged)
+	}
+}
+
+// The measured counter-case: these score 0.600 on trigram similarity, higher
+// than the spelling variants above, and are different work. Merging by exact
+// match after removing spaces keeps them apart where a threshold would not.
+func TestDistinctTermsWithSharedWordsAreNotMerged(t *testing.T) {
+	accumulator := newTermAccumulator()
+	for range 4 {
+		accumulator.addDocument("서버알파 점검 완료\n서버베타 점검 완료")
+	}
+	terms := accumulator.rank(50, nil)
+	seen := map[string]bool{}
+	for _, term := range terms {
+		seen[term.Term] = true
+		if len(term.Variants) > 0 {
+			t.Errorf("%q must not absorb %v", term.Term, term.Variants)
+		}
+	}
+	if !seen["서버알파 점검"] || !seen["서버베타 점검"] {
+		t.Errorf("both distinct terms should survive, got %+v", terms)
+	}
+}
