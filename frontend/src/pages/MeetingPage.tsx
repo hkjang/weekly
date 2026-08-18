@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import PresentationMode from '../PresentationMode'
+import { meetingNotes, meetingSlides } from '../presentSlides'
 import type { MeetingEntry, MeetingView, SessionInfo } from '../types'
 
 /**
@@ -94,6 +95,7 @@ export default function MeetingPage({ session, notify }: {
           </Card>)}
     </>}
 
-    {presenting && view && <PresentationMode view={view} onClose={() => setPresenting(false)} />}
+    {presenting && view && <PresentationMode slides={meetingSlides(view)} label={`${view.week} 주차 회의`}
+      notes={meetingNotes} onClose={() => setPresenting(false)} />}
   </>
 }

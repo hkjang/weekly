@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import { Card, Empty, PageHeader, Spinner } from '../components'
+import { Button, Card, Empty, PageHeader, Spinner } from '../components'
+import PresentationMode from '../PresentationMode'
+import { rollupSlides } from '../presentSlides'
 import { CompositionBar, ProgressTrendChart, RankBars, TaskTimeline, WeeklyStateChart } from '../charts'
 import { replaceRoute } from '../router'
 import type { PeriodKind, Rollup, RollupItem, RollupScope, SessionInfo } from '../types'
@@ -63,6 +65,7 @@ export default function RollupPage({ session, route, notify }: {
   })
   const [scope, setScope] = useState<RollupScope>(route?.scope === 'TEAM' ? 'TEAM' : 'SELF')
   const [rollup, setRollup] = useState<Rollup>()
+  const [presenting, setPresenting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterKey>('ALL')
   const [detail, setDetail] = useState<RollupItem>()
@@ -102,6 +105,7 @@ export default function RollupPage({ session, route, notify }: {
     <PageHeader title="기간 업무보고"
       description="주간보고를 월간·분기·반기·연간 단위로 자동 취합하고 중복 업무와 반복 기재를 제거해 보여줍니다."
       action={<div className="header-actions">
+        <Button variant="secondary" disabled={!rollup?.items.length} onClick={() => setPresenting(true)}>▶ 발표 모드</Button>
         <a className="button secondary" href={`/api/v1/rollups/export.csv?${query}`}>CSV</a>
         <a className="button primary" href={`/api/v1/rollups/export.pptx?${query}`}>PPTX 내보내기</a>
       </div>} />
@@ -234,5 +238,7 @@ export default function RollupPage({ session, route, notify }: {
         </div>
       </div>
     </div>}
+    {presenting && rollup && <PresentationMode label={`${rollup.label} · ${rollup.scopeLabel}`}
+      slides={rollupSlides(rollup)} onClose={() => setPresenting(false)} />}
   </>
 }
