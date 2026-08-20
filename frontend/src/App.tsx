@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, post } from './api'
 import { Button, Spinner, Toast } from './components'
 import CommandPalette, { periodCommands } from './CommandPalette'
 import type { Command } from './CommandPalette'
 import { navigateTo, parseRoute, replaceRoute, routeHash } from './router'
 import { confirmDiscard, hasUnsavedWork } from './unsavedGuard'
+import { onSessionLost } from './session'
+import ErrorBoundary from './ErrorBoundary'
 import type { PageName } from './router'
 import type { Providers, SessionInfo } from './types'
 import DashboardPage from './pages/DashboardPage'
@@ -47,12 +49,36 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error' }>()
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const [signedOut, setSignedOut] = useState(false)
 
   const notify = (message: string, kind: 'success' | 'error' = 'success') => setToast({ message, kind })
   const refreshSession = async () => { const value = await api<SessionInfo>('/api/v1/me'); setSession(value) }
   useEffect(() => {
     Promise.all([api<Providers>('/api/v1/auth/providers'), api<SessionInfo>('/api/v1/me').catch(() => undefined)])
       .then(([p, s]) => { setProviders(p); setSession(s) }).finally(() => setLoading(false))
+  }, [])
+  // The API layer announces a 401; deciding what to do with it belongs here.
+  const sessionRef = useRef<SessionInfo | undefined>(undefined)
+  sessionRef.current = session
+  useEffect(() => {
+    onSessionLost(() => {
+      // Nothing to lose before the first login, and the probe on start-up is a
+      // 401 by design.
+      if (!sessionRef.current) return
+      // Never throw away typed work to show a login form. The editor is the one
+      // screen that can be holding an hour of it, and the session cookie is
+      // shared with any other tab, so signing in elsewhere makes this screen
+      // work again with its content intact.
+      if (hasUnsavedWork()) { setSessionExpired(true); return }
+      setSessionExpired(false)
+      setSession(undefined)
+      // A banner on the login screen rather than a toast: the screen that fails
+      // first also raises its own error toast, and whichever lands last wins.
+      // The reason the user is looking at a login form should not be a race.
+      setSignedOut(true)
+    })
+    return () => onSessionLost(null)
   }, [])
   useEffect(() => {
     if (!parseRoute()) replaceRoute('dashboard')
@@ -142,12 +168,20 @@ export default function App() {
 
   if (loading) return <div className="splash"><div className="brand-mark">W</div><Spinner /></div>
   if (!providers) return <div className="splash"><p>서비스 정보를 불러올 수 없습니다.</p></div>
-  if (!session) return <Login providers={providers} onLogin={async () => { await refreshSession() }} notify={notify} />
+  // The toast lives in the shell below, which this branch never reaches, so it
+  // is rendered here too. Without it the "your session expired" message is
+  // created and then thrown away at the exact moment it is needed.
+  if (!session) return <>
+    <Login providers={providers} notify={notify}
+      notice={signedOut ? '세션이 만료되어 로그아웃됐습니다. 다시 로그인해 주세요.' : undefined}
+      onLogin={async () => { setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
+    {toast && <Toast {...toast} onClose={() => setToast(undefined)} />}
+  </>
 
   const canTeam = session.user.role !== 'USER'
   const isAdmin = session.user.role === 'ADMIN'
   const navigate = (next: Page) => go(next)
-  const logout = async () => { if (!confirmDiscard()) return; await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
+  const logout = async () => { if (!confirmDiscard()) return; setSignedOut(false); await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
 
   const screens: { page: Page; label: string; keywords: string[]; visible: boolean }[] = [
     { page: 'dashboard', label: '대시보드', keywords: ['dashboard', 'home', '홈'], visible: true },
@@ -211,7 +245,15 @@ export default function App() {
         </div>
       </header>
       {session.notice && <div className="notice">{session.notice}</div>}
+      {sessionExpired && <div className="session-expired" role="alert">
+        <div>
+          <strong>세션이 만료되었습니다.</strong>
+          <span>작성 중인 내용이 있어 이 화면을 그대로 두었습니다. 새 탭에서 다시 로그인한 뒤 이 화면으로 돌아와 저장하세요.</span>
+        </div>
+        <button className="button" onClick={() => window.open(window.location.pathname, '_blank', 'noopener')}>새 탭에서 로그인</button>
+      </div>}
       <div className="page-content">
+      <ErrorBoundary onReset={() => go('dashboard')}>
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} openReportId={Number(params.report) || undefined} notify={notify} />}
@@ -226,6 +268,7 @@ export default function App() {
         {page === 'analytics' && canTeam && <AnalyticsPage />}
         {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}
         {page === 'admin' && isAdmin && <AdminPage notify={notify} onSettingsChanged={refreshSession} />}
+      </ErrorBoundary>
       </div>
     </main>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} session={session} go={go} commands={paletteCommands} />
@@ -246,10 +289,10 @@ function shortcutLabel(): string {
 function Nav({ active, icon, children, onClick }: { active: boolean; icon: string; children: string; onClick: () => void }) { return <button className={active ? 'active' : ''} onClick={onClick}><i>{icon}</i>{children}</button> }
 function roleName(role: string) { return ({ USER: '사용자', TEAM_LEADER: '팀장', ORG_MANAGER: '조직장', ADMIN: '관리자' } as Record<string, string>)[role] ?? role }
 
-function Login({ providers, onLogin, notify }: { providers: Providers; onLogin: () => Promise<void>; notify: (message: string, kind?: 'success' | 'error') => void }) {
+function Login({ providers, onLogin, notify, notice }: { providers: Providers; onLogin: () => Promise<void>; notify: (message: string, kind?: 'success' | 'error') => void; notice?: string }) {
   const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false)
   const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); try { await post('/api/v1/auth/login', { username, password }); await onLogin() } catch (error) { notify(error instanceof Error ? error.message : '로그인할 수 없습니다.', 'error') } finally { setBusy(false) } }
-  return <div className="login-page"><div className="login-panel"><div className="login-brand"><span className="brand-mark">W</span><div><h1>{providers.name}</h1><p>한 주의 성과를 선명하게 기록하세요.</p></div></div>{providers.notice && <div className="login-notice">{providers.notice}</div>}
+  return <div className="login-page"><div className="login-panel"><div className="login-brand"><span className="brand-mark">W</span><div><h1>{providers.name}</h1><p>한 주의 성과를 선명하게 기록하세요.</p></div></div>{notice && <div className="login-expired" role="alert">{notice}</div>}{providers.notice && <div className="login-notice">{providers.notice}</div>}
     {providers.local && <form onSubmit={submit}><label>아이디<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label><label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label><Button disabled={busy} className="full">{busy ? '로그인 중…' : '로그인'}</Button></form>}
     {providers.local && providers.oidc && <div className="divider"><span>또는</span></div>}
     {providers.oidc && <a className="button secondary full sso" href="/api/v1/auth/oidc/start">Keycloak SSO로 로그인</a>}

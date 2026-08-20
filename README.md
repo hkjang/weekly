@@ -26,6 +26,7 @@
 - 조직 계층 기반 RBAC: `USER`, `TEAM_LEADER`, `ORG_MANAGER`, `ADMIN`
 - Argon2id 로컬 인증, DB 세션, 감사 로그, 낙관적 잠금
 - 개인 API/MCP 키 발급·폐기 및 전체 즉시 폐기형 개인 키 회전
+- 세션이 만료돼도 작성 중인 내용을 지키고, 화면 오류가 앱 전체를 멈추지 않게 하는 오류 처리
 - 조직 정책에 맞춰 설정하는 제출 마감과, 그 기준을 화면에 그대로 표시하는 정시 제출률
 - 지난주 대비 무엇이 완료·신규·재개·진척·역행·정체·누락됐는지 AI 없이 판별하는 주간 변화 요약. 회의 모드와 같은 판정을 사용합니다
 - 진척도 역행, 계획 반복, 실적 누락, 이슈 장기화를 제출 전에 작성자에게 먼저 알려 주는 보고 품질 점검
@@ -58,7 +59,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.18.0.tar.gz | docker load
+gzip -dc weekly-v0.19.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d

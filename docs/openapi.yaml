@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.18.0
+  version: 0.19.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -679,6 +679,10 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
   /rollups/export.csv:
     get:
+      description: |
+        기간 집계를 CSV로 내려받는다. 보고 본문은 사용자가 입력한 값이므로 `=`, `+`, `@`,
+        탭, 캐리지리턴으로 시작하는 셀 앞에 작은따옴표를 붙여 스프레드시트가 수식으로
+        실행하지 않게 한다. `-` 뒤에 공백이 오는 경우는 글머리표이므로 그대로 둔다.
       summary: 기간 보고 업무 표 CSV 내보내기
       parameters:
         - { name: kind, in: query, schema: { type: string, enum: [MONTH, QUARTER, HALF, YEAR], default: MONTH } }

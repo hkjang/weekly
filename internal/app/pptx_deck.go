@@ -27,7 +27,10 @@ type slideMedia struct {
 	Name        string
 	ContentType string
 	Extension   string
-	Bytes       []byte
+	// Load reads the image only when it is about to be written into the package.
+	// Holding the bytes here instead meant every capture in an export was
+	// resident at once, on top of the copy inside the package being built.
+	Load func() ([]byte, error)
 	// RelID is the relationship id the owning slide uses to reach this part.
 	RelID string
 }
@@ -67,7 +70,7 @@ func buildPPTX(widthEMU, heightEMU int, title string, slides []builtSlide) ([]by
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": defaultSlideMasterRels,
 		"ppt/theme/theme1.xml":                         defaultTheme,
 	}
-	media := map[string][]byte{}
+	media := map[string]func() ([]byte, error){}
 
 	// rId1 is the slide master; slides follow, then the fixed presentation parts.
 	var slideIDs, slideRels, overrides strings.Builder
@@ -80,7 +83,7 @@ func buildPPTX(widthEMU, heightEMU int, title string, slides []builtSlide) ([]by
 		relations := `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`
 		for _, item := range slide.Media {
 			relations += fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/%s"/>`, item.RelID, item.Name)
-			media["ppt/media/"+item.Name] = item.Bytes
+			media["ppt/media/"+item.Name] = item.Load
 			extensions[item.Extension] = item.ContentType
 		}
 		files[fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", number)] =
@@ -135,12 +138,16 @@ func buildPPTX(widthEMU, heightEMU int, title string, slides []builtSlide) ([]by
 			return nil, err
 		}
 	}
-	for _, name := range sortedByteKeys(media) {
+	for _, name := range sortedMediaKeys(media) {
 		entry, err := writer.Create(name)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := entry.Write(media[name]); err != nil {
+		body, loadErr := media[name]()
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if _, err := entry.Write(body); err != nil {
 			return nil, err
 		}
 	}
@@ -159,9 +166,12 @@ func slideDocument(shapes string) string {
 // touching its master, layouts, theme or original slides, so an administrator
 // supplied corporate template keeps its identity.
 //
-// atStart places the new slides before the template's own slides.
-func appendSlidesToPPTX(template []byte, slides []builtSlide, atStart bool) ([]byte, error) {
-	if len(slides) == 0 {
+// before is placed ahead of the template's own slides and after behind them.
+// Both groups are handled in one pass on purpose: the function reads every part
+// of the package into memory, so calling it twice made a second full copy of a
+// deck that already contained every embedded image.
+func appendSlidesToPPTX(template []byte, before, after []builtSlide) ([]byte, error) {
+	if len(before) == 0 && len(after) == 0 {
 		return template, nil
 	}
 	reader, err := zip.NewReader(bytes.NewReader(template), int64(len(template)))
@@ -211,39 +221,49 @@ func appendSlidesToPPTX(template []byte, slides []builtSlide, atStart bool) ([]b
 	// relationship keeps generated slides on the corporate master.
 	layoutRelationship := templateLayoutRelationship(parts, highestSlide)
 
-	addedIDs := ""
 	addedRels := ""
 	addedOverrides := ""
 	newDefaults := map[string]string{}
-	for _, slide := range slides {
-		highestSlide++
-		number := highestSlide
-		slideName := fmt.Sprintf("ppt/slides/slide%d.xml", number)
-		relations := layoutRelationship
-		for _, item := range slide.Media {
-			relations += fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/%s"/>`, item.RelID, item.Name)
-			mediaName := "ppt/media/" + item.Name
-			if _, exists := parts[mediaName]; !exists {
-				parts[mediaName] = item.Bytes
-				order = append(order, mediaName)
+	// Image parts are written straight from disk when the package is assembled,
+	// so at most one capture is in memory at a time.
+	mediaLoaders := map[string]func() ([]byte, error){}
+	build := func(slides []builtSlide) string {
+		addedIDs := ""
+		for _, slide := range slides {
+			highestSlide++
+			number := highestSlide
+			slideName := fmt.Sprintf("ppt/slides/slide%d.xml", number)
+			relations := layoutRelationship
+			for _, item := range slide.Media {
+				relations += fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/%s"/>`, item.RelID, item.Name)
+				mediaName := "ppt/media/" + item.Name
+				if _, exists := parts[mediaName]; !exists {
+					if _, pending := mediaLoaders[mediaName]; !pending {
+						mediaLoaders[mediaName] = item.Load
+						order = append(order, mediaName)
+					}
+				}
+				if !strings.Contains(string(contentTypes), `Extension="`+item.Extension+`"`) {
+					newDefaults[item.Extension] = item.ContentType
+				}
 			}
-			if !strings.Contains(string(contentTypes), `Extension="`+item.Extension+`"`) {
-				newDefaults[item.Extension] = item.ContentType
-			}
+			parts[slideName] = []byte(slideDocument(slide.Shapes))
+			order = append(order, slideName)
+			relsName := fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", number)
+			parts[relsName] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + relations + `</Relationships>`)
+			order = append(order, relsName)
+			addedIDs += fmt.Sprintf(`<p:sldId id="%d" r:id="rId%d"/>`, nextSlideID, nextRelID)
+			addedRels += fmt.Sprintf(`<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide%d.xml"/>`, nextRelID, number)
+			addedOverrides += fmt.Sprintf(`<Override PartName="/ppt/slides/slide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, number)
+			nextSlideID++
+			nextRelID++
 		}
-		parts[slideName] = []byte(slideDocument(slide.Shapes))
-		order = append(order, slideName)
-		relsName := fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", number)
-		parts[relsName] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + relations + `</Relationships>`)
-		order = append(order, relsName)
-		addedIDs += fmt.Sprintf(`<p:sldId id="%d" r:id="rId%d"/>`, nextSlideID, nextRelID)
-		addedRels += fmt.Sprintf(`<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide%d.xml"/>`, nextRelID, number)
-		addedOverrides += fmt.Sprintf(`<Override PartName="/ppt/slides/slide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, number)
-		nextSlideID++
-		nextRelID++
+		return addedIDs
 	}
+	beforeIDs := build(before)
+	afterIDs := build(after)
 
-	updatedPresentation, err := insertSlideIDs(string(presentation), addedIDs, atStart)
+	updatedPresentation, err := insertSlideIDs(string(presentation), beforeIDs, afterIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +298,15 @@ func appendSlidesToPPTX(template []byte, slides []builtSlide, atStart bool) ([]b
 		if createErr != nil {
 			return nil, createErr
 		}
-		if _, writeErr := entry.Write(parts[name]); writeErr != nil {
+		body, ok := parts[name]
+		if !ok {
+			loaded, loadErr := mediaLoaders[name]()
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			body = loaded
+		}
+		if _, writeErr := entry.Write(body); writeErr != nil {
 			return nil, writeErr
 		}
 	}
@@ -288,19 +316,16 @@ func appendSlidesToPPTX(template []byte, slides []builtSlide, atStart bool) ([]b
 	return output.Bytes(), nil
 }
 
-func insertSlideIDs(presentation, addedIDs string, atStart bool) (string, error) {
+func insertSlideIDs(presentation, beforeIDs, afterIDs string) (string, error) {
 	if emptySlideListTag.MatchString(presentation) {
-		return emptySlideListTag.ReplaceAllString(presentation, `<p:sldIdLst>`+addedIDs+`</p:sldIdLst>`), nil
+		return emptySlideListTag.ReplaceAllString(presentation, `<p:sldIdLst>`+beforeIDs+afterIDs+`</p:sldIdLst>`), nil
 	}
 	if !slideListPattern.MatchString(presentation) {
 		return "", errors.New("PPTX presentation.xml에 슬라이드 목록이 없습니다")
 	}
 	return slideListPattern.ReplaceAllStringFunc(presentation, func(section string) string {
 		existing := slideListPattern.FindStringSubmatch(section)[1]
-		if atStart {
-			return `<p:sldIdLst>` + addedIDs + existing + `</p:sldIdLst>`
-		}
-		return `<p:sldIdLst>` + existing + addedIDs + `</p:sldIdLst>`
+		return `<p:sldIdLst>` + beforeIDs + existing + afterIDs + `</p:sldIdLst>`
 	}), nil
 }
 
@@ -389,7 +414,7 @@ func sortedKeys(values map[string]string) []string {
 	return result
 }
 
-func sortedByteKeys(values map[string][]byte) []string {
+func sortedMediaKeys(values map[string]func() ([]byte, error)) []string {
 	result := make([]string, 0, len(values))
 	for key := range values {
 		result = append(result, key)

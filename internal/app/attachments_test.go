@@ -53,13 +53,11 @@ func TestCaptureSlidesAppendToGeneratedTemplate(t *testing.T) {
 		captureAttachment(2, "capture-b.png", "", placementAfter, 300, 900),
 	}
 	bodies := map[string][]byte{"capture-a.png": image1, "capture-b.png": image2}
-	slides := attachmentSlides(items, width, height, func(item storedAttachment) ([]byte, error) {
-		return bodies[item.StoredPath], nil
-	})
+	slides := attachmentSlides(items, width, height, openBodies(bodies))
 	if len(slides) != 2 {
 		t.Fatalf("built %d capture slides, want 2", len(slides))
 	}
-	result, err := appendSlidesToPPTX(template, slides, false)
+	result, err := appendSlidesToPPTX(template, nil, slides)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +102,8 @@ func TestCaptureSlidesCanGoFirst(t *testing.T) {
 	body := samplePNG(t, 640, 480)
 	slides := attachmentSlides(
 		[]storedAttachment{captureAttachment(9, "cover.png", "표지 캡처", placementBefore, 640, 480)},
-		width, height, func(storedAttachment) ([]byte, error) { return body, nil })
-	result, err := appendSlidesToPPTX(template, slides, true)
+		width, height, openBodies(map[string][]byte{"cover.png": body}))
+	result, err := appendSlidesToPPTX(template, slides, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,8 +134,8 @@ func TestAppendSlidesRegistersImageContentType(t *testing.T) {
 	body := samplePNG(t, 200, 100)
 	slides := attachmentSlides(
 		[]storedAttachment{captureAttachment(3, "x.png", "캡처", placementAfter, 200, 100)},
-		defaultSlideCX, defaultSlideCY, func(storedAttachment) ([]byte, error) { return body, nil })
-	result, err := appendSlidesToPPTX(template, slides, false)
+		defaultSlideCX, defaultSlideCY, openBodies(map[string][]byte{"x.png": body}))
+	result, err := appendSlidesToPPTX(template, nil, slides)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,10 +153,21 @@ func TestAppendSlidesRegistersImageContentType(t *testing.T) {
 func TestAttachmentSlidesSkipUnreadableFiles(t *testing.T) {
 	slides := attachmentSlides(
 		[]storedAttachment{captureAttachment(1, "missing.png", "", placementAfter, 100, 100)},
-		defaultSlideCX, defaultSlideCY,
-		func(storedAttachment) ([]byte, error) { return nil, errNotFound })
+		defaultSlideCX, defaultSlideCY, openBodies(nil))
 	if len(slides) != 0 {
 		t.Error("an unreadable capture must be skipped rather than produce a broken slide")
+	}
+}
+
+// openBodies adapts an in-memory fixture to the lazy reader attachmentSlides
+// expects. Missing entries report "not there" the same way a missing file does.
+func openBodies(bodies map[string][]byte) func(storedAttachment) (func() ([]byte, error), bool) {
+	return func(item storedAttachment) (func() ([]byte, error), bool) {
+		body, ok := bodies[item.StoredPath]
+		if !ok || len(body) == 0 {
+			return nil, false
+		}
+		return func() ([]byte, error) { return body, nil }, true
 	}
 }
 
@@ -238,6 +247,72 @@ func TestAttachmentAvailabilityReflectsTheStoredFile(t *testing.T) {
 	} {
 		if _, err := os.Stat(safeAttachmentPath(testCase.stored)); (err == nil) != testCase.want {
 			t.Errorf("%s: availability = %v, want %v", testCase.name, err == nil, testCase.want)
+		}
+	}
+}
+
+// Both ends in one call: the package is read and rewritten once, and the two
+// groups still land on the correct sides of the template's own slides.
+func TestAppendSlidesPlacesBothGroupsInOnePass(t *testing.T) {
+	template, err := defaultPPTX()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, _ := readDeck(t, template)
+	width, height := presentationSlideSize(template)
+	bodies := map[string][]byte{"cover.png": samplePNG(t, 640, 480), "tail.png": samplePNG(t, 400, 300)}
+	reads := map[string]int{}
+	open := func(item storedAttachment) (func() ([]byte, error), bool) {
+		body, ok := bodies[item.StoredPath]
+		if !ok {
+			return nil, false
+		}
+		return func() ([]byte, error) { reads[item.StoredPath]++; return body, nil }, true
+	}
+	before := attachmentSlides([]storedAttachment{captureAttachment(1, "cover.png", "표지", placementBefore, 640, 480)}, width, height, open)
+	after := attachmentSlides([]storedAttachment{captureAttachment(2, "tail.png", "마무리", placementAfter, 400, 300)}, width, height, open)
+
+	// Nothing has been read yet: building the slides only needs the stored size.
+	if len(reads) != 0 {
+		t.Fatalf("images were read while building slides: %v", reads)
+	}
+
+	result, err := appendSlidesToPPTX(template, before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatePPTXXML(t, result)
+	if reads["cover.png"] != 1 || reads["tail.png"] != 1 {
+		t.Fatalf("each image should be read exactly once at write time: %v", reads)
+	}
+	slides, _ := readDeck(t, result)
+	if len(slides) != len(original)+2 {
+		t.Fatalf("slide count = %d, want %d", len(slides), len(original)+2)
+	}
+	list := slideListPattern.FindStringSubmatch(mustReadPart(t, result, "ppt/presentation.xml"))
+	if list == nil {
+		t.Fatal("presentation.xml has no slide list")
+	}
+	ids := slideIDPattern.FindAllStringSubmatch(list[1], -1)
+	if len(ids) != len(original)+2 {
+		t.Fatalf("slide list has %d entries, want %d", len(ids), len(original)+2)
+	}
+	// The template's own ids must all sit between the two new ones, whatever
+	// numbers the template happens to use.
+	templateList := slideListPattern.FindStringSubmatch(mustReadPart(t, template, "ppt/presentation.xml"))
+	existing := map[string]bool{}
+	for _, match := range slideIDPattern.FindAllStringSubmatch(templateList[1], -1) {
+		existing[match[1]] = true
+	}
+	if existing[ids[0][1]] {
+		t.Errorf("first slide id = %s, which is one of the template's own", ids[0][1])
+	}
+	if existing[ids[len(ids)-1][1]] {
+		t.Errorf("last slide id = %s, which is one of the template's own", ids[len(ids)-1][1])
+	}
+	for _, match := range ids[1 : len(ids)-1] {
+		if !existing[match[1]] {
+			t.Errorf("slide id %s ended up in the middle instead of at an end", match[1])
 		}
 	}
 }

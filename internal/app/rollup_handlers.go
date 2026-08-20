@@ -213,12 +213,12 @@ func (a *App) exportRollupCSV(w http.ResponseWriter, r *http.Request) {
 		case item.Progress <= 0:
 			state = "미착수"
 		}
-		_ = writer.Write([]string{
+		_ = writer.Write(csvSafeRow([]string{
 			item.Category, item.Title, strings.Join(item.Owners, ", "),
 			item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk,
 			fmt.Sprintf("%d%%", item.Progress), fmt.Sprint(item.WeekCount),
 			item.FirstWeek, item.LastWeek, state,
-		})
+		}))
 	}
 	writer.Flush()
 	a.audit(r, p, "rollup.export_csv", "rollup", view.Period, map[string]any{"kind": view.Kind, "scope": view.Scope, "items": len(view.Items)})

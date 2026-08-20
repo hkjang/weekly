@@ -417,11 +417,16 @@ func safeAttachmentPath(stored string) string {
 }
 
 // attachmentSlides turns stored captures into one slide each, sized to the deck.
-func attachmentSlides(items []storedAttachment, canvasWidth, canvasHeight int, load func(storedAttachment) ([]byte, error)) []builtSlide {
+//
+// open reports whether the image is there and hands back a way to read it later.
+// Geometry comes from the stored width and height, so nothing here needs the
+// bytes; deferring the read is what keeps a whole export's worth of images from
+// being resident at once.
+func attachmentSlides(items []storedAttachment, canvasWidth, canvasHeight int, open func(storedAttachment) (func() ([]byte, error), bool)) []builtSlide {
 	slides := make([]builtSlide, 0, len(items))
 	for index, item := range items {
-		body, err := load(item)
-		if err != nil || len(body) == 0 {
+		load, ok := open(item)
+		if !ok {
 			continue
 		}
 		relID := "rId2"
@@ -429,7 +434,7 @@ func attachmentSlides(items []storedAttachment, canvasWidth, canvasHeight int, l
 			Name:        fmt.Sprintf("weekly-capture-%d.%s", item.ID, item.Extension),
 			ContentType: item.ContentType,
 			Extension:   item.Extension,
-			Bytes:       body,
+			Load:        load,
 			RelID:       relID,
 		}
 		margin := canvasWidth / 25
@@ -450,8 +455,15 @@ func attachmentSlides(items []storedAttachment, canvasWidth, canvasHeight int, l
 	return slides
 }
 
-func (a *App) readAttachmentBytes(item storedAttachment) ([]byte, error) {
-	return os.ReadFile(safeAttachmentPath(item.StoredPath))
+// attachmentReadable checks the file is there without reading it, and returns a
+// reader for the moment the package actually needs the bytes.
+func (a *App) attachmentReadable(item storedAttachment) (func() ([]byte, error), bool) {
+	path := safeAttachmentPath(item.StoredPath)
+	info, err := os.Stat(path)
+	if err != nil || info.Size() == 0 {
+		return nil, false
+	}
+	return func() ([]byte, error) { return os.ReadFile(path) }, true
 }
 
 // attachCaptureSlides adds the report's capture slides around the rendered deck.
@@ -473,24 +485,18 @@ func (a *App) attachCaptureSlides(ctx context.Context, deck []byte, reportID int
 			after = append(after, item)
 		}
 	}
+	// One pass for both ends. Two calls rebuilt the whole package twice, and by
+	// the second call that package already carried every embedded image.
+	beforeSlides := attachmentSlides(before, width, height, a.attachmentReadable)
+	afterSlides := attachmentSlides(after, width, height, a.attachmentReadable)
 	result := deck
-	for _, group := range []struct {
-		items   []storedAttachment
-		atStart bool
-	}{{before, true}, {after, false}} {
-		if len(group.items) == 0 {
-			continue
-		}
-		slides := attachmentSlides(group.items, width, height, a.readAttachmentBytes)
-		if len(slides) == 0 {
-			continue
-		}
-		updated, appendErr := appendSlidesToPPTX(result, slides, group.atStart)
+	if len(beforeSlides) > 0 || len(afterSlides) > 0 {
+		updated, appendErr := appendSlidesToPPTX(result, beforeSlides, afterSlides)
 		if appendErr != nil {
 			// An export without the captures is still useful, so the written
 			// report is never blocked by an image problem.
 			a.logger.Error("append capture slides", "error", appendErr, "reportId", reportID)
-			continue
+			return result
 		}
 		result = updated
 	}

@@ -1,3 +1,5 @@
+import { reportSessionLost } from './session'
+
 interface Envelope<T> { success: boolean; data: T; error?: { code: string; message: string }; traceId: string }
 
 export class APIError extends Error {
@@ -13,7 +15,13 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   if (response.ok && response.status === 204) return undefined as T
   let payload: Envelope<T> | undefined
   try { payload = await response.json() as Envelope<T> } catch { /* handled below */ }
-  if (!response.ok || !payload?.success) throw new APIError(response.status, payload?.error?.code ?? 'REQUEST_FAILED', payload?.error?.message ?? '요청을 처리할 수 없습니다.')
+  if (!response.ok || !payload?.success) {
+    // Announced before throwing, so the shell reacts even when the caller does
+    // not catch. A screen that forgets a .catch is exactly the case that used to
+    // leave a spinner running forever.
+    if (response.status === 401) reportSessionLost()
+    throw new APIError(response.status, payload?.error?.code ?? 'REQUEST_FAILED', payload?.error?.message ?? '요청을 처리할 수 없습니다.')
+  }
   return payload.data
 }
 

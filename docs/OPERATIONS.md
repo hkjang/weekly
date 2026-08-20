@@ -47,6 +47,7 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 - 비루트 컨테이너, 모든 Linux capability 제거, read-only root filesystem
 - 대용량 multipart 처리를 위한 512MiB 임시 `/tmp`; Compose는 tmpfs, Kubernetes는 `emptyDir` 사용
 - HttpOnly/SameSite 세션 쿠키와 동일 출처 변경 요청 검사
+- CSV 내보내기의 수식 주입 차단: `=`, `+`, `@`, 탭, 캐리지리턴으로 시작하는 셀 앞에 작은따옴표를 붙인다. 보고 본문은 작성자가 입력한 값이고 그 파일을 여는 사람은 보통 상급자다
 - 로컬 로그인 실패 횟수 제한: 기본 15분 안에 계정당 10회를 넘으면 429로 차단하며 차단 중에는 올바른 비밀번호도 거부한다. 실패마다 응답이 0.25초에서 2초까지 점점 느려진다. 계정 유무와 무관하게 같은 응답을 돌려주므로 계정 존재 여부를 알아낼 수 없다. 실패 기록은 PostgreSQL에 남아 재기동해도 유지되며 하루가 지나면 정리된다
 - IP당 제한(`auth.max_login_attempts_per_ip`)은 **기본 비활성**이다. 사무실 NAT이나 Reverse Proxy 뒤에서는 다수 사용자가 같은 주소로 보이므로, 의미 있는 임계값은 남의 오타로 무관한 사용자를 함께 잠근다. 클라이언트 주소가 실제로 구분되는 망에서만 켠다
 - CSP, frame 차단, MIME sniffing 차단
@@ -69,6 +70,8 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 정시 제출 판정 기준은 관리자 설정의 `제출 마감`이다. `주차 시작일 + N일 + H시`를 서비스 시간대로 해석한 시각과 제출 시각을 비교하며, 기본값 7일 24시는 주차 시작일로부터 7일째 되는 날 자정이다. 보고 분석 화면이 이 기준을 그대로 표시한다.
 
 Import Worker는 API 프로세스 내부에서 동작하며 PostgreSQL의 `FOR UPDATE SKIP LOCKED`로 작업을 하나씩 가져간다. 프로세스 재시작 시 `PROCESSING` 작업은 `PENDING/QUEUED`로 복구된다. 작업이 멈춘 것처럼 보이면 AI Gateway 연결과 모델의 JSON Schema 지원 여부, `/var/lib/weekly/imports` 쓰기 권한, Import 상세 오류를 순서대로 점검한다.
+
+PPTX 내보내기는 첨부 이미지를 만들어지는 파일에 담으므로, 요청 하나가 쓰는 메모리는 대략 한 보고서의 첨부 총량이다. `attachment.max_per_report × attachment.max_file_mb`가 상한이고 동시에 내보내는 사람 수만큼 곱해진다. 컨테이너 메모리 한도를 고려해 두 값을 정한다.
 
 `import.retention_days`가 지난 `CONFIRMED`, `SKIPPED`, `FAILED` 원본은 30분 유지보수 주기에 최대 500개씩 제거된다. 분석 메타데이터는 삭제하지 않는다. 원본까지 장기 보존해야 한다면 관리자 설정에서 기간을 늘리고 DB와 볼륨을 같은 복구 시점으로 백업한다.
 
