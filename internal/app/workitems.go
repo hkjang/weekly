@@ -15,13 +15,18 @@ import (
 // life is computed from those snapshots so the two can never drift apart.
 
 type workItemWeek struct {
-	WeekStart     string `json:"weekStart"`
-	ReportID      int64  `json:"reportId"`
-	Progress      int    `json:"progress"`
-	CurrentResult string `json:"currentResult"`
-	NextPlan      string `json:"nextPlan"`
-	Issue         string `json:"issue"`
-	ManagementAsk string `json:"managementAsk"`
+	WeekStart string `json:"weekStart"`
+	ReportID  int64  `json:"reportId"`
+	// ItemIDs are the report item rows behind this week. Usually one, but two
+	// when the same task was written twice in a week. Splitting a task apart
+	// needs to address those rows, and the week is the only handle a reader of
+	// this view has on them.
+	ItemIDs       []int64 `json:"itemIds"`
+	Progress      int     `json:"progress"`
+	CurrentResult string  `json:"currentResult"`
+	NextPlan      string  `json:"nextPlan"`
+	Issue         string  `json:"issue"`
+	ManagementAsk string  `json:"managementAsk"`
 }
 
 type workItemView struct {
@@ -64,6 +69,11 @@ type workItemView struct {
 // resolveWorkItem returns the identity for a task title, creating it when the
 // owner reports it for the first time. Saving a renamed title renames the task,
 // which matches how the period rollup already treats the most recent wording.
+//
+// A title that resolves to a work item the owner has merged away returns the
+// item it was merged into. Without that step the merge would last exactly until
+// the next report used the old wording, because identity is re-derived from the
+// title on every save.
 func resolveWorkItem(ctx context.Context, tx pgx.Tx, userID int64, title, category string) (*int64, error) {
 	key := candidateTitleKey(title)
 	if key == "" {
@@ -72,14 +82,20 @@ func resolveWorkItem(ctx context.Context, tx pgx.Tx, userID int64, title, catego
 		return nil, nil
 	}
 	var id int64
+	var mergedInto *int64
 	err := tx.QueryRow(ctx, `INSERT INTO work_items(user_id,title,normalized_key,category)
 		VALUES($1,$2,$3,$4)
 		ON CONFLICT (user_id, normalized_key)
 		DO UPDATE SET title=EXCLUDED.title, category=EXCLUDED.category, updated_at=now()
-		RETURNING id`,
-		userID, trimRunes(strings.TrimSpace(title), 240), trimRunes(key, 240), trimRunes(strings.TrimSpace(category), 80)).Scan(&id)
+		RETURNING id, merged_into_id`,
+		userID, trimRunes(strings.TrimSpace(title), 240), trimRunes(key, 240), trimRunes(strings.TrimSpace(category), 80)).Scan(&id, &mergedInto)
 	if err != nil {
 		return nil, err
+	}
+	if mergedInto != nil {
+		// One hop is enough: merging flattens any pointer that aimed at the
+		// source, so a chain never forms and a cycle cannot be built.
+		return mergedInto, nil
 	}
 	return &id, nil
 }
@@ -207,6 +223,7 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 			last.NextPlan = mergeUniqueLines(last.NextPlan, week.NextPlan)
 			last.Issue = mergeUniqueLines(last.Issue, week.Issue)
 			last.ManagementAsk = mergeUniqueLines(last.ManagementAsk, week.ManagementAsk)
+			last.ItemIDs = append(last.ItemIDs, week.ItemIDs...)
 			continue
 		}
 		merged = append(merged, week)
@@ -270,18 +287,24 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 // fresh identifiers on each save. That is what makes a persistent work item
 // link impossible: the column would be wiped by the next edit.
 func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem) error {
-	existing := map[int64]bool{}
-	rows, err := tx.Query(ctx, `SELECT id FROM report_items WHERE report_id=$1`, reportID)
+	type storedItem struct {
+		title      string
+		workItemID *int64
+		pinned     bool
+	}
+	existing := map[int64]storedItem{}
+	rows, err := tx.Query(ctx, `SELECT id, title, work_item_id, work_item_pinned FROM report_items WHERE report_id=$1`, reportID)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var stored storedItem
+		if err := rows.Scan(&id, &stored.title, &stored.workItemID, &stored.pinned); err != nil {
 			rows.Close()
 			return err
 		}
-		existing[id] = true
+		existing[id] = stored
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -290,16 +313,30 @@ func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, owner
 
 	kept := map[int64]bool{}
 	for index, item := range items {
-		workItemID, resolveErr := resolveWorkItem(ctx, tx, ownerID, item.Title, item.Category)
-		if resolveErr != nil {
-			return resolveErr
+		stored, isExisting := existing[item.ID]
+		// A pinned snapshot carries an identity its author chose by hand, so the
+		// title normalizer does not get to overrule it. The pin only holds while
+		// the title stands: rewriting the title is a statement about what the
+		// task is, and re-deriving is the right answer again.
+		pinned := item.ID > 0 && isExisting && stored.pinned &&
+			strings.TrimSpace(stored.title) == strings.TrimSpace(item.Title)
+		var workItemID *int64
+		if pinned {
+			workItemID = stored.workItemID
+		} else {
+			resolved, resolveErr := resolveWorkItem(ctx, tx, ownerID, item.Title, item.Category)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			workItemID = resolved
 		}
-		if item.ID > 0 && existing[item.ID] {
+		if item.ID > 0 && isExisting {
 			if _, err := tx.Exec(ctx, `UPDATE report_items SET work_item_id=$1,category=$2,title=$3,
-				current_result=$4,next_plan=$5,issue=$6,management_ask=$7,progress=$8,sort_order=$9,updated_at=now()
-				WHERE id=$10 AND report_id=$11`,
+				current_result=$4,next_plan=$5,issue=$6,management_ask=$7,progress=$8,sort_order=$9,
+				work_item_pinned=$10,updated_at=now()
+				WHERE id=$11 AND report_id=$12`,
 				workItemID, item.Category, item.Title, item.CurrentResult, item.NextPlan,
-				item.Issue, item.ManagementAsk, item.Progress, index, item.ID, reportID); err != nil {
+				item.Issue, item.ManagementAsk, item.Progress, index, pinned, item.ID, reportID); err != nil {
 				return err
 			}
 			kept[item.ID] = true

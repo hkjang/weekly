@@ -3,7 +3,8 @@ import { api, post } from './api'
 import { Button, Spinner, Toast } from './components'
 import CommandPalette, { periodCommands } from './CommandPalette'
 import type { Command } from './CommandPalette'
-import { navigateTo, parseRoute, replaceRoute } from './router'
+import { navigateTo, parseRoute, replaceRoute, routeHash } from './router'
+import { confirmDiscard, hasUnsavedWork } from './unsavedGuard'
 import type { PageName } from './router'
 import type { Providers, SessionInfo } from './types'
 import DashboardPage from './pages/DashboardPage'
@@ -55,13 +56,36 @@ export default function App() {
   }, [])
   useEffect(() => {
     if (!parseRoute()) replaceRoute('dashboard')
+    // The hash is the source of truth, so the guard has to run here as well as
+    // in go(): the back button, the palette and a hand-edited URL all arrive
+    // through this event without passing the navigation helper.
+    let current = window.location.hash
+    let restoring = false
     const syncPage = () => {
+      if (restoring) { restoring = false; return }
+      if (!confirmDiscard()) {
+        restoring = true
+        window.location.hash = current
+        return
+      }
+      current = window.location.hash
       const route = parseRoute()
       setPage(route?.page ?? 'dashboard')
       setParams(route?.params ?? {})
     }
+    // Closing the tab is the one exit React cannot intercept; the browser's own
+    // dialog is the only thing that can stop it.
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedWork()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
     window.addEventListener('hashchange', syncPage)
-    return () => window.removeEventListener('hashchange', syncPage)
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => {
+      window.removeEventListener('hashchange', syncPage)
+      window.removeEventListener('beforeunload', beforeUnload)
+    }
   }, [])
   useEffect(() => {
     if (!session) return
@@ -75,6 +99,7 @@ export default function App() {
   }, [page, session])
 
   const go = useCallback((next: Page, nextParams?: Record<string, string>) => {
+    if (routeHash(next, nextParams) !== window.location.hash && !confirmDiscard()) return
     setProfileOpen(false)
     navigateTo(next, nextParams)
     setPage(next)
@@ -122,7 +147,7 @@ export default function App() {
   const canTeam = session.user.role !== 'USER'
   const isAdmin = session.user.role === 'ADMIN'
   const navigate = (next: Page) => go(next)
-  const logout = async () => { await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
+  const logout = async () => { if (!confirmDiscard()) return; await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
 
   const screens: { page: Page; label: string; keywords: string[]; visible: boolean }[] = [
     { page: 'dashboard', label: '대시보드', keywords: ['dashboard', 'home', '홈'], visible: true },

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, del, patch, post, put } from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import AttachmentPanel from '../AttachmentPanel'
 import ReportPresentation from '../ReportPresentation'
+import { registerUnsavedGuard } from '../unsavedGuard'
 import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, PreviousPlan, PreviousPlanItem, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
@@ -21,10 +22,26 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const [pendingCandidateIDs, setPendingCandidateIDs] = useState<number[]>([])
   const [captureCount, setCaptureCount] = useState(0)
   const [presenting, setPresenting] = useState(false)
+  // The baseline is what the server last confirmed. Anything that differs from
+  // it is work that only exists in this tab.
+  const savedSnapshot = useRef('')
   const loadCandidates = () => api<ConfluenceCandidateResponse>('/api/v1/reports/current/candidates').then(setCandidateData)
   const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(setPrevious).catch(() => setPrevious(null))
-  const load = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } }
+  const load = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } savedSnapshot.current = snapshotOf(value?.summary ?? '', value?.items ?? []) }
+  // Used when a save fails: the version and status have to catch up, but the
+  // content on screen must not be replaced by the server's copy. Overwriting it
+  // here would destroy exactly the work the failed save was trying to keep.
+  const refreshMeta = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value) }
   useEffect(() => { Promise.all([load(), loadCandidates(), loadPrevious()]) }, [])
+  // Registered once, reading the latest state through a ref: the guard is asked
+  // at navigation time, not at render time, so it must not close over a stale
+  // copy and must not be torn down and rebuilt on every keystroke.
+  const liveRef = useRef({ summary, items })
+  liveRef.current = { summary, items }
+  useEffect(() => {
+    registerUnsavedGuard(() => snapshotOf(liveRef.current.summary, liveRef.current.items) !== savedSnapshot.current)
+    return () => registerUnsavedGuard(null)
+  }, [])
   if (report === undefined) return <Spinner />
   const editable = true
   const changeItem = (index: number, patch: Partial<ReportItem>) => setItems(items.map((item, i) => i === index ? { ...item, ...patch } : item))
@@ -38,7 +55,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const reportedKeys = new Set(validItems().map(item => planKey(item.title)))
   const unreported = previousItems.filter(plan => plan.carryOver && !reportedKeys.has(plan.matchKey))
   const carryForward = (plan: PreviousPlanItem) => { const kept = validItems(); setItems([...kept, { category: plan.category, title: plan.title, currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: plan.progress, sortOrder: kept.length }]) }
-  const save = async () => { const preparedItems = validItems(); if (!preparedItems.length) { notify('업무 항목을 하나 이상 입력하세요.', 'error'); return false } const acceptedCandidateIDs = Array.from(new Set(preparedItems.flatMap(item => item.candidateId ? [item.candidateId] : []))); setBusy(true); try { const payload = { summary, sourceType: acceptedCandidateIDs.length ? 'CONFLUENCE_AI' : aiApplied ? 'AI_TEXT' : 'MANUAL', items: preparedItems.map(item => ({ id: item.id, category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: item.managementAsk ?? '', progress: item.progress, sortOrder: item.sortOrder })) }; const saved = report ? await put<{ id: number }>(`/api/v1/reports/${report.id}`, { ...payload, version: report.version }) : await post<{ id: number }>('/api/v1/reports', payload); if (acceptedCandidateIDs.length) await post('/api/v1/report-candidates/accept', { ids: acceptedCandidateIDs, reportId: saved.id }); setPendingCandidateIDs([]); await Promise.all([load(), loadCandidates()]); notify('보고서를 저장했습니다.'); return true } catch (error) { await load().catch(() => undefined); notify(error instanceof Error ? error.message : '저장할 수 없습니다.', 'error'); return false } finally { setBusy(false) } }
+  const save = async () => { const preparedItems = validItems(); if (!preparedItems.length) { notify('업무 항목을 하나 이상 입력하세요.', 'error'); return false } const acceptedCandidateIDs = Array.from(new Set(preparedItems.flatMap(item => item.candidateId ? [item.candidateId] : []))); setBusy(true); try { const payload = { summary, sourceType: acceptedCandidateIDs.length ? 'CONFLUENCE_AI' : aiApplied ? 'AI_TEXT' : 'MANUAL', items: preparedItems.map(item => ({ id: item.id, category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: item.managementAsk ?? '', progress: item.progress, sortOrder: item.sortOrder })) }; const saved = report ? await put<{ id: number }>(`/api/v1/reports/${report.id}`, { ...payload, version: report.version }) : await post<{ id: number }>('/api/v1/reports', payload); if (acceptedCandidateIDs.length) await post('/api/v1/report-candidates/accept', { ids: acceptedCandidateIDs, reportId: saved.id }); setPendingCandidateIDs([]); await Promise.all([load(), loadCandidates()]); notify('보고서를 저장했습니다.'); return true } catch (error) { await refreshMeta().catch(() => undefined); notify(error instanceof Error ? error.message : '저장할 수 없습니다. 작성 중인 내용은 그대로 남아 있습니다.', 'error'); return false } finally { setBusy(false) } }
   const analyzeAI = async () => { if (!aiText.trim()) { notify('AI가 분석할 주간업무 내용을 입력하세요.', 'error'); return } setAIBusy(true); try { const result = await post<AIWeeklyResult>('/api/v1/ai/reports/parse-text', { text: aiText }); setAIResult(result); notify(`${result.reportItems.length}개 업무 항목을 구조화했습니다.`) } catch (error) { notify(error instanceof Error ? error.message : 'AI 분석을 완료할 수 없습니다.', 'error') } finally { setAIBusy(false) } }
   const changeAIItem = (index: number, patch: Partial<AIWeeklyResult['reportItems'][number]>) => setAIResult(aiResult ? { ...aiResult, reportItems: aiResult.reportItems.map((item, i) => i === index ? { ...item, ...patch } : item) } : undefined)
   const applyAI = (mode: 'merge' | 'replace') => { if (!aiResult) return; const incoming = aiResult.reportItems.filter(item => item.title.trim()).map((item, index) => ({ category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: '', progress: item.progress, sortOrder: index })); if (!incoming.length) { notify('적용할 AI 업무 항목이 없습니다.', 'error'); return } setItems(mode === 'replace' ? incoming : mergeReportItems(validItems(), incoming)); if (aiResult.summary && (mode === 'replace' || !summary.trim())) setSummary(aiResult.summary); setAIApplied(true); setAIResult(undefined); notify(mode === 'merge' ? 'AI 결과를 기존 보고서와 병합했습니다. 저장 전 내용을 확인하세요.' : 'AI 결과로 업무 항목을 교체했습니다. 저장 전 내용을 확인하세요.') }
@@ -47,7 +64,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const ignoreCandidate = async (candidate: ConfluenceCandidate) => { if (pendingCandidateIDs.includes(candidate.id)) { notify('이미 보고서에 반영한 초안은 아래 업무 항목에서 편집하거나 삭제하세요.', 'error'); return } if (!confirm(`'${candidate.normalizedTitle}' 자동 초안을 이번 주에서 제외하시겠습니까?`)) return; try { await del(`/api/v1/report-candidates/${candidate.id}`); await loadCandidates(); notify('제외한 문서는 다음 동기화에서도 다시 생성되지 않습니다.') } catch (error) { notify(error instanceof Error ? error.message : '자동 초안을 제외할 수 없습니다.', 'error') } }
   const applyCandidate = (candidate: ConfluenceCandidate) => { const incoming: ReportItem = { candidateId: candidate.id, category: candidate.category, title: candidate.normalizedTitle, currentResult: candidate.currentResult, nextPlan: candidate.nextPlan, issue: candidate.issue, managementAsk: '', progress: 0, sortOrder: validItems().length }; setItems(mergeReportItems(validItems(), [incoming])); setPendingCandidateIDs(Array.from(new Set([...pendingCandidateIDs, candidate.id]))); notify('자동 초안을 업무 항목에 반영했습니다. 저장 전 내용을 확인하세요.') }
   const submit = async () => { let current = report; if (!current) { const saved = await save(); if (!saved) return; current = await api<Report | null>('/api/v1/reports/current') } else { const saved = await save(); if (!saved) return; current = await api<Report | null>('/api/v1/reports/current') } if (!current || !confirm(workflowEnabled ? '팀장 검토를 위해 제출하시겠습니까?' : '제출하면 바로 확정됩니다. 계속하시겠습니까?')) return; setBusy(true); try { await post(`/api/v1/reports/${current.id}/submit`); await load(); notify(workflowEnabled ? '보고서를 제출했습니다.' : '보고서를 확정했습니다.') } catch (error) { notify(error instanceof Error ? error.message : '제출할 수 없습니다.', 'error') } finally { setBusy(false) } }
-  const removeReport = async () => { if (!report || !confirm(`${report.weekStart} 주간보고를 삭제하시겠습니까? 삭제한 보고서는 복구할 수 없습니다.`)) return; setBusy(true); try { await del(`/api/v1/reports/${report.id}?version=${report.version}`); setReport(null); setSummary(''); setItems([blankItem()]); setAIApplied(false); setPendingCandidateIDs([]); await loadCandidates(); notify('주간보고를 삭제했습니다.') } catch (error) { notify(error instanceof Error ? error.message : '보고서를 삭제할 수 없습니다.', 'error') } finally { setBusy(false) } }
+  const removeReport = async () => { if (!report || !confirm(`${report.weekStart} 주간보고를 삭제하시겠습니까? 삭제한 보고서는 복구할 수 없습니다.`)) return; setBusy(true); try { await del(`/api/v1/reports/${report.id}?version=${report.version}`); setReport(null); setSummary(''); setItems([blankItem()]); setAIApplied(false); setPendingCandidateIDs([]); savedSnapshot.current = snapshotOf('', []); await loadCandidates(); notify('주간보고를 삭제했습니다.') } catch (error) { notify(error instanceof Error ? error.message : '보고서를 삭제할 수 없습니다.', 'error') } finally { setBusy(false) } }
   const canSubmit = !report || report.status !== 'CLOSED'
   return <><PageHeader title="내 주간보고" description="이번 주 성과와 다음 주 계획을 업무 항목 단위로 기록합니다." action={<div className="header-actions">{report && <><Button variant="danger" onClick={removeReport} disabled={busy}>보고서 삭제</Button><Button variant="secondary" onClick={() => setPresenting(true)}>▶ 발표 모드</Button><a className="button secondary" href={`/api/v1/reports/${report.id}/export.pptx`}>PPTX 다운로드{captureCount > 0 ? ` (캡처 ${captureCount}장 포함)` : ''}</a></>}<Button variant="secondary" onClick={save} disabled={busy}>{report?.status === 'CLOSED' ? '수정 저장' : '임시저장'}</Button>{canSubmit && <Button onClick={submit} disabled={busy}>{workflowEnabled ? '검토 요청' : '제출·확정'}</Button>}</div>} />
     {report && <div className="report-meta"><StatusBadge status={report.status}/><SourceBadge source={report.sourceType}/><span>{report.weekStart} 시작 주차</span><span>버전 {report.version}</span>{report.status === 'REVISION_REQUESTED' && <strong>반려 의견을 확인하고 수정해 주세요.</strong>}</div>}
@@ -77,6 +94,16 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
       report={{ ...report, summary, items: validItems() }}
       onClose={() => setPresenting(false)} />}
   </>
+}
+
+/**
+ * The comparable content of a report. Sort order is left out because reordering
+ * alone is not worth a warning, and blank rows are dropped so the empty item the
+ * screen always offers does not read as unsaved work.
+ */
+function snapshotOf(summary: string, items: ReportItem[]): string {
+  const filled = items.filter(item => item.title.trim() || item.currentResult.trim() || item.nextPlan.trim() || item.issue.trim() || (item.managementAsk ?? '').trim())
+  return JSON.stringify([summary.trim(), filled.map(item => [item.category.trim(), item.title.trim(), item.currentResult.trim(), item.nextPlan.trim(), item.issue.trim(), (item.managementAsk ?? '').trim(), item.progress])])
 }
 
 function mergeReportItems(existing: ReportItem[], incoming: ReportItem[]): ReportItem[] {

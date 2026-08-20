@@ -26,6 +26,8 @@
 - 조직 계층 기반 RBAC: `USER`, `TEAM_LEADER`, `ORG_MANAGER`, `ADMIN`
 - Argon2id 로컬 인증, DB 세션, 감사 로그, 낙관적 잠금
 - 개인 API/MCP 키 발급·폐기 및 전체 즉시 폐기형 개인 키 회전
+- 저장하지 않은 편집 내용을 화면 이동·탭 닫기 전에 확인하고, 저장에 실패해도 작성 중인 내용을 유지하는 편집 보호
+- 제목으로 자동으로 묶인 업무를 담당자가 직접 합치고 나눌 수 있으며, 바로잡은 결과가 다음 보고서 저장에도 유지되는 업무 정리
 - 지난주에 적은 차주 계획을 이번 주 작성 화면의 해당 업무 옆에 그대로 보여 주고, 아직 보고하지 않은 계획은 한 번에 업무 항목으로 이어받는 작성 보조
 - 주간보고를 월간·분기·반기·연간으로 자동 취합하고 중복 업무와 반복 기재를 제거하는 기간 업무보고
 - 완료율, 정체·이월 업무, 이슈 지속 업무와 보고 커버리지를 판단 근거와 함께 제시하는 경영 인사이트
@@ -53,7 +55,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.15.0.tar.gz | docker load
+gzip -dc weekly-v0.16.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d

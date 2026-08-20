@@ -47,13 +47,15 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 - 비루트 컨테이너, 모든 Linux capability 제거, read-only root filesystem
 - 대용량 multipart 처리를 위한 512MiB 임시 `/tmp`; Compose는 tmpfs, Kubernetes는 `emptyDir` 사용
 - HttpOnly/SameSite 세션 쿠키와 동일 출처 변경 요청 검사
+- 로컬 로그인 실패 횟수 제한: 기본 15분 안에 계정당 10회를 넘으면 429로 차단하며 차단 중에는 올바른 비밀번호도 거부한다. 실패마다 응답이 0.25초에서 2초까지 점점 느려진다. 계정 유무와 무관하게 같은 응답을 돌려주므로 계정 존재 여부를 알아낼 수 없다. 실패 기록은 PostgreSQL에 남아 재기동해도 유지되며 하루가 지나면 정리된다
+- IP당 제한(`auth.max_login_attempts_per_ip`)은 **기본 비활성**이다. 사무실 NAT이나 Reverse Proxy 뒤에서는 다수 사용자가 같은 주소로 보이므로, 의미 있는 임계값은 남의 오타로 무관한 사용자를 함께 잠근다. 클라이언트 주소가 실제로 구분되는 망에서만 켠다
 - CSP, frame 차단, MIME sniffing 차단
 - OIDC state/nonce/PKCE와 10분 만료
 - 요청 본문 크기 제한: JSON 2MB, Import PPTX는 관리자 설정(기본 파일당 25MB·작업당 20개)
 - AI 응답 2MB 제한, 호출 제한시간 5~300초, HTTP Redirect 차단
 - HTTP 본문 읽기 5분·응답 쓰기 330초 제한으로 대량 업로드와 최대 AI 제한시간을 수용
 - PPTX ZIP 엔트리·압축 해제 크기·슬라이드 XML 크기 제한으로 ZIP bomb 완화
-- 감사 대상: 로그인, 보고서 상태/내용, 사용자/조직/설정, 키, 템플릿, PPTX 다운로드, AI 분석, Import 업로드·재분석·확정, Confluence Sync·자동 매핑·후보 수정/제외/수락
+- 감사 대상: 로그인, 로그인 차단, 업무 병합·분리, 보고서 상태/내용, 사용자/조직/설정, 키, 템플릿, PPTX 다운로드, AI 분석, Import 업로드·재분석·확정, Confluence Sync·자동 매핑·후보 수정/제외/수락
 - 개인 키 원문은 발급 응답에서 한 번만 노출
 
 외부 Reverse Proxy를 사용할 때 신뢰할 수 없는 클라이언트가 `X-Forwarded-For`와 `X-Forwarded-Proto`를 직접 주입하지 못하도록 Proxy에서 해당 헤더를 덮어써야 한다.

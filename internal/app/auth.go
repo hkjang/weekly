@@ -87,16 +87,33 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	username := strings.TrimSpace(input.Username)
+	address := remoteHost(r)
+	// Checked before the password is verified, so a blocked account costs an
+	// attacker one cheap query and gives away nothing about the password.
+	if throttle := a.loginThrottleFor(r.Context(), username, address); throttle.Blocked {
+		a.audit(r, nil, "auth.login_blocked", "user", username, map[string]any{"failures": throttle.Failures})
+		writeLoginBlocked(w, throttle.RetryAfter)
+		return
+	}
 	p := principal{AuthType: "session"}
 	var passwordHash *string
 	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,coalesce(email,''),role,organization_id,key_version,password_hash
-		FROM users WHERE lower(username)=lower($1) AND active=true`, strings.TrimSpace(input.Username)).
+		FROM users WHERE lower(username)=lower($1) AND active=true`, username).
 		Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion, &passwordHash)
 	if err != nil || passwordHash == nil || !verifyPassword(*passwordHash, input.Password) {
-		time.Sleep(250 * time.Millisecond)
+		a.recordLoginFailure(r.Context(), username, address)
+		// Recounted after recording so this attempt is included: the delay has
+		// to grow with the attempt that just failed, not with the one before it.
+		after := a.loginThrottleFor(r.Context(), username, address)
+		time.Sleep(loginFailureDelay(after.Failures))
+		// The same answer whether the account exists or not. A different message
+		// or a different delay for an unknown user turns the endpoint into a way
+		// to enumerate accounts.
 		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 올바르지 않습니다.")
 		return
 	}
+	a.clearLoginFailures(r.Context(), username)
 	if err := a.issueSession(w, r, p.ID); err != nil {
 		a.logger.Error("issue session", "error", err)
 		writeError(w, http.StatusInternalServerError, "SESSION_ERROR", "로그인 세션을 만들 수 없습니다.")

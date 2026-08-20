@@ -26,6 +26,10 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// PREPARE deduces {text, boolean, character varying, boolean, bigint}:
 		// the reused parameter only ever appears as a CASE WHEN condition.
 		"reports.go": "the reused review-reset flag is a boolean in every branch",
+		// PREPARE deduces {text, text, integer}: the account name is compared
+		// against the same column twice and the address against host(), which
+		// returns text, so both reused parameters keep one type.
+		"loginthrottle.go": "the reused username and address are text in every filter",
 		// PREPARE deduces {text}: the query is compared against several columns
 		// but word_similarity takes text on both sides everywhere.
 		"search.go": "the reused query text is text in every word_similarity call",

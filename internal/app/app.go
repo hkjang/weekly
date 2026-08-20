@@ -170,6 +170,8 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/search", a.requireAuth(http.HandlerFunc(a.searchReports)))
 	a.mux.Handle("GET /api/v1/team/reports", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.teamReports)))
 	a.mux.Handle("GET /api/v1/work-items", a.requireAuth(http.HandlerFunc(a.listWorkItems)))
+	a.mux.Handle("POST /api/v1/work-items/{id}/merge", a.requireAuth(a.csrf(http.HandlerFunc(a.mergeWorkItem))))
+	a.mux.Handle("POST /api/v1/work-items/{id}/split", a.requireAuth(a.csrf(http.HandlerFunc(a.splitWorkItem))))
 	a.mux.Handle("GET /api/v1/rollups", a.requireAuth(http.HandlerFunc(a.periodRollup)))
 	a.mux.Handle("GET /api/v1/rollups/export.csv", a.requireAuth(http.HandlerFunc(a.exportRollupCSV)))
 	a.mux.Handle("GET /api/v1/rollups/export.pptx", a.requireAuth(http.HandlerFunc(a.exportRollupPPTX)))
@@ -331,6 +333,7 @@ func (a *App) maintenance(ctx context.Context) {
 			_, _ = a.db.Exec(ctx, `DELETE FROM api_request_metrics WHERE bucket < now() - ($1 || ' days')::interval`, retention)
 			a.cleanupImportSources(ctx)
 			a.cleanupAttachmentFiles(ctx)
+			a.pruneLoginAttempts(ctx)
 		}
 	}
 }

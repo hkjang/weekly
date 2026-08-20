@@ -20,13 +20,18 @@ type settingDefinition struct {
 }
 
 var settingDefinitions = map[string]settingDefinition{
-	"service.name":                        {Validate: bounded(1, 80)},
-	"service.notice":                      {Validate: bounded(0, 500)},
-	"service.timezone":                    {Validate: validTimezone},
-	"workflow.enabled":                    {Validate: booleanValue},
-	"workflow.week_start":                 {Validate: oneOf("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")},
-	"auth.local_enabled":                  {Validate: booleanValue},
-	"auth.session_hours":                  {Validate: integerRange(1, 720)},
+	"service.name":        {Validate: bounded(1, 80)},
+	"service.notice":      {Validate: bounded(0, 500)},
+	"service.timezone":    {Validate: validTimezone},
+	"workflow.enabled":    {Validate: booleanValue},
+	"workflow.week_start": {Validate: oneOf("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")},
+	"auth.local_enabled":  {Validate: booleanValue},
+	"auth.session_hours":  {Validate: integerRange(1, 720)},
+	// Zero disables each limit; the account limit ships enabled and the address
+	// limit ships disabled. See loginThrottleFor for why they differ.
+	"auth.max_login_attempts":             {Validate: integerRange(0, 1000)},
+	"auth.max_login_attempts_per_ip":      {Validate: integerRange(0, 10000)},
+	"auth.lockout_minutes":                {Validate: integerRange(1, 1440)},
 	"oidc.enabled":                        {Validate: booleanValue},
 	"oidc.issuer_url":                     {Validate: validOptionalURL},
 	"oidc.client_id":                      {Validate: bounded(0, 255)},

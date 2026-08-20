@@ -86,7 +86,7 @@ func (s workScope) where(start int) (string, []any) {
 func (a *App) loadWorkItems(ctx context.Context, scope workScope, since string) ([]workItemView, error) {
 	statement := `SELECT w.id, w.title, w.category, w.user_id, u.display_name, w.due_date,
 			u.organization_id, coalesce(o.name,''),
-			r.week_start, r.id, i.progress, i.current_result, i.next_plan, i.issue, i.management_ask
+			r.week_start, r.id, i.id, i.progress, i.current_result, i.next_plan, i.issue, i.management_ask
 		FROM work_items w
 		JOIN users u ON u.id = w.user_id
 		LEFT JOIN organizations o ON o.id = u.organization_id
@@ -110,7 +110,7 @@ func (a *App) loadWorkItems(ctx context.Context, scope workScope, since string) 
 	order := []int64{}
 	byID := map[int64]*workItemView{}
 	for rows.Next() {
-		var id, userID, reportID int64
+		var id, userID, reportID, itemID int64
 		var title, category, displayName, organizationName string
 		var organizationID *int64
 		var dueDate, week time.Time
@@ -119,7 +119,7 @@ func (a *App) loadWorkItems(ctx context.Context, scope workScope, since string) 
 		var current, next, issue, ask string
 		if err := rows.Scan(&id, &title, &category, &userID, &displayName, &duePointer,
 			&organizationID, &organizationName,
-			&week, &reportID, &progress, &current, &next, &issue, &ask); err != nil {
+			&week, &reportID, &itemID, &progress, &current, &next, &issue, &ask); err != nil {
 			return nil, err
 		}
 		item, exists := byID[id]
@@ -135,7 +135,7 @@ func (a *App) loadWorkItems(ctx context.Context, scope workScope, since string) 
 			order = append(order, id)
 		}
 		item.Weeks = append(item.Weeks, workItemWeek{
-			WeekStart: week.Format("2006-01-02"), ReportID: reportID, Progress: progress,
+			WeekStart: week.Format("2006-01-02"), ReportID: reportID, ItemIDs: []int64{itemID}, Progress: progress,
 			CurrentResult: current, NextPlan: next, Issue: issue, ManagementAsk: ask,
 		})
 	}

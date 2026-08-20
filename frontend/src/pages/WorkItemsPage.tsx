@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
-import { Card, Empty, PageHeader, Spinner } from '../components'
+import { api, post } from '../api'
+import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
@@ -32,6 +32,13 @@ export default function WorkItemsPage({ session, notify }: {
   // Separate from the filters above because it answers a different question —
   // not "what needs attention now" but "has anyone done this before".
   const [query, setQuery] = useState('')
+  // Corrections to what the title normalizer decided. Keyed by week because that
+  // is what the timeline shows; the report item rows behind each week travel
+  // with it.
+  const [picked, setPicked] = useState<string[]>([])
+  const [splitTitle, setSplitTitle] = useState('')
+  const [mergeInto, setMergeInto] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
   const [found, setFound] = useState<WorkSearchResponse>()
   const [searching, setSearching] = useState(false)
   const canTeam = session.user.role !== 'USER'
@@ -72,6 +79,30 @@ export default function WorkItemsPage({ session, notify }: {
       oldest: list.reduce((max, item) => Math.max(max, item.ageWeeks), 0),
     }
   }, [items])
+
+  const openDetail = (item: WorkItem) => { setDetail(item); setPicked([]); setSplitTitle(''); setMergeInto('') }
+  const closeDetail = () => setDetail(undefined)
+  const canEdit = (item: WorkItem) => item.userId === session.user.id || session.user.role === 'ADMIN'
+  const reload = async () => { setItems(await api<WorkItem[]>(`/api/v1/work-items?scope=${scope}`)) }
+  const runEdit = async (path: string, body: unknown, done: string) => {
+    setEditBusy(true)
+    try {
+      await post(path, body)
+      closeDetail()
+      await reload()
+      notify(done)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '업무를 정리할 수 없습니다.', 'error')
+    } finally { setEditBusy(false) }
+  }
+  const splitOff = (item: WorkItem) => {
+    const ids = item.weeks.filter(week => picked.includes(week.weekStart)).flatMap(week => week.itemIds)
+    return runEdit(`/api/v1/work-items/${item.id}/split`,
+      { title: splitTitle, category: item.category, reportItemIds: ids },
+      `${ids.length}개 주차를 '${splitTitle.trim()}' 업무로 분리했습니다.`)
+  }
+  const mergeWith = (item: WorkItem) => runEdit(`/api/v1/work-items/${item.id}/merge`,
+    { intoId: Number(mergeInto) }, '두 업무를 하나로 합쳤습니다.')
 
   const runSearch = async (text: string) => {
     const trimmed = text.trim()
@@ -139,7 +170,7 @@ export default function WorkItemsPage({ session, notify }: {
             <th>구분</th><th>업무</th><th>진척도</th><th>경과</th><th>보고</th><th>상태</th>
             {scope === 'TEAM' && <th>담당</th>}
           </tr></thead>
-          <tbody>{visible.map(item => <tr key={item.id} onClick={() => setDetail(item)}>
+          <tbody>{visible.map(item => <tr key={item.id} onClick={() => openDetail(item)}>
             <td>{item.category || '미분류'}</td>
             <td><strong>{item.title}</strong>
               {item.latestManagementAsk && <small className="cell-sub ask-line">요청 · {item.latestManagementAsk}</small>}</td>
@@ -161,14 +192,14 @@ export default function WorkItemsPage({ session, notify }: {
       </Card>
     </>}
 
-    {detail && <div className="modal-backdrop" onClick={() => setDetail(undefined)}>
+    {detail && <div className="modal-backdrop" onClick={closeDetail}>
       <div className="modal wide" onClick={event => event.stopPropagation()}>
         <header>
           <div>
             <span className="week-label">{detail.category || '미분류'} · {detail.displayName}</span>
             <h2>{detail.title}</h2>
           </div>
-          <button onClick={() => setDetail(undefined)}>×</button>
+          <button onClick={closeDetail}>×</button>
         </header>
         <div className="rollup-detail">
           <div className="rollup-detail-meta">
@@ -183,6 +214,10 @@ export default function WorkItemsPage({ session, notify }: {
           <h4 className="timeline-heading">주차별 기록</h4>
           <ol className="work-timeline">{detail.weeks.map(week => <li key={week.weekStart}>
             <div className="work-timeline-head">
+              {canEdit(detail) && <label className="week-pick" title="이 주차를 다른 업무로 분리">
+                <input type="checkbox" checked={picked.includes(week.weekStart)}
+                  onChange={event => setPicked(event.target.checked ? [...picked, week.weekStart] : picked.filter(value => value !== week.weekStart))} />
+              </label>}
               <strong>{week.weekStart}</strong>
               <span className="work-progress">{week.progress}%</span>
             </div>
@@ -193,6 +228,35 @@ export default function WorkItemsPage({ session, notify }: {
               {week.managementAsk && <div><b>요청</b><p>{week.managementAsk}</p></div>}
             </div>
           </li>)}</ol>
+          {canEdit(detail) && <div className="work-edit">
+            <h4 className="timeline-heading">업무 정리</h4>
+            <p className="muted">업무는 제목을 정규화해 자동으로 묶습니다. 잘못 묶였거나 잘못 나뉘었으면 여기서 바로잡으세요. 바로잡은 결과는 다음 보고서를 저장해도 유지됩니다.</p>
+            <div className="work-edit-row">
+              <div>
+                <strong>선택한 주차를 다른 업무로 분리</strong>
+                <small>위 목록에서 분리할 주차를 고른 뒤 새 업무 제목을 입력하세요. 전체 주차는 분리할 수 없습니다.</small>
+                <div className="work-edit-controls">
+                  <input value={splitTitle} onChange={event => setSplitTitle(event.target.value)}
+                    placeholder="분리할 업무 제목" maxLength={240} />
+                  <Button variant="secondary" disabled={editBusy || !splitTitle.trim() || !picked.length || picked.length >= detail.weeks.length}
+                    onClick={() => splitOff(detail)}>{picked.length ? `${picked.length}개 주차 분리` : '주차를 선택하세요'}</Button>
+                </div>
+              </div>
+              <div>
+                <strong>이 업무를 다른 업무에 합치기</strong>
+                <small>이 업무의 모든 주차가 대상 업무로 옮겨지고, 앞으로 같은 제목으로 보고해도 대상 업무로 이어집니다.</small>
+                <div className="work-edit-controls">
+                  <select value={mergeInto} onChange={event => setMergeInto(event.target.value)}>
+                    <option value="">합칠 업무 선택</option>
+                    {(items ?? []).filter(item => item.id !== detail.id && item.userId === detail.userId)
+                      .map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+                  </select>
+                  <Button variant="secondary" disabled={editBusy || !mergeInto}
+                    onClick={() => mergeWith(detail)}>합치기</Button>
+                </div>
+              </div>
+            </div>
+          </div>}
         </div>
       </div>
     </div>}
