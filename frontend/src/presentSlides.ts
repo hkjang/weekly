@@ -26,6 +26,21 @@ function block(label: string, text: string, tone?: 'issue' | 'ask' | 'plan') {
   return trimmed ? [{ label, text: trimmed, tone }] : []
 }
 
+/**
+ * The same fields, uncut, for the presenter's own screen.
+ *
+ * The slide is written to be read across a room and so it is shortened; the
+ * presenter is the one person who needs every word, and until now the only way
+ * to get it was to leave the deck.
+ */
+function presenterText(...parts: [string, string][]): string | undefined {
+  const written = parts
+    .map(([label, text]) => [label, (text ?? '').trim()] as const)
+    .filter(([, text]) => text !== '')
+    .map(([label, text]) => `${label}\n${text}`)
+  return written.length ? written.join('\n\n') : undefined
+}
+
 // ---------------------------------------------------------------------------
 // Weekly report
 // ---------------------------------------------------------------------------
@@ -70,6 +85,7 @@ export function reportSlides(report: Report, attachments: ReportAttachment[] = [
     subtitle: `${report.displayName} · ${reportStatusLabel[report.status] ?? report.status}`,
     meta: [`업무 ${report.items.length}건`, usable ? `캡처 ${usable}장` : ''].filter(Boolean),
     body: clamp(report.summary, SLIDE_TEXT_LIMIT),
+    presenterText: presenterText(['주간 요약', report.summary]),
   }]
 
   slides.push(...captureSlides(report.id, attachments, 'BEFORE'))
@@ -86,6 +102,9 @@ export function reportSlides(report: Report, attachments: ReportAttachment[] = [
         ...block('이슈', item.issue, 'issue'),
         ...block('상위 조직 요청', item.managementAsk ?? '', 'ask'),
       ],
+      presenterText: presenterText(
+        ['금주 실적', item.currentResult], ['차주 계획', item.nextPlan],
+        ['이슈', item.issue], ['상위 조직 요청', item.managementAsk ?? '']),
     })
   })
 
@@ -140,6 +159,7 @@ export function rollupSlides(view: Rollup): PresentSlide[] {
       eyebrow: `경영 인사이트 ${index + 1}/${view.highlights.length} · ${highlight.severity}`,
       title: highlight.title,
       body: clamp(highlight.detail, SLIDE_TEXT_LIMIT),
+      presenterText: presenterText(['근거', highlight.detail]),
       tone: highlightTone[highlight.severity] ?? 'change',
     }))
   }
@@ -174,6 +194,9 @@ export function rollupSlides(view: Rollup): PresentSlide[] {
           ...block('이슈', item.issue, 'issue'),
           ...block('상위 조직 요청', item.managementAsk, 'ask'),
         ],
+        presenterText: presenterText(
+          ['실적', item.currentResult], ['계획', item.nextPlan],
+          ['이슈', item.issue], ['상위 조직 요청', item.managementAsk]),
         note: item.mergedTitles.length > 0
           ? `유사 업무 ${item.mergedTitles.length}건을 합쳐 표시합니다: ${item.mergedTitles.slice(0, 3).join(', ')}`
           : undefined,
@@ -207,7 +230,7 @@ export function meetingSlides(view: MeetingView): PresentSlide[] {
     eyebrow: view.scope === 'TEAM' ? '조직 주간 회의' : '개인 주간 점검',
     title: `${view.week} 주차 회의`,
     subtitle: `업무 ${view.workItems}건 · 담당자 ${view.people}명 · 안건 ${agendaCount}건`,
-    body: '→ 또는 스페이스로 진행 · F 전체화면 · N 진행 안내 · Esc 종료',
+    body: '→ 진행 · O 슬라이드 목록 · P 발표자 화면 · B 화면 끄기 · F 전체화면 · Esc 종료',
   }]
 
   for (const section of view.sections) {
@@ -228,6 +251,7 @@ export function meetingSlides(view: MeetingView): PresentSlide[] {
         `${entry.weeks}주 보고`,
       ].filter(Boolean),
       body: clamp(entry.detail, SLIDE_TEXT_LIMIT),
+      presenterText: presenterText(['내용', entry.detail], ['판단 근거', entry.note]),
       note: entry.note,
     }))
   }
