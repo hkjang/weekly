@@ -50,6 +50,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error' }>()
   const [sessionExpired, setSessionExpired] = useState(false)
+  // On a phone the navigation is a strip that scrolls, so the screen you are on
+  // has to be brought into view; otherwise the later entries look missing.
+  const navRef = useRef<HTMLElement>(null)
   const [signedOut, setSignedOut] = useState(false)
 
   const notify = (message: string, kind: 'success' | 'error' = 'success') => setToast({ message, kind })
@@ -113,6 +116,9 @@ export default function App() {
       window.removeEventListener('beforeunload', beforeUnload)
     }
   }, [])
+  useEffect(() => {
+    navRef.current?.querySelector('button.active')?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [page])
   useEffect(() => {
     if (!session) return
     const teamOnly = page === 'team' || page === 'analytics' || page === 'digest' || page === 'insights'
@@ -218,7 +224,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark small">W</span><div><strong>{session.serviceName}</strong><small>Weekly reports</small></div></div>
-      <nav>
+      <nav ref={navRef}>
         <span className="nav-label">개인</span>
         <Nav active={page === 'dashboard'} icon="⌂" onClick={() => navigate('dashboard')}>대시보드</Nav>
         <Nav active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>

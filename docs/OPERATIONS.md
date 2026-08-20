@@ -64,6 +64,8 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 ## 상태 확인
 
 - `GET /healthz`: 프로세스 생존
+- 기동 시 한 번 도는 정리 작업(업무 식별자 백필, 첨부 파일 무결성 확인)은 **서버가 응답을 시작한 뒤** 배경에서 수행한다. 백필은 500건씩 나눠 커밋하므로 도중에 재시작해도 이어서 진행하며, 진행 상황은 `work item backfill progress` 로그로 확인한다
+- Kubernetes 매니페스트는 `startupProbe`(5초 간격, 60회)를 사용한다. 기동에 시간이 걸리는 첫 부팅을 `livenessProbe` 기본값(약 30초)이 재시작시키지 않게 하기 위한 것이다. 직접 매니페스트를 작성한다면 같은 구성을 넣는다
 - `GET /readyz`: PostgreSQL 연결 포함 준비 상태
 - 관리자 `보고 · 서비스 분석`: 최근 24시간 경로별 호출, 평균/최대 지연, 4xx/5xx 비율
 

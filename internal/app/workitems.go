@@ -100,20 +100,59 @@ func resolveWorkItem(ctx context.Context, tx pgx.Tx, userID int64, title, catego
 	return &id, nil
 }
 
+// backfillBatchSize is how many report items one backfill transaction covers.
+// Small enough that a batch commits in well under a second, large enough that
+// the corpus does not turn into a transaction per row.
+const backfillBatchSize = 500
+
 // backfillWorkItems gives existing report items an identity using the same
 // normalizer the runtime path uses. It only touches rows that have none, so it
 // is safe to run on every start and is a no-op once complete.
+//
+// It commits in batches, in the background, and both matter. As one transaction
+// over the whole corpus it took 34 seconds for 50,000 items with the server not
+// yet listening — past the point where Kubernetes' default liveness probe
+// restarts the pod, and every restart began again from nothing, so a large
+// deployment could never finish. Per-batch commits make the progress durable.
 func (a *App) backfillWorkItems(ctx context.Context) {
 	var pending int
 	if err := a.db.QueryRow(ctx, `SELECT count(*) FROM report_items WHERE work_item_id IS NULL`).Scan(&pending); err != nil || pending == 0 {
 		return
 	}
+	a.logger.Info("work item backfill started", "pending", pending)
+	linked, scanned := 0, 0
+	for {
+		if ctx.Err() != nil {
+			a.logger.Info("work item backfill stopped", "linked", linked, "scanned", scanned)
+			return
+		}
+		batchLinked, batchScanned, err := a.backfillWorkItemBatch(ctx, backfillBatchSize)
+		if err != nil {
+			a.logger.Error("backfill work items", "error", err, "linked", linked, "scanned", scanned)
+			return
+		}
+		linked += batchLinked
+		scanned += batchScanned
+		if batchScanned < backfillBatchSize {
+			break
+		}
+		a.logger.Info("work item backfill progress", "linked", linked, "scanned", scanned, "pending", pending)
+	}
+	a.logger.Info("work item backfill complete", "linked", linked, "scanned", scanned)
+}
+
+// backfillWorkItemBatch links up to limit items and commits them together.
+//
+// An item with no normalizable title keeps its empty link, and the batch after
+// it starts from the same place, so the loop would never move past one. The
+// caller stops when a batch comes back short, which happens as soon as the only
+// rows left are those.
+func (a *App) backfillWorkItemBatch(ctx context.Context, limit int) (int, int, error) {
 	rows, err := a.db.Query(ctx, `SELECT i.id, r.user_id, i.title, i.category
 		FROM report_items i JOIN weekly_reports r ON r.id=i.report_id
-		WHERE i.work_item_id IS NULL ORDER BY r.week_start, i.id`)
+		WHERE i.work_item_id IS NULL ORDER BY r.week_start, i.id LIMIT $1`, limit)
 	if err != nil {
-		a.logger.Error("backfill work items", "error", err)
-		return
+		return 0, 0, err
 	}
 	type pendingItem struct {
 		itemID   int64
@@ -126,44 +165,41 @@ func (a *App) backfillWorkItems(ctx context.Context) {
 		var item pendingItem
 		if err := rows.Scan(&item.itemID, &item.userID, &item.title, &item.category); err != nil {
 			rows.Close()
-			a.logger.Error("backfill work items", "error", err)
-			return
+			return 0, 0, err
 		}
 		items = append(items, item)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		a.logger.Error("backfill work items", "error", err)
-		return
+		return 0, 0, err
+	}
+	if len(items) == 0 {
+		return 0, 0, nil
 	}
 
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		a.logger.Error("backfill work items", "error", err)
-		return
+		return 0, 0, err
 	}
 	defer tx.Rollback(ctx)
 	linked := 0
 	for _, item := range items {
 		workItemID, resolveErr := resolveWorkItem(ctx, tx, item.userID, item.title, item.category)
 		if resolveErr != nil {
-			a.logger.Error("backfill work items", "error", resolveErr, "reportItemId", item.itemID)
-			return
+			return 0, 0, resolveErr
 		}
 		if workItemID == nil {
 			continue
 		}
 		if _, err := tx.Exec(ctx, `UPDATE report_items SET work_item_id=$1 WHERE id=$2 AND work_item_id IS NULL`, *workItemID, item.itemID); err != nil {
-			a.logger.Error("backfill work items", "error", err, "reportItemId", item.itemID)
-			return
+			return 0, 0, err
 		}
 		linked++
 	}
 	if err := tx.Commit(ctx); err != nil {
-		a.logger.Error("backfill work items", "error", err)
-		return
+		return 0, 0, err
 	}
-	a.logger.Info("work item backfill complete", "linked", linked, "scanned", len(items))
+	return linked, len(items), nil
 }
 
 // listWorkItems answers "what has this task been doing, and for how long".

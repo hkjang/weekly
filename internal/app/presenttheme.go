@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // The colours the presentation screen borrows from the organisation's own PPTX
@@ -80,9 +82,43 @@ func themeAccentFromPPTX(deck []byte) string {
 	return ""
 }
 
+// The parsed accent, keyed by what the template file looked like when it was
+// read. Opening a deck should not mean reading and unzipping a template that
+// has not changed since the last time, and a template changes only when an
+// administrator uploads one.
+var themeCache struct {
+	sync.Mutex
+	key   string
+	value presentTheme
+}
+
+func templateFingerprint() string {
+	info, err := os.Stat(customPPTXPath)
+	if err != nil {
+		return "builtin"
+	}
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+}
+
 // presentThemeFor resolves the accent for the deck the caller would export, so
 // the screen and the file agree.
 func (a *App) presentThemeFor(ctx context.Context) presentTheme {
+	fingerprint := templateFingerprint()
+	themeCache.Lock()
+	if themeCache.key == fingerprint {
+		cached := themeCache.value
+		themeCache.Unlock()
+		return cached
+	}
+	themeCache.Unlock()
+	resolved := a.readPresentTheme(ctx)
+	themeCache.Lock()
+	themeCache.key, themeCache.value = fingerprint, resolved
+	themeCache.Unlock()
+	return resolved
+}
+
+func (a *App) readPresentTheme(ctx context.Context) presentTheme {
 	if body, err := os.ReadFile(customPPTXPath); err == nil {
 		if accent := themeAccentFromPPTX(body); accent != "" {
 			theme := presentTheme{Accent: accent, Source: "TEMPLATE"}

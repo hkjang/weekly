@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
+	"os"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestThemeAccentFromPPTX(t *testing.T) {
 			// Some templates express the accent as a system colour with the
 			// resolved value alongside it.
 			name: "system colour with a resolved value",
-			xml: `<a:clrScheme name="X"><a:accent1><a:sysClr val="windowText" lastClr="1F4E79"/></a:accent1></a:clrScheme>`,
+			xml:  `<a:clrScheme name="X"><a:accent1><a:sysClr val="windowText" lastClr="1F4E79"/></a:accent1></a:clrScheme>`,
 			want: "#1F4E79",
 		},
 		{
@@ -86,4 +87,35 @@ func TestThemeAccentReadsTheBundledTemplate(t *testing.T) {
 		t.Fatalf("unexpected accent format: %q", accent)
 	}
 	t.Logf("bundled template accent: %q", accent)
+}
+
+// The cache is keyed by the template file, so an upload has to invalidate it.
+// Serving the previous organisation's colour after a template change would be a
+// worse failure than reading the file every time.
+func TestPresentThemeCacheFollowsTheTemplateFile(t *testing.T) {
+	original := customPPTXPath
+	directory := t.TempDir()
+	customPPTXPath = directory + "/weekly-report.pptx"
+	t.Cleanup(func() { customPPTXPath = original; themeCache.key, themeCache.value = "", presentTheme{} })
+	themeCache.key, themeCache.value = "", presentTheme{}
+
+	first := templateFingerprint()
+	if first != "builtin" {
+		t.Fatalf("no template should fingerprint as builtin, got %q", first)
+	}
+	if err := os.WriteFile(customPPTXPath, themedPPTX(t,
+		`<a:clrScheme name="X"><a:accent1><a:srgbClr val="AA1111"/></a:accent1></a:clrScheme>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second := templateFingerprint()
+	if second == first {
+		t.Fatal("uploading a template did not change the fingerprint")
+	}
+	if err := os.WriteFile(customPPTXPath, themedPPTX(t,
+		`<a:clrScheme name="X"><a:accent1><a:srgbClr val="22BB22"/></a:accent1></a:clrScheme>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if third := templateFingerprint(); third == second {
+		t.Fatal("replacing the template did not change the fingerprint")
+	}
 }

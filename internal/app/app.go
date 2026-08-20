@@ -122,9 +122,14 @@ func New(ctx context.Context, options Options) (*App, error) {
 	a.capabilities = detectCapabilities(ctx, db)
 	logger.Info("database capabilities detected", "pg_trgm", a.capabilities.Trigram, "pgvector", a.capabilities.Vector)
 	a.routes()
-	// Existing report items predate work items, so they are linked once on start.
-	a.backfillWorkItems(ctx)
-	a.checkAttachmentIntegrity(ctx)
+	// Off the startup path on purpose. Both of these walk the whole corpus, and
+	// waiting for them meant the process did not answer /healthz until they were
+	// done — 34 seconds for 50,000 report items, past the point where the
+	// default Kubernetes liveness probe restarts the pod. Neither is needed for
+	// the service to answer correctly: the backfill only adds links that the
+	// runtime path already creates for new saves, and the integrity check only
+	// reports.
+	go a.startupTasks(ctx)
 	go a.maintenance(ctx)
 	go a.importWorker(ctx)
 	go a.confluenceWorker(ctx)
@@ -321,6 +326,14 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// startupTasks runs the once-per-boot housekeeping after the server is already
+// answering, in the order an operator reads the log: link what needs linking,
+// then say whether the attachment files are all there.
+func (a *App) startupTasks(ctx context.Context) {
+	a.backfillWorkItems(ctx)
+	a.checkAttachmentIntegrity(ctx)
 }
 
 func (a *App) maintenance(ctx context.Context) {
