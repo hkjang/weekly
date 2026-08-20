@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,7 +152,8 @@ func embeddableText(title, category, current, next, issue string) string {
 }
 
 // embeddingWorker keeps embeddings in step with report content in the
-// background. Content that has not changed is never re-embedded.
+// background. Content that has not changed is never re-embedded, and content
+// that has changed is re-embedded on the next tick.
 func (a *App) embeddingWorker(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -175,32 +175,51 @@ func (a *App) embeddingWorker(ctx context.Context) {
 	}
 }
 
-// embedPending embeds one batch of items whose text has no current embedding.
-func (a *App) embedPending(ctx context.Context, cfg embeddingConfig) (int, error) {
-	rows, err := a.db.Query(ctx, `SELECT i.id, i.title, i.category, i.current_result, i.next_plan, i.issue
+// pendingEmbedding is one item that has to be embedded, with the digest of the
+// exact text it was read as.
+type pendingEmbedding struct {
+	id     int64
+	text   string
+	digest string
+}
+
+// pendingEmbeddings lists items whose stored embedding is missing or no longer
+// matches the text it was made from.
+//
+// The digest is computed in SQL rather than in Go so that staleness can be a
+// predicate: an item edited after it was embedded has to come back out of the
+// database, and Go cannot filter on a hash it has not read the row to compute.
+// Report items are updated in place since v0.11, so their identifiers survive a
+// save and "no embedding row yet" stopped being a usable test for freshness.
+func (a *App) pendingEmbeddings(ctx context.Context, model string, limit int) ([]pendingEmbedding, error) {
+	rows, err := a.db.Query(ctx, `SELECT i.id, i.title, i.category, i.current_result, i.next_plan, i.issue, d.digest
 		FROM report_items i
+		CROSS JOIN LATERAL (SELECT encode(sha256(convert_to(
+			concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex') AS digest) d
 		LEFT JOIN report_item_embeddings e ON e.report_item_id = i.id AND e.model = $1
-		WHERE e.report_item_id IS NULL AND length(trim(i.title)) > 0
-		ORDER BY i.id DESC LIMIT $2`, cfg.Model, embeddingBatchSize)
+		WHERE length(trim(i.title)) > 0
+			AND (e.report_item_id IS NULL OR e.content_hash IS DISTINCT FROM d.digest)
+		ORDER BY i.id DESC LIMIT $2`, model, limit)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	type pending struct {
-		id   int64
-		text string
-	}
-	items := []pending{}
+	defer rows.Close()
+	items := []pendingEmbedding{}
 	for rows.Next() {
 		var id int64
-		var title, category, current, next, issue string
-		if err := rows.Scan(&id, &title, &category, &current, &next, &issue); err != nil {
-			rows.Close()
-			return 0, err
+		var title, category, current, next, issue, digest string
+		if err := rows.Scan(&id, &title, &category, &current, &next, &issue, &digest); err != nil {
+			return nil, err
 		}
-		items = append(items, pending{id: id, text: embeddableText(title, category, current, next, issue)})
+		items = append(items, pendingEmbedding{id: id, text: embeddableText(title, category, current, next, issue), digest: digest})
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	return items, rows.Err()
+}
+
+// embedPending embeds one batch of items that need it.
+func (a *App) embedPending(ctx context.Context, cfg embeddingConfig) (int, error) {
+	items, err := a.pendingEmbeddings(ctx, cfg.Model, embeddingBatchSize)
+	if err != nil {
 		return 0, err
 	}
 	if len(items) == 0 {
@@ -215,12 +234,15 @@ func (a *App) embedPending(ctx context.Context, cfg embeddingConfig) (int, error
 		return 0, err
 	}
 	for index, item := range items {
-		sum := fmt.Sprintf("%x", sha256.Sum256([]byte(item.text)))
+		// The digest read alongside the text is stored, not one recomputed now:
+		// if the item was edited while the batch was in flight, storing the
+		// digest of the newer text would pair it with the older vector and hide
+		// the change for good.
 		_, err := a.db.Exec(ctx, `INSERT INTO report_item_embeddings(report_item_id,embedding,model,dimensions,content_hash,updated_at)
 			VALUES($1,$2::vector,$3,$4,$5,now())
 			ON CONFLICT (report_item_id) DO UPDATE SET embedding=EXCLUDED.embedding, model=EXCLUDED.model,
 				dimensions=EXCLUDED.dimensions, content_hash=EXCLUDED.content_hash, updated_at=now()`,
-			item.id, vectorLiteral(vectors[index]), cfg.Model, len(vectors[index]), sum)
+			item.id, vectorLiteral(vectors[index]), cfg.Model, len(vectors[index]), item.digest)
 		if err != nil {
 			return index, err
 		}
@@ -310,7 +332,12 @@ func (a *App) embeddingStatus(w http.ResponseWriter, r *http.Request) {
 		Model           string `json:"model"`
 		Items           int    `json:"items"`
 		Embedded        int    `json:"embedded"`
-		Reason          string `json:"reason,omitempty"`
+		// Stale counts items whose stored vector was made from text the author
+		// has since edited. Those items are still searchable, but they answer
+		// for wording that no longer exists, so an operator needs to see the
+		// number rather than infer it from a coverage percentage that looks full.
+		Stale  int    `json:"stale"`
+		Reason string `json:"reason,omitempty"`
 	}
 	result := status{VectorAvailable: a.capabilities.Vector}
 	cfg, err := a.embeddingConfig(r.Context())
@@ -323,8 +350,12 @@ func (a *App) embeddingStatus(w http.ResponseWriter, r *http.Request) {
 	if a.capabilities.Vector {
 		_ = a.db.QueryRow(r.Context(), `SELECT
 			(SELECT count(*) FROM report_items WHERE length(trim(title)) > 0),
-			(SELECT count(*) FROM report_item_embeddings WHERE model = $1)`, cfg.Model).
-			Scan(&result.Items, &result.Embedded)
+			(SELECT count(*) FROM report_item_embeddings WHERE model = $1),
+			(SELECT count(*) FROM report_items i
+				JOIN report_item_embeddings e ON e.report_item_id = i.id AND e.model = $1
+				WHERE e.content_hash IS DISTINCT FROM encode(sha256(convert_to(
+					concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex'))`, cfg.Model).
+			Scan(&result.Items, &result.Embedded, &result.Stale)
 	}
 	writeData(w, 200, result)
 }

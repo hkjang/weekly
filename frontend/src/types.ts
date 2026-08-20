@@ -6,6 +6,8 @@ export interface User { id: number; username: string; displayName: string; email
 export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; currentWeekStart: string; serviceName: string; notice: string; build: BuildInfo }
 export interface Providers { local: boolean; oidc: boolean; name: string; notice: string; build: BuildInfo }
 export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number }
+export interface PreviousPlanItem { workItemId?: number; category: string; title: string; matchKey: string; nextPlan: string; issue: string; progress: number; carryOver: boolean }
+export interface PreviousPlan { reportId: number; weekStart: string; status: ReportStatus; items: PreviousPlanItem[] }
 export interface ReportComment { id: number; userId: number; displayName: string; content: string; createdAt: string }
 export type ReportSource = 'MANUAL' | 'AI_TEXT' | 'PPTX_IMPORT' | 'CONFLUENCE_AI' | 'CLONED' | 'API' | 'JIRA'
 export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[] }
@@ -134,7 +136,7 @@ export interface ConfluenceSyncStatus {
 /** Coverage of the optional semantic search index. */
 export interface EmbeddingStatus {
   vectorAvailable: boolean; enabled: boolean; model: string
-  items: number; embedded: number; reason?: string
+  items: number; embedded: number; stale: number; reason?: string
 }
 
 // --- 회의 모드 · 경영 요약 · 업무 인사이트 -----------------------------------

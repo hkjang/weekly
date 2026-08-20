@@ -3,7 +3,7 @@ import { api, del, patch, post, put } from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import AttachmentPanel from '../AttachmentPanel'
 import ReportPresentation from '../ReportPresentation'
-import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, Report, ReportItem } from '../types'
+import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, PreviousPlan, PreviousPlanItem, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
 
@@ -17,16 +17,27 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const [aiBusy, setAIBusy] = useState(false)
   const [aiApplied, setAIApplied] = useState(false)
   const [candidateData, setCandidateData] = useState<ConfluenceCandidateResponse>()
+  const [previous, setPrevious] = useState<PreviousPlan | null>(null)
   const [pendingCandidateIDs, setPendingCandidateIDs] = useState<number[]>([])
   const [captureCount, setCaptureCount] = useState(0)
   const [presenting, setPresenting] = useState(false)
   const loadCandidates = () => api<ConfluenceCandidateResponse>('/api/v1/reports/current/candidates').then(setCandidateData)
+  const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(setPrevious).catch(() => setPrevious(null))
   const load = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } }
-  useEffect(() => { Promise.all([load(), loadCandidates()]) }, [])
+  useEffect(() => { Promise.all([load(), loadCandidates(), loadPrevious()]) }, [])
   if (report === undefined) return <Spinner />
   const editable = true
   const changeItem = (index: number, patch: Partial<ReportItem>) => setItems(items.map((item, i) => i === index ? { ...item, ...patch } : item))
   const validItems = () => items.filter(item => item.title.trim())
+  // Pairing is by work item first and by normalized title second: a saved item
+  // carries the identifier the server resolved, an item still being typed does
+  // not. The title rule is the server's planMatchKey, kept identical on purpose.
+  const planKey = (title: string) => title.toLowerCase().replace(/\s+/g, '')
+  const previousItems = previous?.items ?? []
+  const previousFor = (item: ReportItem) => previousItems.find(plan => (!!item.workItemId && plan.workItemId === item.workItemId) || (!!item.title.trim() && plan.matchKey === planKey(item.title)))
+  const reportedKeys = new Set(validItems().map(item => planKey(item.title)))
+  const unreported = previousItems.filter(plan => plan.carryOver && !reportedKeys.has(plan.matchKey))
+  const carryForward = (plan: PreviousPlanItem) => { const kept = validItems(); setItems([...kept, { category: plan.category, title: plan.title, currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: plan.progress, sortOrder: kept.length }]) }
   const save = async () => { const preparedItems = validItems(); if (!preparedItems.length) { notify('업무 항목을 하나 이상 입력하세요.', 'error'); return false } const acceptedCandidateIDs = Array.from(new Set(preparedItems.flatMap(item => item.candidateId ? [item.candidateId] : []))); setBusy(true); try { const payload = { summary, sourceType: acceptedCandidateIDs.length ? 'CONFLUENCE_AI' : aiApplied ? 'AI_TEXT' : 'MANUAL', items: preparedItems.map(item => ({ id: item.id, category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: item.managementAsk ?? '', progress: item.progress, sortOrder: item.sortOrder })) }; const saved = report ? await put<{ id: number }>(`/api/v1/reports/${report.id}`, { ...payload, version: report.version }) : await post<{ id: number }>('/api/v1/reports', payload); if (acceptedCandidateIDs.length) await post('/api/v1/report-candidates/accept', { ids: acceptedCandidateIDs, reportId: saved.id }); setPendingCandidateIDs([]); await Promise.all([load(), loadCandidates()]); notify('보고서를 저장했습니다.'); return true } catch (error) { await load().catch(() => undefined); notify(error instanceof Error ? error.message : '저장할 수 없습니다.', 'error'); return false } finally { setBusy(false) } }
   const analyzeAI = async () => { if (!aiText.trim()) { notify('AI가 분석할 주간업무 내용을 입력하세요.', 'error'); return } setAIBusy(true); try { const result = await post<AIWeeklyResult>('/api/v1/ai/reports/parse-text', { text: aiText }); setAIResult(result); notify(`${result.reportItems.length}개 업무 항목을 구조화했습니다.`) } catch (error) { notify(error instanceof Error ? error.message : 'AI 분석을 완료할 수 없습니다.', 'error') } finally { setAIBusy(false) } }
   const changeAIItem = (index: number, patch: Partial<AIWeeklyResult['reportItems'][number]>) => setAIResult(aiResult ? { ...aiResult, reportItems: aiResult.reportItems.map((item, i) => i === index ? { ...item, ...patch } : item) } : undefined)
@@ -49,11 +60,16 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
     {report
       ? <AttachmentPanel reportId={report.id} editable notify={notify} onCountChange={setCaptureCount} />
       : <Card title="이미지 캡처 슬라이드"><p className="muted">화면 캡처를 붙여 PPTX에 슬라이드로 추가할 수 있습니다. 보고서를 한 번 저장하면 이 자리에서 이미지를 끌어다 놓거나 붙여넣을 수 있습니다.</p></Card>}
+    {unreported.length > 0 && <Card title="지난주 계획 이어받기" action={<span className="muted">{previous?.weekStart} 보고 기준</span>}>
+      <p className="muted">지난주에 계획했지만 이번 주 보고에 아직 없는 업무입니다. 끝난 일이면 그대로 두고, 이어서 하고 있다면 항목으로 추가하세요.</p>
+      <ul className="carry-over">{unreported.map((plan, index) => <li key={index}><div><strong>{plan.title}</strong>{plan.category.trim() ? <small>{plan.category}</small> : null}<p>{plan.nextPlan}</p></div><Button variant="secondary" onClick={() => carryForward(plan)}>+ 업무 항목으로 추가</Button></li>)}</ul>
+    </Card>}
     <div className="item-heading"><div><h2>업무 항목</h2><p>금주 실적, 차주 계획, 이슈를 한 단위로 관리합니다.</p></div>{editable && <Button variant="secondary" onClick={() => setItems([...items, blankItem()])}>+ 항목 추가</Button>}</div>
-    {items.length ? items.map((item, index) => <Card key={index} className="report-item" title={`업무 ${index + 1}`} action={editable && items.length > 1 ? <button className="remove-button" onClick={() => setItems(items.filter((_, i) => i !== index))}>삭제</button> : undefined}>
+    {items.length ? items.map((item, index) => { const plan = previousFor(item); return <Card key={index} className="report-item" title={`업무 ${index + 1}`} action={editable && items.length > 1 ? <button className="remove-button" onClick={() => setItems(items.filter((_, i) => i !== index))}>삭제</button> : undefined}>
       <div className="form-grid title-grid"><label>구분<input value={item.category} disabled={!editable} maxLength={80} onChange={e => changeItem(index, { category: e.target.value })} placeholder="프로젝트 / 운영"/></label><label>업무 제목<input value={item.title} disabled={!editable} maxLength={240} onChange={e => changeItem(index, { title: e.target.value })} placeholder="업무명을 입력하세요"/></label><label>진척도 <b>{item.progress}%</b><input type="range" min="0" max="100" step="5" value={item.progress} disabled={!editable} onChange={e => changeItem(index, { progress: Number(e.target.value) })}/></label></div>
+      {plan && <div className="previous-plan"><span>지난주 계획 · {previous?.weekStart}</span><p>{plan.nextPlan.trim() || '계획을 적지 않은 업무입니다.'}</p>{plan.issue.trim() ? <small>지난주 이슈 · {plan.issue}</small> : null}</div>}
       <div className="form-grid content-grid"><label>이번 주 — 한 일<textarea value={item.currentResult} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { currentResult: e.target.value })} placeholder="완료한 일과 결과를 적으세요."/></label><label>다음 주 — 할 일<textarea value={item.nextPlan} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { nextPlan: e.target.value })} placeholder="다음 주 계획을 적으세요."/></label><label>이슈 / 지원 요청<textarea value={item.issue} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { issue: e.target.value })} placeholder="이슈가 없다면 비워 두세요."/></label><label>상위 조직 요청<textarea value={item.managementAsk ?? ''} disabled={!editable} maxLength={5000} onChange={e => changeItem(index, { managementAsk: e.target.value })} placeholder="상위 조직의 결정이나 지원이 필요한 내용만 적으세요."/></label></div>
-    </Card>) : <Empty>업무 항목을 추가해 주세요.</Empty>}
+    </Card> }) : <Empty>업무 항목을 추가해 주세요.</Empty>}
     {report?.comments.length ? <Card title="검토 의견"><div className="comments">{report.comments.map(comment => <div key={comment.id}><strong>{comment.displayName}</strong><span>{new Date(comment.createdAt).toLocaleString('ko-KR')}</span><p>{comment.content}</p></div>)}</div></Card> : null}
     {/* Presents what is on screen, including unsaved edits: a report is often
         walked through immediately after being written. */}

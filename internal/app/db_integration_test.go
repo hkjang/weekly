@@ -22,9 +22,16 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 	}
 	defer db.Close()
 
+	// Derived from the embedded files rather than written out, because a
+	// literal here goes stale the moment a migration is added and the test only
+	// runs when a DSN is configured, so nobody finds out for several releases.
+	entries, err := migrationFiles.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var version int
-	if err := db.QueryRow(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 7 {
-		t.Fatalf("migration version: got=%d err=%v", version, err)
+	if err := db.QueryRow(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != len(entries) {
+		t.Fatalf("migration version: got=%d want=%d err=%v", version, len(entries), err)
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM users WHERE username='clone-test'`); err != nil {
 		t.Fatal(err)
@@ -158,4 +165,81 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 	if err != nil || plain != "upgrade-safe-key" {
 		t.Fatalf("migrated secret: plain=%q err=%v", plain, err)
 	}
+}
+
+// TestEmbeddingStalenessIsDetected pins the rule that decides which items get
+// re-embedded. It has to run against PostgreSQL because the decision is a SQL
+// predicate over a digest PostgreSQL computes; there is nothing to assert in Go.
+func TestEmbeddingStalenessIsDetected(t *testing.T) {
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var vectorInstalled bool
+	if err := db.QueryRow(ctx, `SELECT to_regtype('vector') IS NOT NULL`).Scan(&vectorInstalled); err != nil {
+		t.Fatal(err)
+	}
+	if !vectorInstalled {
+		t.Skip("pgvector is not installed")
+	}
+
+	if _, err := db.Exec(ctx, `DELETE FROM users WHERE username='embed-stale-test'`); err != nil {
+		t.Fatal(err)
+	}
+	var userID int64
+	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('embed-stale-test','Embed Stale','USER') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID)
+	var reportID int64
+	if err := db.QueryRow(ctx, `INSERT INTO weekly_reports(user_id,week_start,summary) VALUES($1,'2026-08-17','') RETURNING id`, userID).Scan(&reportID); err != nil {
+		t.Fatal(err)
+	}
+	var itemID int64
+	if err := db.QueryRow(ctx, `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress)
+		VALUES($1,'개발','임베딩 갱신 검증','1차 완료','2차 진행','',50) RETURNING id`, reportID).Scan(&itemID); err != nil {
+		t.Fatal(err)
+	}
+
+	application := &App{db: db}
+	const model = "embed-stale-test-model"
+	contains := func(step string, want bool) {
+		t.Helper()
+		items, err := application.pendingEmbeddings(ctx, model, 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, item := range items {
+			if item.id == itemID {
+				found = true
+			}
+		}
+		if found != want {
+			t.Fatalf("%s: pending=%v want=%v", step, found, want)
+		}
+	}
+
+	contains("never embedded", true)
+	if _, err := db.Exec(ctx, `INSERT INTO report_item_embeddings(report_item_id,embedding,model,dimensions,content_hash,updated_at)
+		SELECT i.id,'[1,2,3]'::vector,$2,3,
+			encode(sha256(convert_to(concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex'), now()
+		FROM report_items i WHERE i.id=$1`, itemID, model); err != nil {
+		t.Fatal(err)
+	}
+	contains("embedded and unchanged", false)
+	if _, err := db.Exec(ctx, `UPDATE report_items SET next_plan='2차 보류' WHERE id=$1`, itemID); err != nil {
+		t.Fatal(err)
+	}
+	contains("edited after embedding", true)
+	if _, err := db.Exec(ctx, `UPDATE report_item_embeddings SET model='other-model' WHERE report_item_id=$1`, itemID); err != nil {
+		t.Fatal(err)
+	}
+	contains("embedded under a different model", true)
 }

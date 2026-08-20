@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.14.2
+  version: 0.15.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -48,6 +48,50 @@ paths:
       summary: 현재 주차 본인 보고서
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /reports/previous:
+    get:
+      summary: 직전 보고서의 차주 계획
+      description: |
+        작성 중인 주차보다 앞선 본인의 가장 최근 보고서에서 항목별 차주 계획을 반환합니다.
+        직전 주차가 아니라 직전 보고서를 기준으로 하므로 휴가 등으로 한 주를 건너뛰어도 계획이 이어집니다.
+        `matchKey`는 제목을 소문자화하고 공백을 제거한 값으로, 아직 저장되지 않아 식별자가 없는 항목과 짝지을 때 사용합니다.
+        `carryOver`는 계획이 있고 진척도가 100% 미만인 항목, 즉 아직 남아 있는 계획을 표시합니다.
+        직전 보고서가 없으면 `data`가 `null`입니다.
+      parameters:
+        - name: weekStart
+          in: query
+          schema: { type: string, format: date }
+          description: 기준 주차 시작일. 생략하면 현재 주차
+      responses:
+        "200":
+          description: 직전 보고서의 계획
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: [object, "null"]
+                        properties:
+                          reportId: { type: integer, format: int64 }
+                          weekStart: { type: string, format: date }
+                          status: { type: string }
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                workItemId: { type: integer, format: int64 }
+                                category: { type: string }
+                                title: { type: string }
+                                matchKey: { type: string }
+                                nextPlan: { type: string }
+                                issue: { type: string }
+                                progress: { type: integer }
+                                carryOver: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
   /reports/current/candidates:
     get:
       summary: 현재 주차 Confluence 자동 초안과 Sync 상태
@@ -603,6 +647,8 @@ paths:
       summary: 의미 검색 임베딩 현황, 관리자 전용
       description: |
         pgvector 설치 여부, 의미 검색 활성 여부, 임베딩이 생성된 항목 수를 반환한다.
+        stale은 임베딩을 만든 뒤 본문이 수정되어 갱신을 기다리는 항목 수다. 검색은 되지만
+        지금은 존재하지 않는 문장으로 답하므로 별도로 센다.
         비활성 상태이면 reason에 사유를 담는다. 코사인 점수 범위는 임베딩 모델마다
         다르므로 search.semantic_threshold를 조정할 때 이 값을 기준으로 삼는다.
       responses:
@@ -611,8 +657,9 @@ paths:
     post:
       summary: 임베딩 일괄 생성, 관리자 전용
       description: |
-        아직 임베딩이 없는 보고 항목을 모두 임베딩한다. 배경 작업이 말뭉치를 한 배치씩
-        훑기를 기다리지 않고 즉시 채운다. 이미 같은 모델로 임베딩된 항목은 다시 만들지 않는다.
+        임베딩이 없거나 임베딩을 만든 뒤 본문이 수정된 보고 항목을 모두 임베딩한다.
+        배경 작업이 말뭉치를 한 배치씩 훑기를 기다리지 않고 즉시 채운다.
+        같은 모델로 임베딩됐고 그 뒤 수정되지 않은 항목은 다시 만들지 않는다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }

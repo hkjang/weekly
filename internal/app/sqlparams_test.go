@@ -29,9 +29,11 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// PREPARE deduces {text}: the query is compared against several columns
 		// but word_similarity takes text on both sides everywhere.
 		"search.go": "the reused query text is text in every word_similarity call",
-		// PREPARE deduces {vector, text, integer, double precision}: the reused
-		// parameter is the query vector in both the filter and the ORDER BY.
-		"semantic.go": "the reused query embedding is cast to vector in every use",
+		// PREPARE deduces {vector, text, integer, double precision} for the
+		// search and {text} for the coverage counts: the reused parameter is
+		// either the query vector, cast to vector in every use, or the model
+		// name compared against the same column in each subquery.
+		"semantic.go": "the reused query embedding and model name each keep one type",
 		// PREPARE deduces {vector, text, integer, bigint[], double precision}:
 		// the reused parameter is the query vector in the projection and the
 		// HAVING clause, cast to vector in both.

@@ -26,6 +26,7 @@
 - 조직 계층 기반 RBAC: `USER`, `TEAM_LEADER`, `ORG_MANAGER`, `ADMIN`
 - Argon2id 로컬 인증, DB 세션, 감사 로그, 낙관적 잠금
 - 개인 API/MCP 키 발급·폐기 및 전체 즉시 폐기형 개인 키 회전
+- 지난주에 적은 차주 계획을 이번 주 작성 화면의 해당 업무 옆에 그대로 보여 주고, 아직 보고하지 않은 계획은 한 번에 업무 항목으로 이어받는 작성 보조
 - 주간보고를 월간·분기·반기·연간으로 자동 취합하고 중복 업무와 반복 기재를 제거하는 기간 업무보고
 - 완료율, 정체·이월 업무, 이슈 지속 업무와 보고 커버리지를 판단 근거와 함께 제시하는 경영 인사이트
 - 주차별 상태 추이, 업무 타임라인, 포트폴리오 구성을 담은 업무 시각화 화면과 CSV·PPTX 내보내기
@@ -52,7 +53,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.14.2.tar.gz | docker load
+gzip -dc weekly-v0.15.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -71,6 +72,8 @@ Weekly는 세 개의 필수 환경변수와 한 개의 권장 보안 환경변�
 최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. `WEEKLY_ENCRYPTION_KEY`는 연결 비밀번호 자체가 아니라 관리자 화면에서 입력한 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 보호하는 마스터 키입니다. 같은 값을 유지하면 컨테이너나 상태 볼륨이 교체돼도 PostgreSQL의 암호화 설정을 계속 복호화할 수 있습니다. 기존 `instance.key`를 쓰던 환경은 기존 볼륨을 연결한 첫 업그레이드에 이 값을 설정하면 자동으로 재암호화됩니다.
 
 > `/var/lib/weekly` 볼륨과 `WEEKLY_ENCRYPTION_KEY`를 각각 백업하십시오. 환경 키를 설정하지 않은 하위 호환 모드에서는 볼륨의 `instance.key`가 유일한 복호화 키이며, 볼륨을 잃으면 비밀 설정도 함께 잃습니다.
+
+DB와 볼륨을 한 번에 백업·검증·복구하려면 `scripts/weekly-backup.sh`를 사용하십시오. `backup`은 두 대상을 같은 복구 지점으로 묶고, `verify`는 참조된 첨부 파일이 실제로 보관됐는지 확인해 부족하면 0이 아닌 종료 코드를 냅니다. 사용법은 [보안 및 운영](docs/OPERATIONS.md#백업)에 있습니다.
 
 비밀 설정을 복호화할 수 없는 상태로는 기동하지 않습니다. 키가 사라진 채 기동하면 OIDC Client Secret이 함께 사라져 SSO 로그인이 전부 실패하므로, 서비스는 다음 안내와 함께 기동을 중단합니다.
 

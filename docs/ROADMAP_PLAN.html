@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.14.2 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 20일 (v0.14.2 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.15.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 20일 (v0.15.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -67,7 +67,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <p>현재 데이터 모델은 <code>Report → ReportItem</code>이며, 같은 업무가 매주 <strong>새 행으로 다시 생성</strong>됩니다. 주차를 넘는 업무 동일성은 기간 집계에서 제목 정규화와 토큰 포함 관계로 <strong>추정</strong>하고 있을 뿐, 저장된 사실이 아닙니다.</p>
 <p>변화 요약, Aging, Dependency, Risk 예측은 모두 "이 업무가 지난주의 그 업무와 같은가"에 답할 수 있어야 성립합니다. WorkItem 없이 각 기능이 제각각 추정 로직을 다시 구현하면 기능마다 판정이 어긋납니다.</p>
 <hr>
-<h2>2. 완료된 마일스톤 (v0.1.0 ~ v0.14.2)</h2>
+<h2>2. 완료된 마일스톤 (v0.1.0 ~ v0.15.0)</h2>
 <div class="phase-box">========================================================================================
  [v0.1.0]  Single Container, PPTX Zip Engine, Keycloak OIDC, RBAC, MCP 1.0
  [v0.2.0]  자유 텍스트 AI 초안, 과거 PPTX Import, 사내 AI Gateway
@@ -88,6 +88,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
  [v0.14.0] PPTX 내보내기가 있는 모든 화면의 발표 모드
  [v0.14.1] 발표 모드 화면 캡처 슬라이드
  [v0.14.2] 첨부 파일 유실 진단, 발표 모드 이미지 정렬 수정
+ [v0.15.0] 지난주 계획 이어받기, 임베딩 신선도 판정, 백업·복구 도구
 ========================================================================================</div>
 <p>기존 로드맵의 다음 항목은 계속 유효하며 이 문서의 후반 단계에 배치합니다.</p>
 <ul>
@@ -129,11 +130,15 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>내 주간보고는 <strong>저장하지 않은 편집 내용도 그대로</strong> 발표합니다. 작성 직후 그대로 설명하는 경우가 많기 때문입니다.</li>
 <li>v0.14.1에서 첨부한 화면 캡처도 슬라이드로 포함합니다. 배치는 첨부 패널의 <code>본문 앞</code>·<code>본문 뒤</code> 표시를 따르며, PPTX와 달리 표지를 항상 먼저 보여 줍니다.</li>
 </ul>
-<h3>3.5 v0.15 — 주간 변화 요약과 보고 품질 점검</h3>
+<h3>3.5 v0.15 — 작성 보조와 데이터 신뢰성 (일부 완료)</h3>
+<p>v0.15.0은 이 단계의 원래 주제인 주간 변화 요약보다, 그 앞에 있던 세 가지를 먼저 처리했습니다. 두 가지는 조용히 틀린 답을 내고 있었고, 하나는 매주 모든 사용자가 치르는 비용이었습니다.</p>
 <ul>
-<li><strong>주간 변화 요약</strong>: WorkItem 스냅샷을 주차 간 비교해 신규·진척 증가·완료·지연·재개·장기 정체로 분류합니다. AI 없이 결정적으로 계산합니다.</li>
-<li><strong>보고 품질 점검(결정적 규칙)</strong>: 동일 차주 계획 반복, 진척도 역행, 지난주 계획의 이번주 실적 미확인, 동일 이슈 장기화를 규칙으로 탐지해 <strong>작성자에게 먼저</strong> 제시합니다.</li>
-<li><strong>AI 표현 점검(선택)</strong>: 모호한 표현과 근거 없는 완료 주장은 AI Gateway가 켜져 있을 때만 추가로 제시합니다. 규칙 기반 점검은 오프라인에서도 항상 동작합니다.</li>
+<li><strong>지난주 계획 이어받기 (완료)</strong>: 작성 화면이 직전 보고서의 차주 계획을 해당 업무 옆에 그대로 보여 주고, 아직 보고하지 않은 계획은 목록으로 모아 한 번에 업무 항목으로 옮깁니다. 짝짓기는 WorkItem 식별자 우선, 없으면 공백 제거 후 정확 일치입니다(4.5의 원칙 적용). 직전 *주차*가 아니라 직전 *보고서* 기준이므로 한 주를 건너뛰어도 이어집니다.</li>
+<li><strong>임베딩 신선도 판정 (완료)</strong>: v0.11에서 보고 항목을 행 갱신 방식으로 바꾼 뒤, 임베딩 대상 판정이 "임베딩 행이 없는 항목"이어서 <strong>수정된 내용이 영원히 재임베딩되지 않았습니다.</strong> 판정을 본문 해시 비교로 바꾸고, 관리자 화면에 갱신 대기 건수를 노출합니다. 해시는 PostgreSQL이 계산합니다. 판정이 SQL 조건이어야 하기 때문입니다.</li>
+<li><strong>백업·복구 도구 (완료)</strong>: 4.2의 두 저장소 문제를 문서가 아니라 도구로 다룹니다. <code>scripts/weekly-backup.sh</code>가 DB와 상태 볼륨을 같은 복구 지점으로 묶고, 참조된 첨부 파일이 실제로 보관됐는지 검증합니다.</li>
+<li><strong>주간 변화 요약 (남음)</strong>: WorkItem 스냅샷을 주차 간 비교해 신규·진척 증가·완료·지연·재개·장기 정체로 분류합니다. AI 없이 결정적으로 계산합니다.</li>
+<li><strong>보고 품질 점검 (일부 선행, 나머지 남음)</strong>: 규칙 중 <code>지난주 계획의 이번주 실적 미확인</code>은 위 작성 보조로 화면에서 이미 성립합니다. 동일 차주 계획 반복, 진척도 역행, 동일 이슈 장기화는 남습니다.</li>
+<li><strong>AI 표현 점검(선택, 남음)</strong>: 모호한 표현과 근거 없는 완료 주장은 AI Gateway가 켜져 있을 때만 추가로 제시합니다. 규칙 기반 점검은 오프라인에서도 항상 동작합니다.</li>
 </ul>
 <h3>3.6 v0.16 — Decision Log와 회의 결과 반영</h3>
 <ul>
@@ -182,6 +187,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <h3>4.2 상태 볼륨에 저장하는 데이터</h3>
 <p>비밀 설정 키(4.1의 사례)와 첨부 이미지 파일이 <code>/var/lib/weekly</code>에 있고, 나머지는 PostgreSQL에 있습니다. 두 저장소가 분리돼 있으므로 <strong>한쪽만 유지한 업그레이드는 조용히 깨집니다.</strong> 행은 남고 파일만 사라지므로 목록은 정상으로 보이고 조회만 404가 됩니다.</p>
 <p>v0.14.2에서 기동 시 유실을 감지해 로그로 남기고, 목록 응답이 파일 존재 여부를 반환하도록 했습니다. 이후 상태 볼륨에 파일을 추가로 저장하는 기능은 <strong>같은 방식의 무결성 확인을 함께 제공해야 합니다.</strong></p>
+<p>v0.15.0에서 감지에 예방을 더했습니다. 백업 도구가 두 저장소를 같은 복구 지점으로 묶고, 참조된 첨부 파일 수와 실제 보관된 파일 수를 비교해 부족하면 0이 아닌 종료 코드를 냅니다. 순서도 임의가 아닙니다. 업로드가 파일을 먼저 쓰고 행을 나중에 넣으므로 <strong>DB를 먼저 덤프하고 파일을 나중에 복사해야</strong> 덤프에 있는 행의 파일이 반드시 존재합니다.</p>
 <h3>4.3 자동 판정의 위치</h3>
 <p>제목 유사도 병합, Decision 추출, 변화 분류는 모두 <strong>제안</strong>이어야 하며 사용자 확정 없이 확정 데이터로 승격하지 않습니다. v0.6.0의 병합 오판 사례(한 글자 차이 업무가 하나로 합쳐짐)가 근거입니다.</p>
 <h3>4.4 임베딩 저장 방식 (v0.12에서 해결)</h3>

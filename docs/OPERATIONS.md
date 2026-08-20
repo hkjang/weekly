@@ -20,6 +20,28 @@ Weekly 프로세스에는 세 필수 환경변수와 운영에서 강력히 권�
 
 `WEEKLY_ENCRYPTION_KEY`를 설정한 환경은 DB와 같은 키를 복구하면 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 다시 입력하지 않아도 된다. 환경 키가 없는 하위 호환 모드에서는 볼륨의 `instance.key`가 유일한 복호화 키다. `imports/`에는 보관 중인 과거 PPTX 원본이 있다. 복구 후 `/readyz`, 로컬 관리자 로그인, 관리자 비밀값 상태, OIDC/AI/Confluence 연결 시험, 샘플 PPTX 내보내기와 Import 조회를 점검한다.
 
+`scripts/weekly-backup.sh`가 두 대상을 한 번에 처리한다.
+
+```
+weekly-backup.sh backup  -o OUT_DIR  [-d DSN] [-s STATE_DIR]
+weekly-backup.sh verify  -i ARCHIVE_DIR
+weekly-backup.sh restore -i ARCHIVE_DIR [-d DSN] [-s STATE_DIR] [--force]
+```
+
+DSN은 `WEEKLY_POSTGRES_DSN`, 상태 볼륨은 `WEEKLY_STATE_DIR`(기본 `/var/lib/weekly`)에서 읽는다. Compose 환경은 볼륨을 마운트한 임시 컨테이너에서 실행한다.
+
+```
+docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
+  --network <weekly-network> -e WEEKLY_POSTGRES_DSN=... postgres:16-alpine \
+  sh /backups/weekly-backup.sh backup -o /backups
+```
+
+**순서에 의미가 있다.** DB를 먼저 덤프하고 파일을 나중에 복사한다. 업로드는 파일을 먼저 쓰고 행을 나중에 넣으므로, 덤프가 본 행의 파일은 이미 디스크에 있다. 반대 순서로 하면 아직 기록되지 않은 파일을 가리키는 행이 백업된다. 남는 창은 백업 도중의 삭제 하나이며(행을 먼저 지우고 파일을 나중에 지운다) `verify`가 개수 불일치로 보고한다. 시점을 정확히 맞춰야 하면 서비스를 잠시 멈춘다.
+
+`backup`과 `verify`는 참조된 첨부 파일 수와 실제 보관된 파일 수를 비교하고, 부족하면 **경고와 함께 0이 아닌 종료 코드**를 낸다. 스케줄 백업이 깨진 복구 지점을 성공으로 기록하지 않게 하기 위한 것이다. 같은 파일을 두 행이 공유할 수 있으므로 비교 기준은 행 수가 아니라 서로 다른 저장 경로 수다.
+
+`restore`는 대상 데이터베이스의 모든 테이블을 지우고 다시 만들며 상태 볼륨을 비우고 덮어쓴다. `--force` 없이 실행하면 데이터베이스 이름을 직접 입력해야 진행한다.
+
 ## 보안 통제
 
 - 비루트 컨테이너, 모든 Linux capability 제거, read-only root filesystem
@@ -48,7 +70,7 @@ Import Worker는 API 프로세스 내부에서 동작하며 PostgreSQL의 `FOR U
 
 ## 업그레이드
 
-1. DB와 상태 볼륨을 백업한다.
+1. DB와 상태 볼륨을 백업한다. `scripts/weekly-backup.sh backup`을 쓰고 `verify`가 통과하는지 확인한다. 여기서 첨부 파일 경고가 나오면 업그레이드 전에 이미 볼륨이 어긋나 있다는 뜻이다.
 2. 아직 환경 암호화 키가 없다면 기존 상태 볼륨을 유지한 채 `openssl rand -base64 32` 결과를 `WEEKLY_ENCRYPTION_KEY`에 설정한다. 첫 기동이 기존 비밀값을 자동 재암호화한다.
 3. Release의 SHA-256을 확인한다.
 4. `docker load` 후 Compose/Kubernetes 이미지 태그를 변경한다.
