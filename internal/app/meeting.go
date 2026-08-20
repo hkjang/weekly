@@ -132,42 +132,19 @@ func buildMeeting(items []workItemView, week string, cfg rollupConfig) meetingVi
 			}
 		}
 
-		// What changed, stated as a change rather than as a status.
-		switch {
-		case current != nil && prior == nil && item.FirstWeek == week:
-			entry := base
-			entry.Detail = strings.TrimSpace(current.CurrentResult)
-			entry.Note = "이번 주에 시작된 업무입니다."
-			changes = append(changes, entry)
-		case current != nil && current.Progress >= 100 && (prior == nil || prior.Progress < 100):
-			entry := base
-			entry.Detail = strings.TrimSpace(current.CurrentResult)
-			entry.Note = fmt.Sprintf("%d주 만에 완료됐습니다.", item.ReportedWeeks)
-			entry.ProgressDelta = 100
-			if prior != nil {
-				entry.ProgressDelta = 100 - prior.Progress
-			}
-			changes = append(changes, entry)
-		case current != nil && prior != nil && current.Progress != prior.Progress:
-			entry := base
-			entry.Detail = strings.TrimSpace(current.CurrentResult)
-			entry.ProgressDelta = current.Progress - prior.Progress
-			if entry.ProgressDelta < 0 {
-				entry.Note = "진척도가 지난주보다 낮게 보고됐습니다. 확인이 필요합니다."
-			} else {
-				entry.Note = fmt.Sprintf("진척 %d%% → %d%%", prior.Progress, current.Progress)
-			}
-			changes = append(changes, entry)
-		case current != nil && prior != nil && item.StalledWeeks >= cfg.StallWeeks && !item.Completed:
-			entry := base
-			entry.Detail = strings.TrimSpace(current.NextPlan)
-			entry.Note = fmt.Sprintf("%d주째 진척이 없습니다.", item.StalledWeeks)
-			changes = append(changes, entry)
-		case current == nil && prior != nil && !item.Completed:
-			entry := base
-			entry.Detail = strings.TrimSpace(prior.NextPlan)
-			entry.Note = "지난주에는 보고됐으나 이번 주 보고에 없습니다."
+		// What changed, stated as a change rather than as a status. The
+		// classification is shared with the change summary so the two screens
+		// can never disagree about the same task in the same week.
+		change := classifyWeeklyChange(item, week, previous, cfg)
+		entry := base
+		entry.Detail = change.Detail
+		entry.Note = change.Note
+		entry.ProgressDelta = change.ProgressDelta
+		switch change.Kind {
+		case changeSilent:
 			silent = append(silent, entry)
+		case changeNew, changeResumed, changeCompleted, changeProgressed, changeRegressed, changeStalled:
+			changes = append(changes, entry)
 		}
 	}
 

@@ -4,7 +4,7 @@ import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } fr
 import AttachmentPanel from '../AttachmentPanel'
 import ReportPresentation from '../ReportPresentation'
 import { registerUnsavedGuard } from '../unsavedGuard'
-import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, PreviousPlan, PreviousPlanItem, Report, ReportItem } from '../types'
+import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, PreviousPlan, PreviousPlanItem, QualityReport, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
 
@@ -19,6 +19,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const [aiApplied, setAIApplied] = useState(false)
   const [candidateData, setCandidateData] = useState<ConfluenceCandidateResponse>()
   const [previous, setPrevious] = useState<PreviousPlan | null>(null)
+  const [quality, setQuality] = useState<QualityReport>()
   const [pendingCandidateIDs, setPendingCandidateIDs] = useState<number[]>([])
   const [captureCount, setCaptureCount] = useState(0)
   const [presenting, setPresenting] = useState(false)
@@ -38,6 +39,18 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   // copy and must not be torn down and rebuilt on every keystroke.
   const liveRef = useRef({ summary, items })
   liveRef.current = { summary, items }
+  // Checked against the author's own history while they write, not after they
+  // submit. The debounce is the whole cost control: one request per pause in
+  // typing rather than one per keystroke.
+  useEffect(() => {
+    const filled = items.filter(item => item.title.trim())
+    if (!filled.length) { setQuality(undefined); return }
+    const timer = window.setTimeout(() => {
+      post<QualityReport>('/api/v1/reports/quality', { weekStart: report?.weekStart, items: filled })
+        .then(setQuality).catch(() => setQuality(undefined))
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [items, report?.weekStart])
   useEffect(() => {
     registerUnsavedGuard(() => snapshotOf(liveRef.current.summary, liveRef.current.items) !== savedSnapshot.current)
     return () => registerUnsavedGuard(null)
@@ -77,6 +90,13 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
     {report
       ? <AttachmentPanel reportId={report.id} editable notify={notify} onCountChange={setCaptureCount} />
       : <Card title="이미지 캡처 슬라이드"><p className="muted">화면 캡처를 붙여 PPTX에 슬라이드로 추가할 수 있습니다. 보고서를 한 번 저장하면 이 자리에서 이미지를 끌어다 놓거나 붙여넣을 수 있습니다.</p></Card>}
+    {quality && quality.findings.length > 0 && <Card title="보고 품질 점검" action={<span className="muted">{quality.checked}개 업무 확인</span>}>
+      <p className="muted">제출 전에 작성자가 먼저 보는 점검입니다. 규칙으로만 판단하며 내용을 고치지 않습니다.</p>
+      <ul className="quality-findings">{quality.findings.map((finding, index) => <li key={index} className={finding.severity === 'WARN' ? 'warn' : ''}>
+        <div><strong>{finding.title}</strong><small>{finding.severity === 'WARN' ? '확인 필요' : '참고'}</small></div>
+        <p>{finding.message}</p>
+      </li>)}</ul>
+    </Card>}
     {unreported.length > 0 && <Card title="지난주 계획 이어받기" action={<span className="muted">{previous?.weekStart} 보고 기준</span>}>
       <p className="muted">지난주에 계획했지만 이번 주 보고에 아직 없는 업무입니다. 끝난 일이면 그대로 두고, 이어서 하고 있다면 항목으로 추가하세요.</p>
       <ul className="carry-over">{unreported.map((plan, index) => <li key={index}><div><strong>{plan.title}</strong>{plan.category.trim() ? <small>{plan.category}</small> : null}<p>{plan.nextPlan}</p></div><Button variant="secondary" onClick={() => carryForward(plan)}>+ 업무 항목으로 추가</Button></li>)}</ul>

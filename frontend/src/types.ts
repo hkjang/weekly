@@ -58,6 +58,17 @@ export interface WorkItem {
   latestIssue: string; latestManagementAsk: string; weeks: WorkItemWeek[]
 }
 
+export type ChangeKind = 'NEW' | 'RESUMED' | 'COMPLETED' | 'PROGRESSED' | 'REGRESSED' | 'STALLED' | 'SILENT' | 'STEADY' | 'ABSENT'
+export interface ChangeEntry {
+  workItemId: number; title: string; category: string; displayName: string; organizationName: string
+  kind: ChangeKind; note: string; detail: string; progress: number; progressDelta: number
+}
+export interface ChangeGroup { kind: ChangeKind; title: string; count: number; entries: ChangeEntry[] }
+export interface ChangeSummary { week: string; previousWeek: string; scope: string; reported: number; changed: number; groups: ChangeGroup[] }
+
+export interface QualityFinding { rule: string; severity: 'WARN' | 'INFO'; title: string; message: string }
+export interface QualityReport { week: string; checked: number; findings: QualityFinding[] }
+
 export interface AnalysisTerm { term: string; count: number; documents: number; weight: number; delta: number; phrase: boolean; variants?: string[] }
 export interface KeywordAnalytics {
   start: string; end: string; weeks: number; field: string; documents: number; reports: number

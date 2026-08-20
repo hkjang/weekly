@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.16.0
+  version: 0.17.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -96,6 +96,57 @@ paths:
                                 issue: { type: string }
                                 progress: { type: integer }
                                 carryOver: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+  /reports/quality:
+    post:
+      summary: 작성 중인 보고서의 품질 점검
+      description: |
+        저장된 사본이 아니라 요청 본문의 초안을 점검한다. 점검은 저장 전에 가장 쓸모 있고,
+        저장된 것만 볼 수 있는 점검은 작성자가 이미 지나간 버전에 대해 답하게 된다.
+
+        규칙은 결정적이며 모델을 쓰지 않는다. AI Gateway가 꺼진 환경에서도 동작한다.
+        본인 이력만 근거로 삼으며 최근 26주를 본다. 점검 대상 주차의 저장본은 근거에서 제외한다.
+
+        - PROGRESS_REGRESSED: 지난주보다 낮은 진척도
+        - PLAN_REPEATED: 같은 차주 계획을 2주 이상 반복하면서 진척도도 오르지 않음
+        - PLAN_WITHOUT_RESULT: 지난주 계획이 있는데 이번 주 실적이 비어 있음
+        - ISSUE_PERSISTED: 같은 이슈가 rollup.persistent_issue_weeks 이상 지속
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                weekStart: { type: string, format: date, description: 생략하면 현재 주차 }
+                items:
+                  type: array
+                  items: { $ref: "#/components/schemas/ReportItem" }
+      responses:
+        "200":
+          description: 점검 결과
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          week: { type: string, format: date }
+                          checked: { type: integer }
+                          findings:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                rule: { type: string }
+                                severity: { type: string, enum: [WARN, INFO] }
+                                title: { type: string }
+                                message: { type: string }
         "400": { $ref: "#/components/responses/Error" }
   /reports/current/candidates:
     get:
@@ -657,6 +708,52 @@ paths:
       summary: 최근 24시간 API 분석, 관리자 전용
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /changes:
+    get:
+      summary: 지난주 대비 주간 변화 요약
+      description: |
+        업무별로 지난주와 이번 주 스냅샷을 비교해 완료·신규·재개·진척·진척도 역행·정체·보고 누락으로
+        분류한다. AI 없이 결정적으로 계산하며, 분류 로직은 회의 모드와 **같은 함수**를 쓴다.
+        화면마다 따로 구현하면 같은 업무가 한 화면에서는 완료로, 다른 화면에서는 진척으로 보이고
+        읽는 사람이 둘 다 믿지 않게 된다.
+
+        그대로 진행 중인 업무(STEADY)는 reported에는 세지만 목록에는 넣지 않는다. 이미 보고서에
+        적혀 있는 내용을 요약이 다시 반복하면 요약이 아니다. 완료된 뒤 보고에서 빠진 업무는
+        누락이 아니라 정상이므로 제외한다.
+
+        분류에는 정체 주차와 미보고 주차가 필요하므로 최근 26주 이력을 함께 읽는다.
+      parameters:
+        - { name: week, in: query, schema: { type: string, format: date }, description: 생략하면 현재 주차 }
+        - { name: scope, in: query, schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+      responses:
+        "200":
+          description: 주간 변화
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          week: { type: string, format: date }
+                          previousWeek: { type: string, format: date }
+                          scope: { type: string }
+                          reported: { type: integer }
+                          changed: { type: integer }
+                          groups:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                kind: { type: string, enum: [COMPLETED, NEW, RESUMED, PROGRESSED, REGRESSED, STALLED, SILENT] }
+                                title: { type: string }
+                                count: { type: integer }
+                                entries: { type: array, items: { type: object } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /meeting:
     get:
       summary: 회의 모드 안건
