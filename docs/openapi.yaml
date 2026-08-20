@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.14.1
+  version: 0.14.2
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -202,6 +202,12 @@ paths:
       - { $ref: "#/components/parameters/ID" }
     get:
       summary: 보고서 화면 캡처 목록
+      description: |
+        각 항목의 `available`은 저장된 이미지 파일을 읽을 수 있는지를 나타낸다.
+
+        이미지 정보는 PostgreSQL에, 파일은 `/var/lib/weekly` 상태 볼륨에 나뉘어 저장되므로
+        볼륨을 유지하지 않고 업그레이드하면 항목은 남고 파일만 사라진다. 이 경우 `available`이
+        false가 되며 해당 이미지는 내보내기와 발표에서 제외된다. 다시 첨부해야 복구된다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "403": { $ref: "#/components/responses/Error" }
@@ -230,6 +236,10 @@ paths:
       - { in: path, name: attachmentId, required: true, schema: { type: integer, format: int64 } }
     get:
       summary: 첨부 이미지 원본
+      description: |
+        404는 두 가지 원인을 구분해 반환한다. `ATTACHMENT_NOT_FOUND`는 해당 보고서에 그
+        항목이 없는 경우이고, `ATTACHMENT_FILE_MISSING`은 항목은 있으나 저장된 파일이 없는
+        경우다. 후자는 상태 볼륨이 유실된 상황이며 이미지를 다시 첨부해야 한다.
       responses:
         "200":
           description: 이미지 바이트

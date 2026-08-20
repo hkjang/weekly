@@ -47,6 +47,12 @@ type attachmentView struct {
 	Width     int       `json:"width"`
 	Height    int       `json:"height"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Available reports whether the stored file is still readable. A row can
+	// outlive its file: the images live on the state volume while the rows live
+	// in PostgreSQL, so a deployment that upgrades without mounting
+	// /var/lib/weekly keeps every row and loses every file. Saying so here lets
+	// the screen explain the gap instead of showing a broken image.
+	Available bool `json:"available"`
 }
 
 type storedAttachment struct {
@@ -116,9 +122,46 @@ func (a *App) loadAttachments(ctx context.Context, reportID int64) ([]storedAtta
 			&item.StoredPath, &item.ContentType, &item.Extension); err != nil {
 			return nil, err
 		}
+		_, statErr := os.Stat(safeAttachmentPath(item.StoredPath))
+		item.Available = statErr == nil
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+// checkAttachmentIntegrity reports rows whose image file is gone.
+//
+// It runs at start-up because the usual cause is a deployment mistake that is
+// invisible until someone opens an old report: the state volume was not
+// mounted, so the files are gone while every row survived in PostgreSQL. A 404
+// on one image is a puzzle; this line in the boot log is an answer.
+func (a *App) checkAttachmentIntegrity(ctx context.Context) {
+	rows, err := a.db.Query(ctx, `SELECT stored_path FROM report_attachments`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	total, missing := 0, 0
+	for rows.Next() {
+		var storedPath string
+		if err := rows.Scan(&storedPath); err != nil {
+			return
+		}
+		total++
+		if _, statErr := os.Stat(safeAttachmentPath(storedPath)); statErr != nil {
+			missing++
+		}
+	}
+	if rows.Err() != nil || total == 0 {
+		return
+	}
+	if missing == 0 {
+		a.logger.Info("attachment files verified", "attachments", total)
+		return
+	}
+	a.logger.Warn("attachment files are missing; captures will not display or export",
+		"missing", missing, "attachments", total, "directory", stateDirectoryAttachments,
+		"hint", "확인: /var/lib/weekly 를 영속 볼륨으로 마운트했는지. 파일이 유실된 첨부는 다시 업로드해야 합니다.")
 }
 
 // uploadAttachments accepts one or more images for the caller's own report.
@@ -229,7 +272,8 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 		}
 		created = append(created, attachmentView{
 			ID: attachmentID, Filename: trimRunes(filepath.Base(header.Filename), 255), Placement: placement,
-			SortOrder: nextOrder, SizeBytes: int64(len(body)), Width: config.Width, Height: config.Height, CreatedAt: createdAt,
+			SortOrder: nextOrder, SizeBytes: int64(len(body)), Width: config.Width, Height: config.Height,
+			CreatedAt: createdAt, Available: true,
 		})
 		nextOrder++
 	}
@@ -256,8 +300,12 @@ func (a *App) serveAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := os.ReadFile(safeAttachmentPath(storedPath))
 	if err != nil {
-		a.logger.Error("read attachment", "error", err, "attachmentId", attachmentID)
-		writeError(w, http.StatusNotFound, "ATTACHMENT_NOT_FOUND", "첨부 이미지 파일이 없습니다.")
+		// A distinct code, because the two 404s here have different causes and
+		// different fixes: no row means a stale link, a missing file means the
+		// stored image is gone and has to be attached again.
+		a.logger.Error("read attachment", "error", err, "attachmentId", attachmentID, "storedPath", storedPath)
+		writeError(w, http.StatusNotFound, "ATTACHMENT_FILE_MISSING",
+			"첨부 이미지 파일이 서버에 없습니다. 이미지를 다시 첨부해 주세요.")
 		return
 	}
 	w.Header().Set("Content-Type", contentType)

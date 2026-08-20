@@ -52,7 +52,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.14.1.tar.gz | docker load
+gzip -dc weekly-v0.14.2.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -367,6 +367,10 @@ Weekly는 세 개의 필수 환경변수와 한 개의 권장 보안 환경변�
 ## 화면 캡처 슬라이드
 
 보고서 편집 화면의 `이미지 캡처 슬라이드`에 PNG, JPEG, GIF를 끌어다 놓거나 클립보드에서 붙여넣으면 각 이미지가 PPTX 내보내기에서 한 장의 슬라이드가 됩니다.
+
+> **이미지 파일은 `/var/lib/weekly` 상태 볼륨에 저장됩니다.** 이미지 정보는 PostgreSQL에, 파일은 이 디렉터리에 나뉘어 저장되므로 **볼륨을 마운트하지 않고 업그레이드하면 첨부 정보는 남고 파일만 사라져 이미지가 404로 응답합니다.** `deploy/compose.yaml`과 `deploy/kubernetes.yaml`은 영속 볼륨을 사용하도록 구성돼 있으며, 직접 `docker run`으로 기동할 때는 `-v weekly-data:/var/lib/weekly`를 반드시 지정하세요.
+>
+> 파일이 유실된 경우 기동 로그에 `attachment files are missing`이 유실 개수와 함께 남고, 캡처 패널이 해당 이미지를 `파일 없음`으로 표시합니다. 유실된 이미지는 복구할 수 없으므로 다시 첨부해야 합니다.
 
 - 이미지마다 `본문 앞` 또는 `본문 뒤` 위치와 순서를 지정할 수 있어 표지 뒤나 보고 마지막에 캡처를 배치할 수 있습니다.
 - 슬라이드 제목은 입력한 설명을 사용하고, 비워 두면 파일명을 표시합니다.

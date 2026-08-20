@@ -124,6 +124,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	a.routes()
 	// Existing report items predate work items, so they are linked once on start.
 	a.backfillWorkItems(ctx)
+	a.checkAttachmentIntegrity(ctx)
 	go a.maintenance(ctx)
 	go a.importWorker(ctx)
 	go a.confluenceWorker(ctx)

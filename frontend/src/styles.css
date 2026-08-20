@@ -164,7 +164,13 @@
 /* 발표 모드 이미지 캡처 슬라이드 */
 .presentation-slide.kind-image>div{display:flex;flex-direction:column;height:100%;min-height:0}
 .slide-image{margin:0;flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
-.slide-image img{max-width:100%;max-height:100%;min-height:0;object-fit:contain;border-radius:12px;background:#0b1220;border:1px solid #ffffff1f;box-shadow:0 20px 60px #00000055}
+.slide-image img{width:auto;height:auto;max-width:100%;max-height:100%;min-height:0;object-fit:contain;border-radius:12px;background:#0b1220;border:1px solid #ffffff1f;box-shadow:0 20px 60px #00000055}
 .slide-image figcaption{color:#93c5fd;font-size:clamp(12px,1.3vw,16px);text-align:center}
 .presentation-slide.kind-image h1{font-size:clamp(20px,3vw,38px);margin-bottom:12px}
 .presentation-loading{display:flex;align-items:center;justify-content:center;gap:14px;color:#bfdbfe;font-size:14px}
+
+/* 첨부 파일이 유실된 캡처 */
+.capture-missing{height:130px;background:#fef2f2;border-bottom:1px solid #fecdd3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px;text-align:center}
+.capture-missing strong{color:#b91c1c;font-size:12px}.capture-missing span{color:#9f1239;font-size:10px;line-height:1.5}
+.capture-warning{margin:10px 0 0;padding:10px 12px;border:1px solid #fecdd3;background:#fef2f2;border-radius:9px;color:#9f1239;font-size:12px;line-height:1.6}
+.capture-warning code{background:#ffffffaa;border-radius:4px;padding:1px 5px}

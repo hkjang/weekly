@@ -88,6 +88,8 @@ export type AttachmentPlacement = 'BEFORE' | 'AFTER'
 export interface ReportAttachment {
   id: number; filename: string; caption: string; placement: AttachmentPlacement
   sortOrder: number; sizeBytes: number; width: number; height: number; createdAt: string
+  /** false when the stored file is gone; the row survives but the image cannot be shown. */
+  available?: boolean
 }
 
 export type PeriodKind = 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'

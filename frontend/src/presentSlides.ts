@@ -46,7 +46,9 @@ const reportStatusLabel: Record<string, string> = {
  * screenshot tells the room nothing.
  */
 function captureSlides(reportId: number, attachments: ReportAttachment[], placement: 'BEFORE' | 'AFTER'): PresentSlide[] {
-  const group = attachments.filter(item => item.placement === placement)
+  // A capture whose file is missing would present as an empty frame, which is
+  // worse than not being there: the room waits for something to appear.
+  const group = attachments.filter(item => item.placement === placement && item.available !== false)
   return group.map((item, index) => ({
     kind: 'image' as const,
     eyebrow: `${placement === 'BEFORE' ? '본문 앞 캡처' : '본문 뒤 캡처'} ${index + 1}/${group.length}`,
@@ -60,12 +62,13 @@ function captureSlides(reportId: number, attachments: ReportAttachment[], placem
 }
 
 export function reportSlides(report: Report, attachments: ReportAttachment[] = []): PresentSlide[] {
+  const usable = attachments.filter(item => item.available !== false).length
   const slides: PresentSlide[] = [{
     kind: 'cover',
     eyebrow: '주간 업무보고',
     title: `${report.weekStart} 주차`,
     subtitle: `${report.displayName} · ${reportStatusLabel[report.status] ?? report.status}`,
-    meta: [`업무 ${report.items.length}건`, attachments.length ? `캡처 ${attachments.length}장` : ''].filter(Boolean),
+    meta: [`업무 ${report.items.length}건`, usable ? `캡처 ${usable}장` : ''].filter(Boolean),
     body: clamp(report.summary, SLIDE_TEXT_LIMIT),
   }]
 

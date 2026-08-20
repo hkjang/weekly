@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.14.1 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 18일 (v0.14.1 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.14.2 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 20일 (v0.14.2 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -67,7 +67,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <p>현재 데이터 모델은 <code>Report → ReportItem</code>이며, 같은 업무가 매주 <strong>새 행으로 다시 생성</strong>됩니다. 주차를 넘는 업무 동일성은 기간 집계에서 제목 정규화와 토큰 포함 관계로 <strong>추정</strong>하고 있을 뿐, 저장된 사실이 아닙니다.</p>
 <p>변화 요약, Aging, Dependency, Risk 예측은 모두 "이 업무가 지난주의 그 업무와 같은가"에 답할 수 있어야 성립합니다. WorkItem 없이 각 기능이 제각각 추정 로직을 다시 구현하면 기능마다 판정이 어긋납니다.</p>
 <hr>
-<h2>2. 완료된 마일스톤 (v0.1.0 ~ v0.14.1)</h2>
+<h2>2. 완료된 마일스톤 (v0.1.0 ~ v0.14.2)</h2>
 <div class="phase-box">========================================================================================
  [v0.1.0]  Single Container, PPTX Zip Engine, Keycloak OIDC, RBAC, MCP 1.0
  [v0.2.0]  자유 텍스트 AI 초안, 과거 PPTX Import, 사내 AI Gateway
@@ -87,6 +87,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
  [v0.13.0] 회의 모드와 발표 모드, 경영 요약, 조직 간 중복·협업 분석, 인수인계
  [v0.14.0] PPTX 내보내기가 있는 모든 화면의 발표 모드
  [v0.14.1] 발표 모드 화면 캡처 슬라이드
+ [v0.14.2] 첨부 파일 유실 진단, 발표 모드 이미지 정렬 수정
 ========================================================================================</div>
 <p>기존 로드맵의 다음 항목은 계속 유효하며 이 문서의 후반 단계에 배치합니다.</p>
 <ul>
@@ -108,14 +109,14 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <ul>
 <li><strong>3단계 검색</strong>: 정확 일치 → <code>pg_trgm</code> 표기 유사 → <code>pgvector</code> 의미 유사. 앞 단계 결과가 5건 미만일 때만 다음 단계를 수행하고, 각 단계는 앞 단계가 찾은 보고서를 건너뜁니다.</li>
 <li><strong>확장은 선택</strong>: 두 확장이 모두 없어도 정확 일치 검색이 그대로 동작합니다. 마이그레이션은 확장이 없으면 활성화를 건너뛰고 진행합니다.</li>
-<li><strong>표기 변형 합산 워드 클라우드</strong>: 띄어쓰기만 다른 표기를 하나로 합산합니다. 유사도가 아니라 공백 제거 후 정확 일치로 판정합니다(4.2의 오판 금지 원칙 적용).</li>
+<li><strong>표기 변형 합산 워드 클라우드</strong>: 띄어쓰기만 다른 표기를 하나로 합산합니다. 유사도가 아니라 공백 제거 후 정확 일치로 판정합니다(4.3의 오판 금지 원칙 적용).</li>
 <li><strong>임계값은 설정으로</strong>: 코사인 점수 범위는 임베딩 모델마다 다르므로 고정값으로 둘 수 없습니다. 관리자 화면의 임베딩 현황과 함께 조정합니다.</li>
 </ul>
 <h3>3.3 v0.13 — 회의·경영 관점과 조직 간 업무 관계 (완료)</h3>
 <p>WorkItem이 자리 잡으면서 로드맵 후반의 Meeting Mode(구 3.6)와 Executive Digest(구 3.9)를 앞당겨 구현했습니다. 두 기능 모두 WorkItem 스냅샷에서 결정적으로 파생되므로 선행 조건이 이미 충족돼 있었습니다.</p>
 <ul>
 <li><strong>회의 모드와 발표 모드</strong>: 결정 필요·신규 이슈·지속 이슈·변경점·보고 누락만 남기고, 전체 화면 슬라이드로 회의에서 바로 진행합니다.</li>
-<li><strong>경영 요약</strong>: 관측 사실의 가중 합으로 최대 10건을 선정하고 선정 근거를 항상 함께 제시합니다(4.2 원칙).</li>
+<li><strong>경영 요약</strong>: 관측 사실의 가중 합으로 최대 10건을 선정하고 선정 근거를 항상 함께 제시합니다(4.3 원칙).</li>
 <li><strong>업무 인사이트</strong>: 조직 간 중복 의심, 유사 업무, 협업 지도, 반복 운영 업무. 모두 사람이 확인할 후보로 제시합니다.</li>
 <li><strong>인수인계</strong>: 진행 경과, 이슈 해소 여부, 미해결 사항을 기록에서 모읍니다.</li>
 <li><strong>과거 사례 검색</strong>: 자연어로 유사 업무와 이슈 해결 경과를 찾습니다. v0.12의 임베딩을 선택 가속 경로로 사용합니다.</li>
@@ -170,7 +171,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <h3>3.12 v1.0 — Enterprise Work Intelligence Platform</h3>
 <ul>
 <li>조직 Knowledge Graph. 사람·업무·시스템·프로젝트·문서 관계를 질의합니다.</li>
-<li>의미 기반 검색 자체는 v0.12에서 기반이 놓였습니다(4.3). 남은 과제는 검색 결과를 관계 질의로 확장하는 것입니다.</li>
+<li>의미 기반 검색 자체는 v0.12에서 기반이 놓였습니다(4.4). 남은 과제는 검색 결과를 관계 질의로 확장하는 것입니다.</li>
 </ul>
 <hr>
 <h2>4. 선행 기술 결정 사항</h2>
@@ -178,9 +179,12 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <h3>4.1 ReportItem 저장 방식 변경 (v0.11에서 해결)</h3>
 <p>보고서 수정은 <code>report_items</code>를 전량 삭제하고 다시 삽입해 저장할 때마다 행 식별자가 바뀌었습니다. 그 상태에서는 <code>work_item_id</code>를 추가해도 다음 저장에서 연결이 사라집니다.</p>
 <p>v0.11에서 1번(안정 식별자 기준 재조정)을 적용했습니다. 제출된 항목 중 기존 행을 가리키는 것은 갱신하고, 새 항목만 삽입하며, 사라진 항목만 삭제합니다. 세 번 연속 저장해도 행 식별자와 업무 연결이 유지되는 것을 확인했습니다.</p>
-<h3>4.2 자동 판정의 위치</h3>
+<h3>4.2 상태 볼륨에 저장하는 데이터</h3>
+<p>비밀 설정 키(4.1의 사례)와 첨부 이미지 파일이 <code>/var/lib/weekly</code>에 있고, 나머지는 PostgreSQL에 있습니다. 두 저장소가 분리돼 있으므로 <strong>한쪽만 유지한 업그레이드는 조용히 깨집니다.</strong> 행은 남고 파일만 사라지므로 목록은 정상으로 보이고 조회만 404가 됩니다.</p>
+<p>v0.14.2에서 기동 시 유실을 감지해 로그로 남기고, 목록 응답이 파일 존재 여부를 반환하도록 했습니다. 이후 상태 볼륨에 파일을 추가로 저장하는 기능은 <strong>같은 방식의 무결성 확인을 함께 제공해야 합니다.</strong></p>
+<h3>4.3 자동 판정의 위치</h3>
 <p>제목 유사도 병합, Decision 추출, 변화 분류는 모두 <strong>제안</strong>이어야 하며 사용자 확정 없이 확정 데이터로 승격하지 않습니다. v0.6.0의 병합 오판 사례(한 글자 차이 업무가 하나로 합쳐짐)가 근거입니다.</p>
-<h3>4.3 임베딩 저장 방식 (v0.12에서 해결)</h3>
+<h3>4.4 임베딩 저장 방식 (v0.12에서 해결)</h3>
 <p>의미 기반 검색은 임베딩이 필요합니다. 오프라인망에서 <code>pgvector</code> 설치를 전제할 수 없어 세 가지 안을 두고 2번(배열 컬럼 + 애플리케이션 코사인 계산)을 권장했습니다.</p>
 <p>v0.12에서 <strong>1번(<code>pgvector</code> 선택 설치)</strong> 을 채택했습니다. 권장을 바꾼 근거는 다음과 같습니다.</p>
 <ul>
@@ -189,7 +193,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>2번은 같은 안전성을 얻는 대신 정렬과 상한 처리를 애플리케이션으로 가져와야 하고, 확장이 있는 환경에서도 그 비용을 계속 냅니다.</li>
 </ul>
 <p>임베딩 생성은 AI Gateway를 사용하므로 AI 비활성 환경에서는 의미 검색이 비활성화되고 앞의 두 단계만 동작합니다.</p>
-<h3>4.4 유사도 판정에 쓸 함수와 임계값</h3>
+<h3>4.5 유사도 판정에 쓸 함수와 임계값</h3>
 <p>측정 없이 고르면 안 되는 항목입니다. v0.12에서 실제 말뭉치로 측정해 결정했습니다.</p>
 <ul>
 <li><strong>검색에는 <code>word_similarity</code></strong>: <code>similarity</code>는 질의어가 문서 전체에서 차지하는 비중을 재므로 긴 제목 속의 짧은 검색어를 놓칩니다(<code>전표검증</code>→<code>월결산 자동화</code> 0.214). <code>word_similarity</code>는 0.400으로 찾아냅니다.</li>

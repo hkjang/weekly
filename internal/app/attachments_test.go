@@ -6,6 +6,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -208,4 +210,34 @@ func zipPart(t *testing.T, archive []byte, name string) string {
 	}
 	t.Fatalf("part %s not found", name)
 	return ""
+}
+
+// A row can outlive its file when the state volume is not carried across an
+// upgrade. The list has to say so, or the screen shows a broken image and the
+// export silently drops a slide with no explanation anywhere.
+func TestAttachmentAvailabilityReflectsTheStoredFile(t *testing.T) {
+	root := t.TempDir()
+	original := stateDirectoryAttachments
+	stateDirectoryAttachments = root
+	defer func() { stateDirectoryAttachments = original }()
+
+	if err := os.MkdirAll(filepath.Join(root, "7"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	present := filepath.Join("7", "present.png")
+	if err := os.WriteFile(filepath.Join(root, present), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, testCase := range []struct {
+		name, stored string
+		want         bool
+	}{
+		{"file on disk", present, true},
+		{"file removed", filepath.Join("7", "gone.png"), false},
+	} {
+		if _, err := os.Stat(safeAttachmentPath(testCase.stored)); (err == nil) != testCase.want {
+			t.Errorf("%s: availability = %v, want %v", testCase.name, err == nil, testCase.want)
+		}
+	}
 }

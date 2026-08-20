@@ -101,7 +101,10 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
     { placement: 'AFTER', name: '본문 뒤 슬라이드' },
   ]
 
+  const missing = (items ?? []).filter(item => item.available === false).length
   return <Card title="이미지 캡처 슬라이드" action={items?.length ? <span className="muted-chip">{items.length}개 · 슬라이드로 추가됨</span> : undefined}>
+    {missing > 0 && <p className="capture-warning">이미지 {missing}개의 파일을 서버에서 찾을 수 없습니다. 내보내기와 발표에서 제외되므로 다시 첨부해 주세요.
+      관리자라면 <code>/var/lib/weekly</code>가 영속 볼륨으로 유지되고 있는지 확인이 필요합니다.</p>}
     <p className="muted">화면 캡처를 끌어다 놓거나 붙여넣으면 PPTX 내보내기에서 각 이미지가 한 장의 슬라이드가 됩니다. 본문 앞·뒤 위치와 순서를 지정할 수 있습니다.</p>
     {editable && <div
       className={`file-drop capture-drop ${dragging ? 'dragging' : ''}`}
@@ -123,7 +126,12 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
         return <section key={group.placement}>
           <h4>{group.name} <small>{groupItems.length}장</small></h4>
           <div className="capture-list">{groupItems.map((item, index) => <figure key={item.id}>
-            <img src={`/api/v1/reports/${reportId}/attachments/${item.id}`} alt={item.caption || item.filename} loading="lazy" />
+            {item.available === false
+              ? <div className="capture-missing" role="img" aria-label="이미지 파일 없음">
+                  <strong>파일 없음</strong>
+                  <span>서버에 이미지 파일이 없습니다. 다시 첨부해 주세요.</span>
+                </div>
+              : <img src={`/api/v1/reports/${reportId}/attachments/${item.id}`} alt={item.caption || item.filename} loading="lazy" />}
             <figcaption>
               {editable ? <input value={item.caption} maxLength={240} placeholder="슬라이드 제목 (비우면 파일명)"
                 onChange={event => setItems(current => current?.map(entry => entry.id === item.id ? { ...entry, caption: event.target.value } : entry))}
