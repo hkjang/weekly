@@ -162,8 +162,8 @@ func TestDigestDoesNotReportCompletedWorkAsRisk(t *testing.T) {
 		t.Errorf("a finished task is news, not risk: kind = %q, grounds = %v", entries[0].Kind, entries[0].Grounds)
 	}
 	for _, ground := range entries[0].Grounds {
-		if strings.Contains(ground, "이슈가") {
-			t.Errorf("resolved issue history must not be presented as an open risk: %q", ground)
+		if strings.Contains(ground.Text, "이슈가") {
+			t.Errorf("resolved issue history must not be presented as an open risk: %q", ground.Text)
 		}
 	}
 }
@@ -178,5 +178,48 @@ func TestDigestExcludesRoutineWorkFromCompletions(t *testing.T) {
 		week("2026-07-27", 100, "배포 지원", "", "", "")})
 	if entries := buildDigest([]workItemView{routine}, nil, defaultRollupConfig()); len(entries) != 0 {
 		t.Errorf("weekly maintenance is not an executive headline: %+v", entries)
+	}
+}
+
+// The screen draws the score as a bar made of its grounds. A total that its
+// parts do not add up to is a bar that lies about its own arithmetic, and the
+// digest's only claim to authority is that it is arithmetic anyone can check.
+func TestDigestScoreEqualsTheSumOfItsGrounds(t *testing.T) {
+	link := workLink{Duplicate: true, Right: workRef{OrganizationName: "다른 본부", Title: "같은 업무"}}
+	items := []workItemView{
+		// 결정 대기 + 이슈 지속 + 정체 + 보고 누락이 한 업무에 겹친 경우.
+		workItem(1, "인증 연동", 10, org(1), []workItemWeek{
+			week("2026-06-01", 30, "진행", "", "방화벽 정책 대기", "정책 결정 요청"),
+			week("2026-06-08", 30, "진행", "", "방화벽 정책 대기", "정책 결정 요청"),
+			week("2026-06-15", 30, "진행", "", "방화벽 정책 대기", "정책 결정 요청"),
+			week("2026-07-06", 30, "진행", "", "방화벽 정책 대기", "정책 결정 요청")}),
+		// 장기 진행 후 완료.
+		workItem(2, "월결산 리포트", 11, org(1), []workItemWeek{
+			week("2026-06-01", 20, "착수", "", "", ""),
+			week("2026-06-08", 45, "데이터 정리", "", "", ""),
+			week("2026-06-15", 70, "리포트 작성", "", "", ""),
+			week("2026-06-22", 100, "적용 완료", "", "", "")}),
+	}
+	entries := buildDigest(items, map[int64]workLink{1: link}, defaultRollupConfig())
+	if len(entries) == 0 {
+		t.Fatal("the fixture is meant to produce entries")
+	}
+	kinds := map[string]bool{"DECISION": true, "ISSUE": true, "STALLED": true,
+		"SILENT": true, "DUPLICATE": true, "DONE": true}
+	for _, entry := range entries {
+		sum := 0
+		for _, ground := range entry.Grounds {
+			if !kinds[ground.Kind] {
+				t.Errorf("%q has ground kind %q, which the screen has no colour for", entry.Title, ground.Kind)
+			}
+			if ground.Points <= 0 {
+				t.Errorf("%q lists a ground worth %d points; a reason that adds nothing is not a reason",
+					entry.Title, ground.Points)
+			}
+			sum += ground.Points
+		}
+		if sum != entry.Score {
+			t.Errorf("%q scores %d but its grounds add up to %d: %+v", entry.Title, entry.Score, sum, entry.Grounds)
+		}
 	}
 }

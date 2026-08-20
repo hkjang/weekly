@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
+import { ScoreStack, groundColor, groundLabels } from '../charts'
 import type { DigestEntry, DigestKind, DigestView } from '../types'
 import type { PageName } from '../router'
 
@@ -20,7 +21,9 @@ const kindLabel: Record<DigestKind, { name: string; tone: string }> = {
   PROGRESS: { name: '주요 진전', tone: 'tone-progress' },
 }
 
-function DigestCard({ entry, navigate }: { entry: DigestEntry; navigate: (page: PageName) => void }) {
+function DigestCard({ entry, maximum, navigate }: {
+  entry: DigestEntry; maximum: number; navigate: (page: PageName) => void
+}) {
   const kind = kindLabel[entry.kind]
   return <li className={`digest-entry ${kind.tone}`}>
     <div className="digest-head">
@@ -30,7 +33,12 @@ function DigestCard({ entry, navigate }: { entry: DigestEntry; navigate: (page: 
       <span className="digest-score" title="선정 점수">{entry.score}</span>
     </div>
     {entry.detail && <p className="digest-detail">{entry.detail}</p>}
-    <ul className="digest-grounds">{entry.grounds.map(ground => <li key={ground}>{ground}</li>)}</ul>
+    <ScoreStack grounds={entry.grounds} score={entry.score} maximum={maximum} />
+    <ul className="digest-grounds">{entry.grounds.map((ground, index) => <li key={`${ground.kind}-${index}`}>
+      <i className="ground-swatch" style={{ background: groundColor(ground.kind) }} />
+      <span>{ground.text}</span>
+      <small>{groundLabels[ground.kind] ?? ground.kind} +{ground.points}</small>
+    </li>)}</ul>
     <button className="link-button" onClick={() => navigate('work')}>업무 추적에서 보기</button>
   </li>
 }
@@ -55,6 +63,10 @@ export default function DigestPage({ notify, navigate }: {
     return () => { stale = true }
   }, [weeks])
 
+  // The bars share one scale, so the top entry fills the track and the rest are
+  // read against it. Comparing entries is the point of ranking them.
+  const topScore = Math.max(1, ...(view?.entries ?? []).map(entry => entry.score))
+
   return <>
     <PageHeader title="경영 요약" description="전사 업무 중 지금 확인이 필요한 항목만 선정합니다. 선정 근거를 항상 함께 제시합니다."
       action={<select value={weeks} onChange={event => setWeeks(Number(event.target.value))}>
@@ -66,7 +78,7 @@ export default function DigestPage({ notify, navigate }: {
       {view.entries.length === 0
         ? <Empty>선정 기준을 넘는 항목이 없습니다. 열린 결정 요청, 장기 이슈, 진척 정체, 중복 의심, 주요 완료가 모두 없습니다.</Empty>
         : <ul className="digest-list">{view.entries.map(entry =>
-            <DigestCard key={entry.workItemId} entry={entry} navigate={navigate} />)}</ul>}
+            <DigestCard key={entry.workItemId} entry={entry} navigate={navigate} maximum={topScore} />)}</ul>}
     </Card>}
   </>
 }

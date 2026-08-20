@@ -8,17 +8,25 @@ import type { ReactNode } from 'react'
  * measure on one scale, and a second measure gets its own chart beside it.
  */
 
-// Categorical slots for part-to-whole identity, validated for colour-vision
-// deficiency separation against a white surface in this fixed order.
-export const seriesColors = ['#2563eb', '#ea580c', '#0d9488', '#6d28d9', '#db2777', '#d97706']
+/**
+ * The colour vocabulary lives in styles.css :root, so the SVG here and the
+ * status badges elsewhere cannot drift apart. One hue family carries one
+ * meaning across the whole app: 회색 멈춤, 파랑 진행, 녹색 완료, 주황 정체,
+ * 빨강 문제.
+ *
+ * Series slots are a single violet ramp ordered largest share to smallest, in a
+ * family no state uses. A share of a whole is not a state, and used to be drawn
+ * in the same blue as 진행 and the same amber as 정체.
+ */
+export const seriesColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)',
+  'var(--series-4)', 'var(--series-5)', 'var(--series-6)']
 
-// Status colours are reserved for delivery state and never reused as a series.
 export const stateColors = {
-  completed: '#16a34a',
-  progress: '#2563eb',
-  notStarted: '#94a3b8',
-  stalled: '#d97706',
-  risk: '#dc2626',
+  completed: 'var(--state-completed)',
+  progress: 'var(--state-progress)',
+  notStarted: 'var(--state-not-started)',
+  stalled: 'var(--state-stalled)',
+  risk: 'var(--state-risk)',
 }
 
 const axisInk = '#94a3b8'
@@ -302,5 +310,265 @@ export function RankBars({ items, unit = '건' }: { items: { name: string; value
       <strong>{item.value}{unit}</strong>
       {item.note && <small>{item.note}</small>}
     </div>)}
+  </div>
+}
+
+/**
+ * A task's week-by-week record, drawn as one column per week.
+ *
+ * The handover screen listed milestones, which by design skips the weeks where
+ * nothing changed — right for a reading list, wrong for the question a new
+ * owner is actually asking. "언제부터, 얼마나 자주, 어디서 멈췄나" is a question
+ * about the shape of the whole record, including the weeks with nothing in
+ * them, and a list of turning points cannot show a gap.
+ *
+ * Each column carries three facts with one mark: whether the week was reported
+ * at all, how far the work had got, and whether an issue was open. The colours
+ * are the app's, so a stalled week here is the same amber as a stalled task
+ * anywhere else.
+ */
+export function WeekTrack({ firstWeek, lastWeek, track }: {
+  firstWeek: string; lastWeek: string
+  track: { week: string; progress: number; issue?: boolean }[]
+}) {
+  const { bind, node } = useTooltip()
+  const axis = weekAxis(firstWeek, lastWeek, track.map(entry => entry.week))
+  if (axis.length === 0) return null
+  const reported = new Map(track.map(entry => [entry.week, entry]))
+
+  const width = 760, padTop = 12, plotHeight = 46, labelRow = 16
+  const height = padTop + plotHeight + labelRow
+  const column = width / axis.length
+  const barWidth = Math.max(3, Math.min(18, column - 3))
+  const stride = labelStride(axis.length, 12)
+
+  // A week's colour is the app's vocabulary applied to that week alone: an open
+  // issue is a problem, no movement since the previous reported week is 정체,
+  // anything else is 진행, and a finished task is 완료.
+  let previous = -1
+  const columns = axis.map((week, index) => {
+    const entry = reported.get(week)
+    if (!entry) return { week, index, entry: undefined, color: '' }
+    const color = entry.issue ? stateColors.risk
+      : entry.progress >= 100 ? stateColors.completed
+      : previous >= 0 && entry.progress <= previous ? stateColors.stalled
+      : stateColors.progress
+    previous = entry.progress
+    return { week, index, entry, color }
+  })
+  const silent = columns.filter(item => !item.entry).length
+  const used = new Set(columns.filter(item => item.entry).map(item => item.color))
+  const truncated = track.filter(entry => !axis.includes(entry.week)).length
+
+  return <ChartFrame>
+    <div className="chart-scroll">
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ minWidth: Math.max(280, axis.length * 15) }}
+        role="img" aria-label={`주차별 기록 ${axis.length}주 중 ${track.length}주 보고`}>
+        <line x1={0} x2={width} y1={padTop + plotHeight} y2={padTop + plotHeight} stroke={gridInk} strokeWidth={1} />
+        {columns.map(({ week, index, entry, color }) => {
+          const x = index * column + (column - barWidth) / 2
+          const label = <><strong>{week}</strong>
+            {entry
+              ? <><span>진척도 {entry.progress}%</span>{entry.issue && <span>이슈 있음</span>}</>
+              : <span>보고 없음</span>}</>
+          if (!entry) {
+            return <g key={week} {...bind(label)}>
+              <rect x={index * column} y={padTop} width={column} height={plotHeight} fill="transparent" />
+              <rect x={x} y={padTop + 2} width={barWidth} height={plotHeight - 4} rx={2}
+                fill="none" stroke={stateColors.notStarted} strokeWidth={1} strokeDasharray="2 3" opacity={0.45} />
+            </g>
+          }
+          const barHeight = Math.max(2, (plotHeight - 6) * (entry.progress / 100))
+          return <g key={week} {...bind(label)}>
+            <rect x={index * column} y={padTop} width={column} height={plotHeight} fill="transparent" />
+            <rect x={x} y={padTop + 6} width={barWidth} height={plotHeight - 6} rx={2} fill={color} opacity={0.14} />
+            <rect x={x} y={padTop + plotHeight - barHeight} width={barWidth} height={barHeight} rx={2} fill={color} />
+            {entry.issue && <rect x={x + barWidth / 2 - 2} y={padTop - 6} width={4} height={4} fill={stateColors.risk} />}
+          </g>
+        })}
+        {axis.map((week, index) => index % stride === 0 && <text key={week}
+          x={index * column + column / 2} y={height - 4} textAnchor="middle" fontSize={9} fill={axisInk}>
+          {shortWeek(week)}
+        </text>)}
+      </svg>
+    </div>
+    {node}
+    <Legend items={[
+      // Only the states this task actually went through. A legend naming
+      // colours that are not on the chart is a legend nobody reads.
+      ...[{ label: '진행', color: stateColors.progress },
+        { label: '정체', color: stateColors.stalled },
+        { label: '이슈', color: stateColors.risk },
+        { label: '완료', color: stateColors.completed }].filter(item => used.has(item.color)),
+      ...(silent > 0 ? [{ label: `보고 없음 ${silent}주`, color: stateColors.notStarted }] : []),
+    ]} />
+    {truncated > 0 && <p className="muted chart-note">
+      기록이 {axis.length}주를 넘어 앞부분 {truncated}주는 그리지 않았습니다.
+    </p>}
+  </ChartFrame>
+}
+
+/**
+ * Every week from the first to the last, including the ones nobody reported.
+ *
+ * The reported weeks are merged in rather than assumed to sit on the seven-day
+ * grid. Reports do not all start on the same weekday — the week start is a
+ * setting, and v0.23 shipped a report that finds the ones that disagree — so a
+ * stepped axis alone would silently drop the weeks that fall between steps.
+ *
+ * Bounded, keeping the tail: a task running longer than two years is handed
+ * over on what it has been doing lately, and the caller says how many weeks
+ * were dropped rather than quietly showing a shorter history.
+ */
+function weekAxis(firstWeek: string, lastWeek: string, reported: string[]) {
+  const start = Date.parse(`${firstWeek}T00:00:00Z`)
+  const end = Date.parse(`${lastWeek}T00:00:00Z`)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return [...reported].sort()
+  const weeks = new Set(reported)
+  for (let time = start; time <= end && weeks.size < 400; time += 7 * 86400000) {
+    weeks.add(new Date(time).toISOString().slice(0, 10))
+  }
+  const sorted = [...weeks].sort()
+  return sorted.length > 105 ? sorted.slice(sorted.length - 105) : sorted
+}
+
+/**
+ * Which organisations are working near each other, as a matrix.
+ *
+ * The tab is called 협업 지도 and used to be a table of one row per pair. That
+ * is C(n,2) rows — twelve organisations produced sixty-six — and answering
+ * "who is my organisation working alongside" meant reading every row and
+ * remembering which ones mentioned you. A matrix answers it with one row: the
+ * dark cells in your row are your neighbours.
+ *
+ * A node-and-link diagram is the other obvious choice and is worse here. Twelve
+ * nodes with sixty-six edges is a ball of yarn, and the layout would have to be
+ * computed; a grid never overlaps itself and is rectangles.
+ *
+ * Violet carries the magnitude because no delivery state uses violet, so a dark
+ * cell reads as "a lot", never as "a problem".
+ */
+export function CollaborationMatrix({ edges, limit = 20 }: {
+  edges: { leftOrganization: string; rightOrganization: string; sharedWork: number; people: number; topics: string[] }[]
+  limit?: number
+}) {
+  const { bind, node } = useTooltip()
+  // An organisation with no name still occupies a row; leaving the label blank
+  // would put an anonymous line in the middle of the map.
+  const named = (name: string) => name.trim() || '조직 미지정'
+  const totals = new Map<string, number>()
+  for (const edge of edges) {
+    totals.set(named(edge.leftOrganization), (totals.get(named(edge.leftOrganization)) ?? 0) + edge.sharedWork)
+    totals.set(named(edge.rightOrganization), (totals.get(named(edge.rightOrganization)) ?? 0) + edge.sharedWork)
+  }
+  // Busiest first, so the top-left corner is where the reading starts.
+  const ordered = [...totals.entries()].sort((left, right) => right[1] - left[1]).map(([name]) => name)
+  const shown = ordered.slice(0, limit)
+  const hidden = ordered.length - shown.length
+  if (shown.length < 2) return null
+
+  const index = new Map(shown.map((name, position) => [name, position]))
+  const cells = new Map<string, { value: number; people: number; topics: string[] }>()
+  let maximum = 1
+  for (const edge of edges) {
+    const row = index.get(named(edge.leftOrganization)), column = index.get(named(edge.rightOrganization))
+    if (row === undefined || column === undefined) continue
+    const entry = { value: edge.sharedWork, people: edge.people, topics: edge.topics }
+    cells.set(`${row}:${column}`, entry)
+    cells.set(`${column}:${row}`, entry)
+    maximum = Math.max(maximum, edge.sharedWork)
+  }
+
+  const cell = 26, gap = 2, headHeight = 20
+  // Rows carry the names, columns carry their position. The matrix is
+  // symmetric, so column 3 is the organisation on row 3 and repeating the name
+  // sideways buys nothing — rotated Korean labels at 26px spacing overlapped
+  // each other and still had to be truncated.
+  const longest = shown.reduce((most, name) => Math.max(most, name.length), 0)
+  const labelWidth = Math.min(190, 34 + Math.min(longest, 16) * 11)
+  const width = labelWidth + shown.length * cell
+  const height = headHeight + shown.length * cell
+
+  // Drawn at its own size rather than stretched to the card: a cell is a fixed
+  // 26px square so a twelve-organisation matrix and a twenty-organisation one
+  // read the same, and scaling to 100% width blew a small matrix up to twice
+  // the size of everything around it.
+  return <ChartFrame>
+    <div className="chart-scroll">
+      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} style={{ maxWidth: '100%' }}
+        role="img" aria-label={`조직 간 연결 업무 행렬 ${shown.length}개 조직`}>
+        {shown.map((name, column) => <text key={`head-${name}`}
+          x={labelWidth + column * cell + cell / 2} y={headHeight - 6} fontSize={10} fill={axisInk}
+          textAnchor="middle">{column + 1}</text>)}
+        {shown.map((rowName, row) => <g key={`row-${rowName}`}>
+          <text x={labelWidth - 9} y={headHeight + row * cell + cell / 2 + 4} textAnchor="end" fontSize={11} fill="#334155">
+            <tspan fill={axisInk}>{row + 1}. </tspan>
+            {rowName.length > 16 ? `${rowName.slice(0, 16)}…` : rowName}
+          </text>
+          {shown.map((columnName, column) => {
+            const x = labelWidth + column * cell, y = headHeight + row * cell
+            if (row === column) {
+              return <rect key={columnName} x={x + gap / 2} y={y + gap / 2} width={cell - gap} height={cell - gap}
+                rx={3} fill={gridInk} />
+            }
+            const entry = cells.get(`${row}:${column}`)
+            const share = entry ? entry.value / maximum : 0
+            return <rect key={columnName} x={x + gap / 2} y={y + gap / 2} width={cell - gap} height={cell - gap} rx={3}
+              fill={entry ? seriesColors[0] : '#fff'} stroke={entry ? 'none' : gridInk} strokeWidth={1}
+              opacity={entry ? 0.14 + 0.86 * share : 1}
+              {...bind(entry
+                ? <><strong>{rowName} ↔ {columnName}</strong>
+                    <span>연결 업무 {entry.value}건 · 인원 {entry.people}명</span>
+                    {entry.topics.length > 0 && <span>{entry.topics.slice(0, 4).join(', ')}</span>}</>
+                : <><strong>{rowName} ↔ {columnName}</strong><span>연결된 업무가 없습니다</span></>)} />
+          })}
+        </g>)}
+      </svg>
+    </div>
+    {node}
+    <p className="muted chart-note">
+      가로줄은 이름으로, 세로줄은 그 번호로 읽습니다. 진한 칸일수록 연결된 업무가 많고, 가장 많은 쌍이 {maximum}건입니다.
+      대각선은 같은 조직이라 비워 둡니다.
+      {hidden > 0 && ` 연결 업무가 많은 ${shown.length}개 조직만 그렸습니다. 나머지 ${hidden}개 조직은 아래 표에 있습니다.`}
+    </p>
+  </ChartFrame>
+}
+
+// A digest score is a sum of named parts, so it is drawn as one. The colours
+// are the part-to-whole ramp, not the state palette: these are shares of a
+// score, and a share is not a state.
+const groundColors: Record<string, string> = {
+  DECISION: seriesColors[0], ISSUE: seriesColors[1], STALLED: seriesColors[2],
+  SILENT: seriesColors[3], DUPLICATE: seriesColors[4], DONE: seriesColors[5],
+}
+export const groundLabels: Record<string, string> = {
+  DECISION: '결정 대기', ISSUE: '이슈 지속', STALLED: '진척 정체',
+  SILENT: '보고 누락', DUPLICATE: '중복 의심', DONE: '완료',
+}
+export function groundColor(kind: string) { return groundColors[kind] ?? seriesColors[5] }
+
+/**
+ * A digest entry's score, drawn as the parts it is made of.
+ *
+ * The response used to carry a total and a list of sentences, so comparing two
+ * entries meant reading twelve sentences and doing the arithmetic by hand. The
+ * bar's length is the score against the highest score on the screen, so rank is
+ * visible without reading, and its segments are why.
+ */
+export function ScoreStack({ grounds, score, maximum }: {
+  grounds: { kind: string; text: string; points: number }[]
+  score: number; maximum: number
+}) {
+  const { bind, node } = useTooltip()
+  if (score <= 0 || grounds.length === 0) return null
+  const share = maximum > 0 ? (score / maximum) * 100 : 100
+  return <div className="chart-frame score-stack">
+    <div className="score-track"><div className="score-bar" style={{ width: `${share}%` }}>
+      {grounds.map((ground, index) => <span key={`${ground.kind}-${index}`}
+        style={{ width: `${(ground.points / score) * 100}%`, background: groundColor(ground.kind) }}
+        {...bind(<><strong>{groundLabels[ground.kind] ?? ground.kind} {ground.points}점</strong>
+          <span>{ground.text}</span></>)} />)}
+    </div></div>
+    {node}
   </div>
 }

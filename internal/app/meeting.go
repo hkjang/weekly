@@ -204,16 +204,32 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 // Executive digest
 // ---------------------------------------------------------------------------
 
+// digestGround is one reason an item is in the digest, and what that reason
+// contributed to its score.
+//
+// The points used to stay behind: the response carried a total and a list of
+// sentences, so "왜 이게 1위인가" meant reading six sentences per entry and
+// comparing them by hand. Carrying the split lets the screen draw the score as
+// what it is — a sum of named parts — and keeps the claim falsifiable, which is
+// the whole reason this digest is arithmetic and not a model output.
+type digestGround struct {
+	// Kind is DECISION, ISSUE, STALLED, SILENT, DUPLICATE or DONE. The screen
+	// colours by it, so the same reason is the same colour in every entry.
+	Kind   string `json:"kind"`
+	Text   string `json:"text"`
+	Points int    `json:"points"`
+}
+
 type digestEntry struct {
-	Kind             string   `json:"kind"`
-	Score            int      `json:"score"`
-	Title            string   `json:"title"`
-	WorkItemID       int64    `json:"workItemId"`
-	DisplayName      string   `json:"displayName"`
-	OrganizationName string   `json:"organizationName"`
-	Headline         string   `json:"headline"`
-	Detail           string   `json:"detail"`
-	Grounds          []string `json:"grounds"`
+	Kind             string         `json:"kind"`
+	Score            int            `json:"score"`
+	Title            string         `json:"title"`
+	WorkItemID       int64          `json:"workItemId"`
+	DisplayName      string         `json:"displayName"`
+	OrganizationName string         `json:"organizationName"`
+	Headline         string         `json:"headline"`
+	Detail           string         `json:"detail"`
+	Grounds          []digestGround `json:"grounds"`
 }
 
 type digestView struct {
@@ -234,38 +250,40 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, cfg r
 	entries := []digestEntry{}
 	for _, item := range items {
 		score := 0
-		grounds := []string{}
+		grounds := []digestGround{}
 		kind := ""
 		headline := ""
+		// Points and their reason are added together and cannot drift apart.
+		// The screen draws the score as a bar made of these parts, so a total
+		// its grounds do not add up to would be a bar that lies.
+		add := func(points int, groundKind, text string) {
+			score += points
+			grounds = append(grounds, digestGround{Kind: groundKind, Text: text, Points: points})
+		}
 
 		if ask := strings.TrimSpace(item.LatestManagementAsk); ask != "" {
-			score += 40
-			grounds = append(grounds, "상위 조직 결정·자원 요청이 열려 있습니다.")
+			add(40, "DECISION", "상위 조직 결정·자원 요청이 열려 있습니다.")
 			kind, headline = "DECISION", "결정 대기"
 		}
 		// Issue weeks are historical. Counting them for finished work reported
 		// the completed task as an open risk, which is the opposite of true.
 		if item.IssueWeeks >= cfg.PersistentIssueWeeks && !item.Completed {
-			score += 10 * item.IssueWeeks
-			grounds = append(grounds, fmt.Sprintf("이슈가 %d주째 지속되고 있습니다.", item.IssueWeeks))
+			add(10*item.IssueWeeks, "ISSUE", fmt.Sprintf("이슈가 %d주째 지속되고 있습니다.", item.IssueWeeks))
 			if kind == "" {
 				kind, headline = "RISK", "장기 이슈"
 			}
 		}
 		if item.Stalled && !item.Completed {
-			score += 10 * item.StalledWeeks
-			grounds = append(grounds, fmt.Sprintf("진척이 %d주째 멈춰 있습니다.", item.StalledWeeks))
+			add(10*item.StalledWeeks, "STALLED", fmt.Sprintf("진척이 %d주째 멈춰 있습니다.", item.StalledWeeks))
 			if kind == "" {
 				kind, headline = "RISK", "진척 정체"
 			}
 		}
 		if item.SilentWeeks > 0 && !item.Completed {
-			score += 5 * item.SilentWeeks
-			grounds = append(grounds, fmt.Sprintf("%d주간 보고가 누락됐습니다.", item.SilentWeeks))
+			add(5*item.SilentWeeks, "SILENT", fmt.Sprintf("%d주간 보고가 누락됐습니다.", item.SilentWeeks))
 		}
 		if link, duplicated := duplicateByItem[item.ID]; duplicated {
-			score += 25
-			grounds = append(grounds, fmt.Sprintf("%s의 '%s'와(과) 중복 가능성이 있습니다.",
+			add(25, "DUPLICATE", fmt.Sprintf("%s의 '%s'와(과) 중복 가능성이 있습니다.",
 				link.Right.OrganizationName, link.Right.Title))
 			if kind == "" {
 				kind, headline = "DUPLICATE", "중복 투자 의심"
@@ -281,8 +299,7 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, cfg r
 			// minimum four weeks and finished is worth reporting, and scoring it
 			// just below the cut-off would have silently dropped exactly the
 			// case this rule exists for.
-			score += 20 + item.ReportedWeeks
-			grounds = append(grounds, fmt.Sprintf("%d주간 진행한 업무가 완료됐습니다.", item.ReportedWeeks))
+			add(20+item.ReportedWeeks, "DONE", fmt.Sprintf("%d주간 진행한 업무가 완료됐습니다.", item.ReportedWeeks))
 			if kind == "" {
 				kind, headline = "PROGRESS", "주요 업무 완료"
 			}

@@ -165,10 +165,12 @@ export interface MeetingView {
 }
 
 export type DigestKind = 'DECISION' | 'RISK' | 'DUPLICATE' | 'PROGRESS'
+export type DigestGroundKind = 'DECISION' | 'ISSUE' | 'STALLED' | 'SILENT' | 'DUPLICATE' | 'DONE'
+export interface DigestGround { kind: DigestGroundKind; text: string; points: number }
 export interface DigestEntry {
   kind: DigestKind; score: number; title: string; workItemId: number
   displayName: string; organizationName: string
-  headline: string; detail: string; grounds: string[]
+  headline: string; detail: string; grounds: DigestGround[]
 }
 export interface DigestView { weeks: number; since: string; scope: RollupScope; considered: number; entries: DigestEntry[] }
 
@@ -201,11 +203,13 @@ export interface WorkSearchHit extends WorkRef {
 export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; hits: WorkSearchHit[] }
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
+export interface HandoverWeek { week: string; progress: number; issue?: boolean }
 export interface HandoverItem {
   workItemId: number; title: string; category: string; organizationName: string
   firstWeek: string; lastWeek: string; ageWeeks: number; reportedWeeks: number
   progress: number; completed: boolean; stalled: boolean
   openIssue: string; openAsk: string; nextPlan: string
   issueHistory: HandoverIssue[]; milestones: string[]; relatedWork: WorkRef[]; caution: string
+  track: HandoverWeek[]
 }
 export interface HandoverView { userId: number; displayName: string; active: number; completed: number; items: HandoverItem[] }

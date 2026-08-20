@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
+import { WeekTrack } from '../charts'
 import type { HandoverView, ReportListItem, SessionInfo } from '../types'
 
 /**
@@ -79,6 +80,11 @@ export default function HandoverPage({ session, notify }: {
             {item.openAsk && <p><strong>대기 중인 요청</strong> {item.openAsk}</p>}
             {item.openIssue && <p><strong>미해결 이슈</strong> {item.openIssue}</p>}
             {item.nextPlan && <p><strong>다음 계획</strong> {item.nextPlan}</p>}
+          </div>}
+
+          {item.track?.length > 0 && <div className="handover-block">
+            <h4>주차별 기록</h4>
+            <WeekTrack firstWeek={item.firstWeek} lastWeek={item.lastWeek} track={item.track} />
           </div>}
 
           {item.milestones.length > 0 && <div className="handover-block">

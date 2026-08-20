@@ -22,6 +22,15 @@ type handoverIssue struct {
 	Resolved bool   `json:"resolved"`
 }
 
+// handoverWeek is one reported week, small on purpose. The weeks between
+// firstWeek and lastWeek that are absent from this list are the silent ones,
+// and the gap is the thing a new owner needs to see.
+type handoverWeek struct {
+	Week     string `json:"week"`
+	Progress int    `json:"progress"`
+	Issue    bool   `json:"issue,omitempty"`
+}
+
 type handoverItem struct {
 	WorkItemID       int64           `json:"workItemId"`
 	Title            string          `json:"title"`
@@ -38,6 +47,7 @@ type handoverItem struct {
 	OpenAsk          string          `json:"openAsk"`
 	NextPlan         string          `json:"nextPlan"`
 	IssueHistory     []handoverIssue `json:"issueHistory"`
+	Track            []handoverWeek  `json:"track"`
 	Milestones       []string        `json:"milestones"`
 	RelatedWork      []workRef       `json:"relatedWork"`
 	Caution          string          `json:"caution"`
@@ -106,6 +116,21 @@ func issueHistoryOf(item workItemView) []handoverIssue {
 		result = append(result, handoverIssue{Week: week.WeekStart, Text: openingLine(issue), Resolved: resolved})
 	}
 	return result
+}
+
+// trackOf is the week-by-week record the handover screen draws. milestonesOf
+// deliberately drops the weeks where nothing changed, which is right for a
+// reading list and wrong for a picture: the weeks a task sat still, and the
+// weeks it was not reported at all, are exactly what the picture is for.
+func trackOf(item workItemView) []handoverWeek {
+	track := make([]handoverWeek, 0, len(item.Weeks))
+	for _, week := range item.Weeks {
+		track = append(track, handoverWeek{
+			Week: week.WeekStart, Progress: week.Progress,
+			Issue: strings.TrimSpace(week.Issue) != "",
+		})
+	}
+	return track
 }
 
 // cautionFor states the one thing most likely to surprise the new owner.
@@ -177,6 +202,7 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 			Progress: item.Progress, Completed: item.Completed, Stalled: item.Stalled,
 			OpenIssue: strings.TrimSpace(item.LatestIssue), OpenAsk: strings.TrimSpace(item.LatestManagementAsk),
 			Milestones: milestonesOf(item), IssueHistory: issueHistoryOf(item),
+			Track:       trackOf(item),
 			RelatedWork: related[item.ID], Caution: cautionFor(item),
 		}
 		if len(item.Weeks) > 0 {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.25.0
+  version: 0.26.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -816,6 +816,11 @@ paths:
         조회 권한 범위의 업무 중 확인이 필요한 최대 10건을 선정한다. 점수는 관측 가능한
         사실의 합이며 각 항목은 선정 근거(grounds)를 함께 반환한다.
 
+        **grounds는 문자열 배열이 아니라 객체 배열이다.** 각 원소는 kind(DECISION,
+        ISSUE, STALLED, SILENT, DUPLICATE, DONE), text, points를 갖고, points의
+        합은 score와 같다. 이전에는 총점과 문장만 있어서 어느 근거가 점수를 얼마나
+        올렸는지 알 수 없었고, 항목 사이의 순위를 근거로 따질 수 없었다.
+
         완료 업무의 과거 이슈 이력은 위험으로 집계하지 않으며, 진척 변화 없이 매주 100%로
         보고되는 운영성 업무는 완료로 집계하지 않는다.
       parameters:
@@ -857,6 +862,10 @@ paths:
 
         userId를 생략하면 본인 자료를 반환한다. 다른 담당자를 조회하려면 팀장 이상이어야 하며,
         조회 권한 범위 밖 담당자는 결과가 비어 있다.
+
+        track은 보고된 주차마다 week, progress, issue를 담는다. firstWeek와 lastWeek
+        사이인데 track에 없는 주차가 **보고가 누락된 주차**이며, 화면은 그 빈칸을
+        그린다. milestones는 진척이 변한 주차만 남기므로 빈 구간을 표현할 수 없다.
 
         relatedWork는 업무마다 **최대 5건**이다. 이전에는 조직 전체의 모든 쌍을 비교한
         결과에서 대상자 것만 골라 담았고, 업무 15건짜리 자료에 관련 업무 3,915건이 실렸다.

@@ -15,11 +15,13 @@ const cloudHeight = 380
 
 export type TermTrend = 'new' | 'up' | 'flat' | 'down'
 
+// Same vocabulary as everything else: 증가는 움직임이라 진행과 같은 파랑,
+// 유지·감소는 움직이지 않아 회색이다. 값은 styles.css :root에 있다.
 export const trendColors: Record<TermTrend, string> = {
-  new: '#0d9488',
-  up: '#2563eb',
-  flat: '#64748b',
-  down: '#94a3b8',
+  new: 'var(--trend-new)',
+  up: 'var(--trend-up)',
+  flat: 'var(--trend-flat)',
+  down: 'var(--trend-down)',
 }
 
 export function termTrend(term: AnalysisTerm): TermTrend {
@@ -70,7 +72,7 @@ function layout(terms: AnalysisTerm[], showTrend: boolean): Placed[] {
     }
     if (!position) continue
     boxes.push({ x: position.x, y: position.y, w: width, h: height })
-    placed.push({ term, x: position.x, y: position.y + height * 0.78, size, color: showTrend ? trendColors[termTrend(term)] : '#2563eb' })
+    placed.push({ term, x: position.x, y: position.y + height * 0.78, size, color: showTrend ? trendColors[termTrend(term)] : 'var(--state-progress)' })
   }
   return placed
 }

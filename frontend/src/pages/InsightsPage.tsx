@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
+import { CollaborationMatrix } from '../charts'
 import type { WorkGraphView, WorkLink } from '../types'
 
 /**
@@ -44,6 +45,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
   const [weeks, setWeeks] = useState(12)
   const [tab, setTab] = useState<TabKey>('DUPLICATE')
   const [view, setView] = useState<WorkGraphView>()
+  const [showCollabTable, setShowCollabTable] = useState(false)
 
   useEffect(() => {
     let stale = false
@@ -92,14 +94,20 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
 
       {tab === 'COLLAB' && (view.collaboration.length === 0
         ? <Empty>조직 간 연결된 업무가 없습니다.</Empty>
-        : <div className="table-wrap"><table>
+        : <>
+          <CollaborationMatrix edges={view.collaboration} />
+          <button className="link-button" onClick={() => setShowCollabTable(current => !current)}>
+            {showCollabTable ? '표 접기' : `표로 보기 (${view.collaboration.length}쌍)`}
+          </button>
+          {showCollabTable && <div className="table-wrap"><table>
             <thead><tr><th>조직</th><th>조직</th><th>연결 업무</th><th>인원</th><th>주제</th></tr></thead>
             <tbody>{view.collaboration.map(edge => <tr key={`${edge.leftOrganization}-${edge.rightOrganization}`}>
               <td>{edge.leftOrganization}</td><td>{edge.rightOrganization}</td>
               <td><strong>{edge.sharedWork}</strong></td><td>{edge.people}</td>
               <td>{edge.topics.map(topic => <span key={topic} className="muted-chip">{topic}</span>)}</td>
             </tr>)}</tbody>
-          </table></div>)}
+          </table></div>}
+        </>)}
 
       {tab === 'RECURRING' && (view.recurring.length === 0
         ? <Empty>반복 운영 업무로 분류된 항목이 없습니다.</Empty>
