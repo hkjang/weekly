@@ -151,6 +151,36 @@ func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 	return result, nil
 }
 
+// weekIsFree reports whether the author has no report already covering these
+// days, writing the response itself when they do.
+//
+// The unique key is (user, week_start), which only catches an exact repeat.
+// After the week start weekday is changed the same days are addressed by a
+// different date, so an author whose current report has "disappeared" could
+// otherwise file a second one covering the same work. Both the blank report and
+// the clone go through here, because the clone takes a target week too and a
+// rule enforced on one path is not a rule.
+func (a *App) weekIsFree(w http.ResponseWriter, r *http.Request, userID int64, week time.Time) bool {
+	var existingID int64
+	var existingWeek time.Time
+	err := a.db.QueryRow(r.Context(), `SELECT id, week_start FROM weekly_reports
+		WHERE user_id=$1 AND week_start <= $2 AND week_start + 6 >= $3
+		ORDER BY week_start LIMIT 1`,
+		userID, week.AddDate(0, 0, 6).Format("2006-01-02"), week.Format("2006-01-02")).
+		Scan(&existingID, &existingWeek)
+	if err == nil {
+		writeError(w, http.StatusConflict, "REPORT_PERIOD_OVERLAPS",
+			existingWeek.Format("2006-01-02")+" 주차 보고서가 같은 기간을 이미 담고 있습니다. 그 보고서를 여십시오.")
+		return false
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		a.logger.Error("check overlapping report", "error", err, "userId", userID)
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
+		return false
+	}
+	return true
+}
+
 func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	var input struct {
@@ -173,6 +203,9 @@ func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateItems(input.Items); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_ITEMS", err.Error())
+		return
+	}
+	if !a.weekIsFree(w, r, p.ID, week) {
 		return
 	}
 	tx, err := a.db.Begin(r.Context())
@@ -410,6 +443,11 @@ func (a *App) cloneReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := currentPrincipal(r.Context())
+	// The source is not excluded: a clone whose target week overlaps the report
+	// it is copied from is the duplicate this exists to prevent.
+	if !a.weekIsFree(w, r, p.ID, targetWeek) {
+		return
+	}
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "보고서를 복제할 수 없습니다.")

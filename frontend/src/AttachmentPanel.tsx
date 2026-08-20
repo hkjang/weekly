@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, del, patch } from './api'
+import { errorText, api, del, patch } from './api'
 import { Button, Card, Empty } from './components'
 import type { AttachmentPlacement, ReportAttachment } from './types'
 
@@ -39,7 +39,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
       await load()
       notify(`이미지 ${images.length}개를 첨부했습니다. 내보내기 시 슬라이드로 추가됩니다.`)
     } catch (error) {
-      notify(error instanceof Error ? error.message : '이미지를 첨부할 수 없습니다.', 'error')
+      notify(errorText(error, '이미지를 첨부할 수 없습니다.'), 'error')
     } finally { setBusy(false) }
   }
 
@@ -74,7 +74,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
   const change = async (item: ReportAttachment, values: Partial<ReportAttachment>) => {
     setItems(current => current?.map(entry => entry.id === item.id ? { ...entry, ...values } : entry))
     try { await patch(`/api/v1/reports/${reportId}/attachments/${item.id}`, values) } catch (error) {
-      notify(error instanceof Error ? error.message : '이미지 정보를 저장할 수 없습니다.', 'error')
+      notify(errorText(error, '이미지 정보를 저장할 수 없습니다.'), 'error')
       await load().catch(() => undefined)
     }
   }
@@ -92,7 +92,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
   const remove = async (item: ReportAttachment) => {
     if (!confirm(`'${item.caption || item.filename}' 이미지를 삭제하시겠습니까?`)) return
     try { await del(`/api/v1/reports/${reportId}/attachments/${item.id}`); await load(); notify('이미지를 삭제했습니다.') } catch (error) {
-      notify(error instanceof Error ? error.message : '이미지를 삭제할 수 없습니다.', 'error')
+      notify(errorText(error, '이미지를 삭제할 수 없습니다.'), 'error')
     }
   }
 

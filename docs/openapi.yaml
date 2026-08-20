@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.22.0
+  version: 0.23.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -926,6 +926,46 @@ paths:
         - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 104, default: 12 } }
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /admin/audit:
+    get:
+      summary: 감사 이력 조회, 관리자 전용
+      description: |
+        감사 이력을 조건으로 조회한다. 이전에는 최근 500건을 조건 없이 반환할 뿐이어서,
+        수백 명 규모에서는 며칠이면 "누가 언제 이 보고서를 승인했는지"를 답할 수 없게 됐다.
+
+        action은 앞부분 일치이므로 `report`로 보고서 관련 작업을 모두 찾을 수 있다.
+        actor는 아이디와 표시 이름 모두에 부분 일치한다. total을 함께 반환하므로 화면이
+        보여 주는 것이 전부인 것처럼 오해할 여지가 없다. limit 상한은 200이다.
+
+        `audit.retention_days`가 지난 기록은 유지보수 주기에 삭제한다. 0이면 지우지 않는다.
+      parameters:
+        - { name: action, in: query, schema: { type: string }, description: 앞부분 일치 }
+        - { name: actor, in: query, schema: { type: string }, description: 아이디 또는 이름 부분 일치 }
+        - { name: resourceType, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date }, description: 그날을 포함 }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: 감사 이력 한 쪽
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { type: object } }
+                          total: { type: integer }
+                          limit: { type: integer }
+                          offset: { type: integer }
+                          retentionDays: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
   /admin/settings:
     get:
       summary: 운영 설정 조회
@@ -933,8 +973,27 @@ paths:
         "200": { $ref: "#/components/responses/Success" }
     put:
       summary: 운영 설정 변경
+      description: |
+        결과를 되돌리기 어려운 설정은 확인을 요구한다. `workflow.week_start`를 바꿀 때
+        기존 보고서가 새 주차 격자에서 벗어나면 409 `WEEK_START_NEEDS_CONFIRMATION`과 함께
+        영향 범위를 반환하고, 같은 요청에 `confirmed: ["workflow.week_start"]`를 넣어야 진행한다.
+
+        격자를 옮기면 벗어난 보고서는 참여 분석에서 빠지고, 기간 보고에서 한 주가 두 주로
+        집계될 수 있다. 전환 주에는 기존 보고서와 기간이 겹쳐 새 보고서를 만들 수 없으므로
+        작성자는 기존 보고서를 열어 이어 써야 한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings: { type: object, additionalProperties: { type: string } }
+                confirmed: { type: array, items: { type: string } }
       responses:
         "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
   /admin/settings/ai/test:
     post:
       summary: 저장된 AI Gateway 설정의 Structured Output 연결 시험

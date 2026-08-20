@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -33,21 +34,25 @@ var settingDefinitions = map[string]settingDefinition{
 	"auth.session_hours":     {Validate: integerRange(1, 720)},
 	// Zero disables each limit; the account limit ships enabled and the address
 	// limit ships disabled. See loginThrottleFor for why they differ.
-	"auth.max_login_attempts":             {Validate: integerRange(0, 1000)},
-	"auth.max_login_attempts_per_ip":      {Validate: integerRange(0, 10000)},
-	"auth.lockout_minutes":                {Validate: integerRange(1, 1440)},
-	"oidc.enabled":                        {Validate: booleanValue},
-	"oidc.issuer_url":                     {Validate: validOptionalURL},
-	"oidc.client_id":                      {Validate: bounded(0, 255)},
-	"oidc.client_secret":                  {Secret: true, Validate: bounded(0, 2048)},
-	"oidc.redirect_url":                   {Validate: validOptionalURL},
-	"oidc.scopes":                         {Validate: bounded(1, 500)},
-	"oidc.username_claim":                 {Validate: bounded(1, 120)},
-	"oidc.groups_claim":                   {Validate: bounded(1, 120)},
-	"oidc.admin_group":                    {Validate: bounded(0, 255)},
-	"oidc.auto_provision":                 {Validate: booleanValue},
-	"security.api_key_max_days":           {Validate: integerRange(1, 3650)},
-	"analytics.retention_days":            {Validate: integerRange(1, 3650)},
+	"auth.max_login_attempts":        {Validate: integerRange(0, 1000)},
+	"auth.max_login_attempts_per_ip": {Validate: integerRange(0, 10000)},
+	"auth.lockout_minutes":           {Validate: integerRange(1, 1440)},
+	"oidc.enabled":                   {Validate: booleanValue},
+	"oidc.issuer_url":                {Validate: validOptionalURL},
+	"oidc.client_id":                 {Validate: bounded(0, 255)},
+	"oidc.client_secret":             {Secret: true, Validate: bounded(0, 2048)},
+	"oidc.redirect_url":              {Validate: validOptionalURL},
+	"oidc.scopes":                    {Validate: bounded(1, 500)},
+	"oidc.username_claim":            {Validate: bounded(1, 120)},
+	"oidc.groups_claim":              {Validate: bounded(1, 120)},
+	"oidc.admin_group":               {Validate: bounded(0, 255)},
+	"oidc.auto_provision":            {Validate: booleanValue},
+	"security.api_key_max_days":      {Validate: integerRange(1, 3650)},
+	"analytics.retention_days":       {Validate: integerRange(1, 3650)},
+	// Zero keeps everything. An operator whose policy demands indefinite
+	// retention should be able to say so rather than discover the trail was
+	// trimmed for them.
+	"audit.retention_days":                {Validate: integerRange(0, 3650)},
 	"rollup.merge_similarity":             {Validate: integerRange(0, 100)},
 	"rollup.stall_weeks":                  {Validate: integerRange(2, 12)},
 	"rollup.persistent_issue_weeks":       {Validate: integerRange(2, 12)},
@@ -137,6 +142,10 @@ func (a *App) adminSettings(w http.ResponseWriter, r *http.Request) {
 func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Settings map[string]string `json:"settings"`
+		// Confirmed lists settings whose consequences the administrator has been
+		// shown and accepted. A change that quietly rewrites what past data
+		// means should cost one deliberate answer.
+		Confirmed []string `json:"confirmed"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -201,6 +210,13 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	// Checked after validation: a value that is not a weekday should be refused
+	// on its own terms, not after a scan of every stored report.
+	if weekday, ok := input.Settings["workflow.week_start"]; ok {
+		if !a.weekStartChangeAllowed(w, r, weekday, input.Confirmed) {
+			return
+		}
+	}
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "설정을 저장할 수 없습니다.")
@@ -492,9 +508,82 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 	writeData(w, 201, map[string]int64{"id": id})
 }
 
+// auditLogs answers questions of the trail rather than printing the end of it.
+//
+// Filters and paging exist because the previous behaviour — the last 500 rows,
+// nothing else — made the stored answer unreachable within days of use. The
+// total is returned alongside the page so a screen can say how much matched
+// instead of implying that what it shows is all there is.
 func (a *App) auditLogs(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT a.id,a.actor_id,coalesce(u.display_name,'시스템'),a.action,a.resource_type,coalesce(a.resource_id,''),a.detail,a.ip_address::text,a.created_at FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.created_at DESC LIMIT 500`)
+	query := r.URL.Query()
+	limit := a.settingIntFromQuery(r, "limit")
+	if limit <= 0 {
+		limit = 50
+	}
+	limit = min(limit, 200)
+	offset := a.settingIntFromQuery(r, "offset")
+
+	where := " WHERE 1=1"
+	args := []any{}
+	add := func(clause string, value any) {
+		args = append(args, value)
+		where += fmt.Sprintf(clause, len(args))
+	}
+	if value := strings.TrimSpace(query.Get("action")); value != "" {
+		// Prefix match, so "report" finds every report action without the caller
+		// having to know the full list.
+		add(" AND a.action LIKE $%d", value+"%")
+	}
+	if value := strings.TrimSpace(query.Get("resourceType")); value != "" {
+		add(" AND a.resource_type = $%d", value)
+	}
+	if value := strings.TrimSpace(query.Get("resourceId")); value != "" {
+		add(" AND a.resource_id = $%d", value)
+	}
+	if value := strings.TrimSpace(query.Get("actor")); value != "" {
+		// One value compared against two columns, so the placeholder is
+		// referenced twice rather than bound twice.
+		args = append(args, "%"+value+"%")
+		where += fmt.Sprintf(" AND (u.username ILIKE $%d OR u.display_name ILIKE $%d)", len(args), len(args))
+	}
+	// A day means a day in the service timezone. Resolving the boundary in the
+	// database session timezone instead would drop the first nine hours of the
+	// requested day in a KST deployment and include them from the next one —
+	// the same mistake the submission deadline carried until v0.18.0.
+	zone := a.setting(r.Context(), "service.timezone", "Asia/Seoul")
+	for _, bound := range []struct {
+		name   string
+		clause string
+		label  string
+	}{
+		{"from", " AND a.created_at >= ($%d::date)::timestamp AT TIME ZONE $%d", "조회 시작일"},
+		{"to", " AND a.created_at < ($%d::date + 1)::timestamp AT TIME ZONE $%d", "조회 종료일"},
+	} {
+		value := strings.TrimSpace(query.Get(bound.name))
+		if value == "" {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", value); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", bound.label+"은 YYYY-MM-DD 형식이어야 합니다.")
+			return
+		}
+		args = append(args, value, zone)
+		where += fmt.Sprintf(bound.clause, len(args)-1, len(args))
+	}
+
+	var total int
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_id`+where, args...).Scan(&total); err != nil {
+		a.logger.Error("count audit logs", "error", err)
+		writeError(w, 500, "QUERY_FAILED", "감사 로그를 조회할 수 없습니다.")
+		return
+	}
+	args = append(args, limit, offset)
+	statement := `SELECT a.id,a.actor_id,coalesce(u.display_name,'시스템'),a.action,a.resource_type,coalesce(a.resource_id,''),a.detail,a.ip_address::text,a.created_at
+		FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_id` + where +
+		fmt.Sprintf(" ORDER BY a.created_at DESC, a.id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	rows, err := a.db.Query(r.Context(), statement, args...)
 	if err != nil {
+		a.logger.Error("list audit logs", "error", err)
 		writeError(w, 500, "QUERY_FAILED", "감사 로그를 조회할 수 없습니다.")
 		return
 	}
@@ -513,7 +602,14 @@ func (a *App) auditLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, map[string]any{"id": id, "actorId": actorID, "actor": actor, "action": action, "resourceType": resourceType, "resourceId": resourceID, "detail": detail, "ipAddress": ip, "createdAt": created})
 	}
-	writeData(w, 200, result)
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "감사 로그를 조회할 수 없습니다.")
+		return
+	}
+	writeData(w, 200, map[string]any{
+		"items": result, "total": total, "limit": limit, "offset": offset,
+		"retentionDays": a.settingInt(r.Context(), "audit.retention_days", 365),
+	})
 }
 
 // bounded counts characters, not bytes, so a Korean value is measured the same

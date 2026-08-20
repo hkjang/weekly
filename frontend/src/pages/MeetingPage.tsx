@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
+import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import PresentationMode from '../PresentationMode'
 import { meetingNotes, meetingSlides } from '../presentSlides'
@@ -56,7 +56,7 @@ export default function MeetingPage({ session, notify }: {
       .catch(error => {
         if (stale) return
         setView({ week, previousWeek: '', scope, people: 0, workItems: 0, sections: [] })
-        notify(error instanceof Error ? error.message : '회의 자료를 불러올 수 없습니다.', 'error')
+        notify(errorText(error, '회의 자료를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
   }, [scope, week])

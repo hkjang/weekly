@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api'
+import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import type { DigestEntry, DigestKind, DigestView } from '../types'
 import type { PageName } from '../router'
@@ -50,7 +50,7 @@ export default function DigestPage({ notify, navigate }: {
       .catch(error => {
         if (stale) return
         setView({ weeks, since: '', scope: 'TEAM', considered: 0, entries: [] })
-        notify(error instanceof Error ? error.message : '경영 요약을 불러올 수 없습니다.', 'error')
+        notify(errorText(error, '경영 요약을 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
   }, [weeks])

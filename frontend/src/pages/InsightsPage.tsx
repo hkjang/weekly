@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api'
+import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import type { WorkGraphView, WorkLink } from '../types'
 
@@ -53,7 +53,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
       .catch(error => {
         if (stale) return
         setView({ weeks, since: '', workItems: 0, similar: [], duplicates: [], collaboration: [], recurring: [] })
-        notify(error instanceof Error ? error.message : '업무 인사이트를 불러올 수 없습니다.', 'error')
+        notify(errorText(error, '업무 인사이트를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
   }, [weeks])

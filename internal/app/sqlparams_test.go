@@ -33,6 +33,9 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// PREPARE deduces {text}: the query is compared against several columns
 		// but word_similarity takes text on both sides everywhere.
 		"search.go": "the reused query text is text in every word_similarity call",
+		// PREPARE deduces {integer}: the reused parameter is the weekday number
+		// compared against extract(dow ...) in both aggregate filters.
+		"weekstart.go": "the reused weekday number is an integer in both filters",
 		// PREPARE deduces {vector, text, integer, double precision} for the
 		// search and {text} for the coverage counts: the reused parameter is
 		// either the query vector, cast to vector in every use, or the model

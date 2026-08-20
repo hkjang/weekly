@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api'
+import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import type { HandoverView, ReportListItem, SessionInfo } from '../types'
 
@@ -42,7 +42,7 @@ export default function HandoverPage({ session, notify }: {
       .catch(error => {
         if (stale) return
         setView({ userId, displayName: '', active: 0, completed: 0, items: [] })
-        notify(error instanceof Error ? error.message : '인수인계 자료를 불러올 수 없습니다.', 'error')
+        notify(errorText(error, '인수인계 자료를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
   }, [userId])

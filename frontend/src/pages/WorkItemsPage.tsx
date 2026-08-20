@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, post } from '../api'
+import { errorText, api, post } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
@@ -51,7 +51,7 @@ export default function WorkItemsPage({ session, notify }: {
       .catch(error => {
         if (stale) return
         setItems([])
-        notify(error instanceof Error ? error.message : '업무를 불러올 수 없습니다.', 'error')
+        notify(errorText(error, '업무를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
   }, [scope])
@@ -92,7 +92,7 @@ export default function WorkItemsPage({ session, notify }: {
       await reload()
       notify(done)
     } catch (error) {
-      notify(error instanceof Error ? error.message : '업무를 정리할 수 없습니다.', 'error')
+      notify(errorText(error, '업무를 정리할 수 없습니다.'), 'error')
     } finally { setEditBusy(false) }
   }
   const splitOff = (item: WorkItem) => {
@@ -111,7 +111,7 @@ export default function WorkItemsPage({ session, notify }: {
     try {
       setFound(await api<WorkSearchResponse>(`/api/v1/work-items/search?scope=${scope}&q=${encodeURIComponent(trimmed)}`))
     } catch (error) {
-      notify(error instanceof Error ? error.message : '업무를 검색할 수 없습니다.', 'error')
+      notify(errorText(error, '업무를 검색할 수 없습니다.'), 'error')
     } finally { setSearching(false) }
   }
 

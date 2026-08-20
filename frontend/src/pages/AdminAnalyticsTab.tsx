@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
+import { errorText, api } from '../api'
 import { Card, Empty, Spinner } from '../components'
 import { ProgressTrendChart, RankBars } from '../charts'
 import WordCloud, { termTrend, trendColors } from '../WordCloud'
@@ -34,7 +34,7 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
       if (stale) return
       setKeywords(k); setOrganizations(o); setParticipation(p)
     }).catch(error => {
-      if (!stale) notify(error instanceof Error ? error.message : '분석을 불러올 수 없습니다.', 'error')
+      if (!stale) notify(errorText(error, '분석을 불러올 수 없습니다.'), 'error')
     }).finally(() => { if (!stale) setLoading(false) })
     return () => { stale = true }
   }, [weeks, field])

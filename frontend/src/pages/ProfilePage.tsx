@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, del, post } from '../api'
+import { errorText, api, del, post } from '../api'
 import { Button, Card, Empty, PageHeader, formatDate } from '../components'
 import type { KeyView, SessionInfo } from '../types'
 
@@ -11,7 +11,7 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
   const [token, setToken] = useState<string>()
   const load = () => api<{ keyVersion: number; keys: KeyView[] }>('/api/v1/keys').then(value => { setKeys(value.keys); setKeyVersion(value.keyVersion) })
   useEffect(() => { load() }, [])
-  const create = async () => { try { const value = await post<{ token: string }>('/api/v1/keys', { name, expiresInDays: days, scopes: ['reports:read', 'analytics:read', 'mcp:read'] }); setToken(value.token); await load(); notify('API 키를 생성했습니다.') } catch (error) { notify(error instanceof Error ? error.message : '키를 만들 수 없습니다.', 'error') } }
+  const create = async () => { try { const value = await post<{ token: string }>('/api/v1/keys', { name, expiresInDays: days, scopes: ['reports:read', 'analytics:read', 'mcp:read'] }); setToken(value.token); await load(); notify('API 키를 생성했습니다.') } catch (error) { notify(errorText(error, '키를 만들 수 없습니다.'), 'error') } }
   const revoke = async (id: number) => { if (!confirm('이 API 키를 폐기하시겠습니까?')) return; await del(`/api/v1/keys/${id}`); await load(); notify('API 키를 폐기했습니다.') }
   const rotate = async () => { if (!confirm('모든 기존 API 키가 즉시 폐기됩니다. 키를 회전하시겠습니까?')) return; await post('/api/v1/keys/rotate'); setToken(undefined); await load(); await refreshSession(); notify('개인 키 버전을 회전하고 모든 기존 키를 폐기했습니다.') }
   return <><PageHeader title="개인 설정" description="프로필과 개인 API 키를 관리합니다."/>

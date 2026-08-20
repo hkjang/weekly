@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
+import { errorText, api } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import PresentationMode from '../PresentationMode'
 import { rollupSlides } from '../presentSlides'
@@ -84,7 +84,7 @@ export default function RollupPage({ session, route, notify }: {
     const query = `kind=${kind}&period=${encodeURIComponent(period)}&scope=${scope}`
     api<Rollup>(`/api/v1/rollups?${query}`)
       .then(value => { if (!stale) setRollup(value) })
-      .catch(error => { if (!stale) { setRollup(undefined); notify(error instanceof Error ? error.message : '기간 보고를 불러올 수 없습니다.', 'error') } })
+      .catch(error => { if (!stale) { setRollup(undefined); notify(errorText(error, '기간 보고를 불러올 수 없습니다.'), 'error') } })
       .finally(() => { if (!stale) setLoading(false) })
     return () => { stale = true }
   }, [kind, period, scope])

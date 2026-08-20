@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, post } from './api'
+import { errorText, api, post } from './api'
 import { Button, Spinner, Toast } from './components'
 import CommandPalette, { periodCommands } from './CommandPalette'
 import type { Command } from './CommandPalette'
@@ -297,7 +297,7 @@ function roleName(role: string) { return ({ USER: '사용자', TEAM_LEADER: '팀
 
 function Login({ providers, onLogin, notify, notice }: { providers: Providers; onLogin: () => Promise<void>; notify: (message: string, kind?: 'success' | 'error') => void; notice?: string }) {
   const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false)
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); try { await post('/api/v1/auth/login', { username, password }); await onLogin() } catch (error) { notify(error instanceof Error ? error.message : '로그인할 수 없습니다.', 'error') } finally { setBusy(false) } }
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); try { await post('/api/v1/auth/login', { username, password }); await onLogin() } catch (error) { notify(errorText(error, '로그인할 수 없습니다.'), 'error') } finally { setBusy(false) } }
   return <div className="login-page"><div className="login-panel"><div className="login-brand"><span className="brand-mark">W</span><div><h1>{providers.name}</h1><p>한 주의 성과를 선명하게 기록하세요.</p></div></div>{notice && <div className="login-expired" role="alert">{notice}</div>}{providers.notice && <div className="login-notice">{providers.notice}</div>}
     {providers.local && <form onSubmit={submit}><label>아이디<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label><label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label><Button disabled={busy} className="full">{busy ? '로그인 중…' : '로그인'}</Button></form>}
     {providers.local && providers.oidc && <div className="divider"><span>또는</span></div>}

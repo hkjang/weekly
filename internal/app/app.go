@@ -350,6 +350,13 @@ func (a *App) maintenance(ctx context.Context) {
 			a.cleanupImportSources(ctx)
 			a.cleanupAttachmentFiles(ctx)
 			a.pruneLoginAttempts(ctx)
+			// Zero means an operator has chosen to keep everything, so the
+			// trail is only trimmed when a policy asked for it.
+			if days := a.settingInt(ctx, "audit.retention_days", 365); days > 0 {
+				if _, err := a.db.Exec(ctx, `DELETE FROM audit_logs WHERE created_at < now() - make_interval(days => $1)`, days); err != nil {
+					a.logger.Warn("prune audit logs", "error", err)
+				}
+			}
 		}
 	}
 }
