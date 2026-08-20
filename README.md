@@ -47,6 +47,8 @@
 - Confluence Server 6.9.1 활동 증분 수집, 입력 Page 근거 검증과 사용자별 AI 주간보고 자동 초안
 - 초성 검색과 키보드 단축키를 지원하고 화면·기간·보고서로 바로 이동하는 빠른 이동 팔레트
 - 회의에서 다룰 것만 모으는 회의 모드와, PPTX를 내보낼 수 있는 모든 화면에서 화면 캡처까지 포함해 바로 진행하는 전체 화면 발표 모드
+- 어두운 화면·밝은 화면·고대비 세 가지 발표 테마와, 회사 PPTX 템플릿의 강조색을 화면에도 그대로 쓰는 브랜드 일치
+- 여백부터 줄이고 글자는 읽을 수 있는 크기까지만 줄이는 슬라이드 자동 맞춤. 그래도 넘치면 잘렸다는 것을 화면에 알립니다
 - 슬라이드가 화면에 맞게 자동으로 줄어들어 내용이 잘리지 않는 발표, 경과 시간·다음 슬라이드·잘리지 않은 전체 원문을 별도 창에 띄우는 발표자 화면, 슬라이드 목록과 번호 이동, 화면 끄기
 - 관측 사실과 그 근거를 함께 제시하는 경영 요약, 조직 간 중복·유사 업무와 협업 지도, 반복 운영 업무 자동 분류
 - 담당자 변경 시 경과·이슈 이력·미해결 사항을 기록에서 모으는 업무 인수인계
@@ -60,7 +62,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.20.0.tar.gz | docker load
+gzip -dc weekly-v0.21.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d

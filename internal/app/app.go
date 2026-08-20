@@ -217,6 +217,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/work-items/search", a.requireAuth(http.HandlerFunc(a.searchWorkItems)))
 	a.mux.Handle("GET /api/v1/meeting", a.requireAuth(http.HandlerFunc(a.meetingMode)))
 	a.mux.Handle("GET /api/v1/changes", a.requireAuth(http.HandlerFunc(a.weeklyChanges)))
+	a.mux.Handle("GET /api/v1/present/theme", a.requireAuth(http.HandlerFunc(a.presentThemeInfo)))
 	a.mux.Handle("GET /api/v1/digest", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.executiveDigest)))
 	a.mux.Handle("GET /api/v1/insights/work-graph", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.workGraph)))
 	a.mux.Handle("GET /api/v1/handover", a.requireAuth(http.HandlerFunc(a.handover)))

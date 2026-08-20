@@ -14,39 +14,54 @@ import type { PresentSlide } from './PresentationMode'
  * same React tree and stays in step with the deck without any message passing.
  */
 
+/**
+ * The presenter window follows the deck's theme rather than keeping a palette
+ * of its own. A speaker who chose the light theme because the room is bright is
+ * usually sitting in that same bright room.
+ */
 const presenterStyles = `
-  :root { color-scheme: dark }
-  body { margin:0; background:#0b1120; color:#e2e8f0;
+  :root { color-scheme: dark; --bg:#0b1120; --fg:#e2e8f0; --panel:#111c34; --line:#1e2f52;
+          --dim:#7f93ba; --body:#cbd5e1; --accent:#60a5fa; --strong:#e2e8f0 }
+  :root.theme-light { color-scheme: light; --bg:#f6f8fc; --fg:#0f172a; --panel:#fff; --line:#cbd5e1;
+          --dim:#64748b; --body:#334155; --accent:#1d4ed8; --strong:#0f172a }
+  :root.theme-contrast { color-scheme: dark; --bg:#000; --fg:#fff; --panel:#111; --line:#ffffff66;
+          --dim:#cbd5e1; --body:#fff; --accent:#ffe066; --strong:#fff }
+  body { margin:0; background:var(--bg); color:var(--fg);
     font-family:Inter,"Pretendard","Noto Sans KR",system-ui,sans-serif }
   .wrap { display:grid; grid-template-rows:auto 1fr auto; height:100vh; box-sizing:border-box; padding:20px 24px; gap:16px }
   header { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap }
   .clock { font-size:44px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:.02em }
-  .clock small { display:block; font-size:12px; font-weight:600; color:#7f93ba; letter-spacing:.1em }
-  .count { font-size:15px; color:#94a3b8 }
+  .clock small { display:block; font-size:12px; font-weight:600; color:var(--dim); letter-spacing:.1em }
+  .count { font-size:15px; color:var(--dim) }
   .grid { display:grid; grid-template-columns:1.6fr 1fr; gap:18px; min-height:0 }
-  section { background:#111c34; border:1px solid #1e2f52; border-radius:14px; padding:16px 18px; min-height:0; overflow:auto }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; min-height:0; overflow:auto }
   h2 { margin:0 0 4px; font-size:22px; line-height:1.3 }
-  .eyebrow { display:block; font-size:11px; font-weight:700; letter-spacing:.12em; color:#60a5fa; margin-bottom:6px }
-  .label { font-size:11px; font-weight:700; letter-spacing:.1em; color:#7f93ba; margin:0 0 8px }
-  pre { margin:0; white-space:pre-wrap; word-break:break-word; font:inherit; font-size:15px; line-height:1.65; color:#cbd5e1 }
-  .next h3 { margin:0; font-size:16px; line-height:1.4; color:#e2e8f0 }
-  .next p { margin:6px 0 0; font-size:13px; color:#94a3b8 }
-  ul { margin:8px 0 0; padding-left:18px; font-size:13px; line-height:1.6; color:#cbd5e1 }
-  footer { font-size:12px; color:#64748b; display:flex; gap:14px; flex-wrap:wrap }
-  kbd { background:#1e2f52; border-radius:5px; padding:2px 6px; font-size:11px; color:#cbd5e1 }
-  .empty { color:#64748b; font-size:14px }
+  .eyebrow { display:block; font-size:11px; font-weight:700; letter-spacing:.12em; color:var(--accent); margin-bottom:6px }
+  .label { font-size:11px; font-weight:700; letter-spacing:.1em; color:var(--dim); margin:0 0 8px }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; font:inherit; font-size:15px; line-height:1.65; color:var(--body) }
+  .next h3 { margin:0; font-size:16px; line-height:1.4; color:var(--strong) }
+  .next p { margin:6px 0 0; font-size:13px; color:var(--dim) }
+  ul { margin:8px 0 0; padding-left:18px; font-size:13px; line-height:1.6; color:var(--body) }
+  footer { font-size:12px; color:var(--dim); display:flex; gap:14px; flex-wrap:wrap }
+  kbd { background:var(--line); border-radius:5px; padding:2px 6px; font-size:11px; color:var(--body) }
+  .empty { color:var(--dim); font-size:14px }
 `
+
+function setDocumentTheme(target: Document, theme: string) {
+  target.documentElement.className = `theme-${theme}`
+}
 
 function clockText(seconds: number) {
   const minutes = Math.floor(seconds / 60)
   return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-export default function PresenterWindow({ slides, position, label, notes, elapsed, onClose, onKey }: {
+export default function PresenterWindow({ slides, position, label, notes, theme, elapsed, onClose, onKey }: {
   slides: PresentSlide[]
   position: number
   label: string
   notes?: string[]
+  theme: string
   elapsed: number
   onClose: () => void
   onKey: (event: KeyboardEvent) => void
@@ -71,6 +86,7 @@ export default function PresenterWindow({ slides, position, label, notes, elapse
     const style = opened.document.createElement('style')
     style.textContent = presenterStyles
     opened.document.head.appendChild(style)
+    setDocumentTheme(opened.document, theme)
     const mount = opened.document.createElement('div')
     opened.document.body.appendChild(mount)
     setHost(mount)
@@ -92,6 +108,10 @@ export default function PresenterWindow({ slides, position, label, notes, elapse
     // Opened once for the lifetime of the presenter view on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (host?.ownerDocument) setDocumentTheme(host.ownerDocument, theme)
+  }, [host, theme])
 
   if (!host) return null
   const slide = slides[position]

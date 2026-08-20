@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.20.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 20일 (v0.20.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.21.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 20일 (v0.21.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -67,7 +67,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <p>현재 데이터 모델은 <code>Report → ReportItem</code>이며, 같은 업무가 매주 <strong>새 행으로 다시 생성</strong>됩니다. 주차를 넘는 업무 동일성은 기간 집계에서 제목 정규화와 토큰 포함 관계로 <strong>추정</strong>하고 있을 뿐, 저장된 사실이 아닙니다.</p>
 <p>변화 요약, Aging, Dependency, Risk 예측은 모두 "이 업무가 지난주의 그 업무와 같은가"에 답할 수 있어야 성립합니다. WorkItem 없이 각 기능이 제각각 추정 로직을 다시 구현하면 기능마다 판정이 어긋납니다.</p>
 <hr>
-<h2>2. 완료된 마일스톤 (v0.1.0 ~ v0.20.0)</h2>
+<h2>2. 완료된 마일스톤 (v0.1.0 ~ v0.21.0)</h2>
 <div class="phase-box">========================================================================================
  [v0.1.0]  Single Container, PPTX Zip Engine, Keycloak OIDC, RBAC, MCP 1.0
  [v0.2.0]  자유 텍스트 AI 초안, 과거 PPTX Import, 사내 AI Gateway
@@ -94,6 +94,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
  [v0.18.0] 보고서 조회 색인, 제출 마감 설정과 시간대 오판 수정, 기간 보고의 업무 식별 일원화
  [v0.19.0] CSV 수식 주입 차단, 세션 만료 복구, PPTX 내보내기 메모리 축소
  [v0.20.0] 발표 모드 자동 맞춤, 발표자 화면, 슬라이드 목록·번호 이동
+ [v0.21.0] 발표 테마 3종, 회사 템플릿 강조색 연동, 읽을 수 있는 최소 글자 크기
 ========================================================================================</div>
 <p>기존 로드맵의 다음 항목은 계속 유효하며 이 문서의 후반 단계에 배치합니다.</p>
 <ul>
@@ -157,6 +158,13 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li><strong>보고서 조회 색인</strong>: <code>report_items.report_id</code>에 색인이 없어 보고서를 열 때마다 테이블 전체를 훑고 있었습니다. PostgreSQL은 외래 키의 참조하는 쪽을 색인하지 않습니다. 8만 행 기준 5.07ms·1,144버퍼에서 0.074ms·11버퍼로 줄었습니다. <code>report_comments</code>, <code>report_status_history</code>도 같이 처리했습니다.</li>
 <li><strong>제출 마감 설정과 시간대 오판 수정</strong>: 정시 판정이 <code>submitted_at::date &lt;= week_start + 7</code>이었습니다. 조직 정책을 코드에 박아 둔 것이고, <code>::date</code>가 데이터베이스 세션 시간대(UTC)로 계산돼 <strong>마감 다음 날 오전 9시 이전 제출이 전부 정시로 집계</strong>됐습니다. 마감을 <code>주차 시작일 + N일 + H시</code>로 설정하게 하고 판정을 서비스 시간대로 명시했습니다. 화면은 기준을 함께 표시합니다.</li>
 <li><strong>기간 보고의 업무 식별 일원화</strong>: 기간 집계만 여전히 제목 유사도 80%로 같은 업무를 다시 추측하고 있었습니다. <strong>한 담당자 안에서는</strong> v0.16.0의 병합·분리 결과를 그대로 쓰고 추측하지 않습니다. <strong>담당자 사이에서는</strong> 사람을 가로지르는 저장된 식별자가 없으므로 제목 유사도를 유지합니다. 기간 보고는 조직의 한 업무를 한 줄로 보여 주기 위한 것이기 때문입니다.</li>
+</ul>
+<h3>3.5.5 v0.21 — 발표 화면 테마 (완료)</h3>
+<ul>
+<li><strong>읽을 수 있는 최소 글자 크기</strong>: v0.20의 자동 축소는 배율만 줄여서, 1280×720에서 구획 이름이 9.3px까지 내려갔습니다. 이제 <strong>여백을 먼저 줄이고</strong>, 글자는 화면 높이의 1/50(프로젝션 경험칙)을 밑돌지 않는 선까지만 줄입니다. 그래도 넘치면 줄이는 대신 <strong>잘렸다고 알립니다.</strong> 구획 이름의 상한이 화면과 무관한 15px 고정이던 것도 화면에 비례하도록 바꿨습니다.</li>
+<li><strong>테마 3종</strong>: 어두운 화면(기존), 밝은 화면, 고대비. 밝은 방과 약한 프로젝터에서는 어두운 그라데이션이 가장 불리하고, 캡처 슬라이드는 대개 밝은 스크린샷이라 어두운 판 위에서 눈부십니다. 고대비는 그라데이션 없이 검정 바탕에 단일 강조색만 씁니다. 약한 프로젝터가 여섯 색을 구분해 줄 것이라고 기대할 수 없기 때문입니다.</li>
+<li><strong>회사 템플릿 강조색 연동</strong>: 내보낸 PPTX는 회사 템플릿을, 화면은 고정 파랑·청록을 써서 같은 보고가 매체에 따라 다른 회사 자료처럼 보였습니다. 템플릿 테마의 <code>accent1</code>을 읽어 화면 강조색으로 씁니다.</li>
+<li>구획 색이 없던 <code>변경점</code>에 색을 넣고, 발표자 창이 테마를 따르게 하고, <code>prefers-reduced-motion</code>을 존중합니다.</li>
 </ul>
 <h3>3.5.4 v0.20 — 발표 모드 (완료)</h3>
 <p>v0.13에서 회의용으로 만든 발표 모드를 실제 회의실 화면 크기에서 다시 점검했습니다.</p>

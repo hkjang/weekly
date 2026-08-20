@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.20.0
+  version: 0.21.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -719,6 +719,34 @@ paths:
       summary: 최근 24시간 API 분석, 관리자 전용
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /present/theme:
+    get:
+      summary: 발표 화면 강조색
+      description: |
+        조직이 올린 PPTX 템플릿의 테마에서 accent1 색을 읽어 반환한다. 내보낸 파일과 화면이
+        같은 색을 쓰게 하기 위한 것이다. 지금까지 파일은 회사 템플릿을, 화면은 고정된
+        파랑·청록을 써서 같은 보고가 매체에 따라 다른 회사 자료처럼 보였다.
+
+        accent1만 읽는다. 화면 덱은 강조색 하나를 중심으로 구성돼 있어 서체와 나머지 다섯
+        강조색은 놓일 자리가 없다. 템플릿을 읽을 수 없으면 accent 없이 source만 반환하고
+        화면은 기본색을 유지한다. source는 TEMPLATE(관리자 업로드), REFERENCE(내장 기본),
+        DEFAULT(읽지 못함)다.
+      responses:
+        "200":
+          description: 강조색
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accent: { type: string, example: "#2563EB" }
+                          source: { type: string, enum: [TEMPLATE, REFERENCE, DEFAULT] }
+                          name: { type: string }
   /changes:
     get:
       summary: 지난주 대비 주간 변화 요약

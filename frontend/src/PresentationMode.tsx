@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import PresenterWindow from './PresenterWindow'
+import { api } from './api'
 
 /**
  * Presentation mode: any deck the app can export as PPTX can also be presented
@@ -58,14 +59,25 @@ export interface PresentSlide {
 }
 
 /**
- * How far the slide may be scaled down to make its content fit.
+ * The smallest type a room can still read, as a share of the screen height.
  *
- * Below this it stops being readable from the back of a room, and shrinking
- * further would trade a visible problem for an invisible one. Anything that
- * still does not fit is marked instead, so the speaker knows to open the
- * presenter view rather than assuming the room has seen everything.
+ * Projection guidance converges on roughly one fiftieth of the image height, so
+ * the floor moves with the screen instead of being a number picked against one
+ * laptop. Shrinking past it would trade a visible problem for an invisible one:
+ * the slide would fit and nobody past the second row could read it.
  */
-const MINIMUM_FIT = 0.62
+const READABLE_SHARE = 1 / 50
+const READABLE_FLOOR_PX = 14
+
+/** Never scale below this regardless, so one enormous slide cannot vanish. */
+const HARD_FIT_FLOOR = 0.5
+
+export type PresentTheme = 'dark' | 'light' | 'contrast'
+
+const themeOrder: PresentTheme[] = ['dark', 'light', 'contrast']
+const themeName: Record<PresentTheme, string> = {
+  dark: '어두운 화면', light: '밝은 화면', contrast: '고대비',
+}
 
 export default function PresentationMode({ slides, label, notes, onClose }: {
   slides: PresentSlide[]
@@ -91,7 +103,16 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
   // One measurement, from which both the scale and the warning are derived at
   // render time. Keeping them as separate pieces of state let one of them go
   // stale when a measurement was skipped.
-  const [measured, setMeasured] = useState({ available: 0, needed: 0, edge: 0 })
+  const [measured, setMeasured] = useState({ available: 0, needed: 0, edge: 0, floor: HARD_FIT_FLOOR, compact: false })
+  // A preference rather than a per-meeting choice: the room a team presents in
+  // does not change every week, so it is remembered across sessions.
+  const [theme, setTheme] = useState<PresentTheme>(() => {
+    const saved = window.localStorage.getItem('weekly.present.theme')
+    return themeOrder.includes(saved as PresentTheme) ? saved as PresentTheme : 'dark'
+  })
+  // The accent the organisation's own PPTX template uses, so the screen and the
+  // exported file are recognisably the same deck.
+  const [accent, setAccent] = useState<string>()
   const container = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const fitted = useRef<HTMLDivElement>(null)
@@ -150,6 +171,10 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
       case 'b': case 'B': event.preventDefault(); setBlackout(dark => !dark); break
       case 'p': case 'P': event.preventDefault(); setPresenterOpen(open => !open); break
       case 't': case 'T': event.preventDefault(); setElapsed(0); break
+      case 'c': case 'C':
+        event.preventDefault()
+        setTheme(current => themeOrder[(themeOrder.indexOf(current) + 1) % themeOrder.length])
+        break
       case 'n': case 'N':
         if (notes?.length) { event.preventDefault(); setNotesOpen(open => !open) }
         break
@@ -178,28 +203,44 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
 
   const slide = useMemo(() => slides[Math.min(position, total - 1)], [slides, position, total])
 
-  // Scale the slide down until it fits instead of letting overflow:hidden cut
-  // it off. The old fixed character limits were tuned against one screen size:
-  // at 1280x720 they left roughly a third of a long block invisible, with no
-  // scrollbar and no ellipsis to say so.
+  // Make the slide fit instead of letting overflow:hidden cut it off, and do it
+  // in the order a designer would: take the whitespace first, and only then the
+  // type. Shrinking type is what costs the room its ability to read the slide,
+  // so it is the last resort rather than the first move.
   useLayoutEffect(() => {
     const box = content.current
     if (!box) return
-    setMeasured({ available: 0, needed: 0, edge: 0 })
+    setMeasured({ available: 0, needed: 0, edge: 0, floor: HARD_FIT_FLOOR, compact: false })
     const measure = () => {
       const element = content.current
       const inner = fitted.current
       if (!element || !inner) return
       const available = element.clientHeight
+      // A frame where the slide has not been laid out yet reports no height at
+      // all. Scaling to that would shrink a slide that fits perfectly well.
+      if (available <= 1) return
       // Measured on the content itself, not on the box around it. A scaled
       // descendant contributes its *transformed* size to an ancestor's scroll
       // height, so measuring the ancestor would feed the previous scale back
       // into the next one and settle on the wrong answer.
-      const needed = Math.max(inner.offsetHeight, inner.scrollHeight)
-      // A frame where the slide has not been laid out yet reports no height at
-      // all. Scaling to that would shrink a slide that fits perfectly well.
-      if (available <= 1 || needed <= 0) return
-      setMeasured({ available, needed, edge: element.parentElement?.clientHeight ?? available })
+      const heightOf = () => Math.max(inner.offsetHeight, inner.scrollHeight)
+      inner.classList.remove('compact')
+      let needed = heightOf()
+      let compact = false
+      if (needed > available) {
+        // Tightening the gaps often buys the whole difference on its own, and
+        // costs nothing anyone can read.
+        inner.classList.add('compact')
+        compact = true
+        needed = heightOf()
+      }
+      if (needed <= 0) return
+      // The floor is whatever keeps the smallest text on the slide readable
+      // from the back of the room, not a fixed ratio.
+      const smallest = smallestTypeIn(inner)
+      const readable = Math.max(READABLE_FLOOR_PX, (element.parentElement?.clientHeight ?? available) * READABLE_SHARE)
+      const floor = smallest > 0 ? Math.min(1, Math.max(readable / smallest, HARD_FIT_FLOOR)) : HARD_FIT_FLOOR
+      setMeasured({ available, needed, edge: element.parentElement?.clientHeight ?? available, floor, compact })
     }
     // Measured after the browser has laid the slide out at full size, and again
     // whenever that layout changes: entering full screen, rotating a tablet and
@@ -211,13 +252,25 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
   }, [slide])
 
   const fit = measured.available > 0 && measured.needed > measured.available
-    ? Math.max(measured.available / measured.needed, MINIMUM_FIT)
+    ? Math.max(measured.available / measured.needed, measured.floor)
     : 1
-  // Only a genuine spill past the slide's own edge is worth warning about. The
-  // padding around the slide is breathing room, so a block that runs a little
-  // into it is still fully visible, and a warning nobody can verify teaches the
-  // presenter to ignore the next one.
-  const clipped = measured.needed > 0 && measured.needed * fit > measured.edge + 1
+  // Anything taller than the box it is anchored in is being cut, because the
+  // slide hides its overflow. The padding is not spare room: content that runs
+  // into it ends up flush against the control bar and looks broken long before
+  // it disappears.
+  const clipped = measured.needed > 0 && measured.needed * fit > measured.available + 2
+
+  useEffect(() => { window.localStorage.setItem('weekly.present.theme', theme) }, [theme])
+
+  // Asked for once per deck. A failure just leaves the built-in accent in place,
+  // which is what a deployment without a corporate template gets anyway.
+  useEffect(() => {
+    let stale = false
+    api<{ accent?: string }>('/api/v1/present/theme')
+      .then(value => { if (!stale && value?.accent) setAccent(value.accent) })
+      .catch(() => undefined)
+    return () => { stale = true }
+  }, [])
 
   // The next capture is fetched while the current slide is up, so an image
   // slide does not open on an empty frame.
@@ -240,7 +293,12 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
   if (!slide) return null
   const progress = total > 1 ? (position / (total - 1)) * 100 : 100
 
-  return <div className="presentation" ref={container} tabIndex={-1} role="dialog" aria-label={`${label} 발표 모드`}
+  // The accent only overrides the deck-wide default. A section that has a
+  // colour of its own keeps it, because that colour carries meaning the brand
+  // colour does not.
+  const surface = accent ? { '--pres-accent': accent, '--pres-accent-strong': accent } as React.CSSProperties : undefined
+
+  return <div className={`presentation theme-${theme}`} style={surface} ref={container} tabIndex={-1} role="dialog" aria-label={`${label} 발표 모드`}
     onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
     onClick={event => { if (event.target === event.currentTarget) go(1) }}>
     <div className="presentation-bar"><span style={{ width: `${progress}%` }} /></div>
@@ -248,12 +306,12 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
     {/* Announced for screen readers; the slide itself carries no live region. */}
     <p className="visually-hidden" aria-live="polite">{`${position + 1} / ${total} · ${slide.title}`}</p>
 
-    <div className={`presentation-slide ${slide.tone ? `tone-${slide.tone.toLowerCase()}` : ''} kind-${slide.kind}`}>
+    <div className={`presentation-slide ${slide.tone ? `tone-${slide.tone.toLowerCase()}` : ''} kind-${slide.kind}${clipped ? ' is-clipped' : ''}`}>
       <div ref={content}>
         {/* Anchored at the top: scaling around the centre would pull the block
             downward, because the unscaled content overflows this box downward
             rather than in both directions. */}
-        <div className="slide-fit" ref={fitted} style={{ transform: `scale(${fit})` }}>
+        <div className={`slide-fit${measured.compact ? ' compact' : ''}`} ref={fitted} style={{ transform: `scale(${fit})` }}>
           {slide.eyebrow && <span className="slide-eyebrow">{slide.eyebrow}</span>}
           <h1>{slide.title}</h1>
           {slide.subtitle && <p className="slide-subtitle">{slide.subtitle}</p>}
@@ -310,12 +368,36 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
       <button onClick={() => go(1)} disabled={position === total - 1} aria-label="다음 슬라이드">▶</button>
       <button onClick={() => setOverviewOpen(open => !open)}>목록</button>
       <button className={presenterOpen ? 'on' : ''} onClick={() => setPresenterOpen(open => !open)}>발표자 화면</button>
+      <button onClick={() => setTheme(current => themeOrder[(themeOrder.indexOf(current) + 1) % themeOrder.length])}
+        title="C 키로도 바꿉니다">{themeName[theme]}</button>
       <button onClick={toggleFullscreen}>전체화면</button>
       {notes && notes.length > 0 && <button onClick={() => setNotesOpen(open => !open)}>진행 안내</button>}
       <button className="secondary" onClick={leave}>종료</button>
     </div>
 
     {presenterOpen && <PresenterWindow slides={slides} position={position} label={label} notes={notes}
-      elapsed={elapsed} onClose={() => setPresenterOpen(false)} onKey={onKey} />}
+      theme={theme} elapsed={elapsed} onClose={() => setPresenterOpen(false)} onKey={onKey} />}
   </div>
+}
+
+/**
+ * The smallest font size actually used on a slide.
+ *
+ * Read from the rendered slide rather than from a constant, because the labels
+ * that end up smallest differ by slide kind, and a constant would go stale the
+ * first time the stylesheet changed.
+ */
+function smallestTypeIn(root: HTMLElement): number {
+  let smallest = Number.POSITIVE_INFINITY
+  for (const element of root.querySelectorAll<HTMLElement>('*')) {
+    // Only elements that print text of their own. A wrapper reports all of its
+    // descendants' text as its own, and it usually sits at the inherited 16px,
+    // so counting wrappers would peg the floor to a size nothing is drawn at.
+    const writes = Array.from(element.childNodes).some(
+      node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())
+    if (!writes) continue
+    const size = parseFloat(window.getComputedStyle(element).fontSize)
+    if (size > 0 && size < smallest) smallest = size
+  }
+  return Number.isFinite(smallest) ? smallest : 0
 }
