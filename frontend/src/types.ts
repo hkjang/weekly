@@ -190,7 +190,7 @@ export interface RecurringWork extends WorkRef {
 }
 export interface WorkGraphView {
   weeks: number; since: string; workItems: number
-  similar: WorkLink[]; duplicates: WorkLink[]
+  similar: WorkLink[]; similarTotal: number; duplicates: WorkLink[]; duplicateTotal: number
   collaboration: CollaborationEdge[]; recurring: RecurringWork[]
 }
 

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.24.0
+  version: 0.25.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -827,6 +827,15 @@ paths:
     get:
       summary: 조직 간 유사·중복 업무와 협업 지도, 팀장 이상
       description: |
+        비교 자체는 업무 수의 제곱에 비례하지만 응답의 similar와 duplicates에는
+        **관련도 상위 200건씩만** 담고, 조건에 맞는 전체 건수를 similarTotal,
+        duplicateTotal로 함께 반환한다. 이전에는 모든 쌍을 담았고, 업무 1,800건에서
+        234,900개 링크와 158MB 본문이 나왔다.
+
+        collaboration은 상한과 무관하게 **조건에 맞는 모든 쌍**에서 집계한다. 조직 쌍
+        단위로 묶여 원래 작기 때문이며, 상위 200건만으로 만들면 조직 쌍이 통째로 사라진
+        지도를 완전한 것처럼 보여 주게 된다.
+
         제목 토큰 일치로 담당자가 다른 업무를 연결한다. 상투어만 겹치는 제목과 같은
         담당자의 업무는 제외한다. 판정은 모두 사람이 확인할 후보이며 확정 사실이 아니다.
 
@@ -848,6 +857,10 @@ paths:
 
         userId를 생략하면 본인 자료를 반환한다. 다른 담당자를 조회하려면 팀장 이상이어야 하며,
         조회 권한 범위 밖 담당자는 결과가 비어 있다.
+
+        relatedWork는 업무마다 **최대 5건**이다. 이전에는 조직 전체의 모든 쌍을 비교한
+        결과에서 대상자 것만 골라 담았고, 업무 15건짜리 자료에 관련 업무 3,915건이 실렸다.
+        이제 대상자의 업무에 닿는 쌍만 비교한다.
       parameters:
         - { name: userId, in: query, schema: { type: integer, format: int64 } }
       responses:

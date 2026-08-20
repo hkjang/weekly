@@ -416,7 +416,12 @@ func titleTokens(value string) map[string]bool {
 // one scores 100: renaming "AI 게이트웨이 PoC" to "AI 게이트웨이 PoC 검증" is the
 // same task, but a short generic title must not swallow a much longer one.
 func titleSimilarity(left, right string) int {
-	leftTokens, rightTokens := titleTokens(left), titleTokens(right)
+	return tokenSimilarity(titleTokens(left), titleTokens(right))
+}
+
+// tokenSimilarity is the same score over token sets a caller has already built,
+// for loops that would otherwise tokenize the same titles over and over.
+func tokenSimilarity(leftTokens, rightTokens map[string]bool) int {
 	if len(leftTokens) == 0 || len(rightTokens) == 0 {
 		return 0
 	}

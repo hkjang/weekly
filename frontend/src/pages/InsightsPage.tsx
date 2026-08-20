@@ -52,7 +52,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ weeks, since: '', workItems: 0, similar: [], duplicates: [], collaboration: [], recurring: [] })
+        setView({ weeks, since: '', workItems: 0, similar: [], similarTotal: 0, duplicates: [], duplicateTotal: 0, collaboration: [], recurring: [] })
         notify(errorText(error, '업무 인사이트를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
@@ -69,8 +69,8 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
     <div className="tab-row">
       {tabs.map(entry => <button key={entry.key} className={tab === entry.key ? 'tab active' : 'tab'}
         onClick={() => setTab(entry.key)}>{entry.name}
-        {view && <small>{entry.key === 'DUPLICATE' ? view.duplicates.length
-          : entry.key === 'SIMILAR' ? view.similar.length
+        {view && <small>{entry.key === 'DUPLICATE' ? view.duplicateTotal
+          : entry.key === 'SIMILAR' ? view.similarTotal
           : entry.key === 'COLLAB' ? view.collaboration.length : view.recurring.length}</small>}
       </button>)}
     </div>
@@ -80,13 +80,15 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
 
       {tab === 'DUPLICATE' && (view.duplicates.length === 0
         ? <Empty>조직 간 중복으로 의심되는 업무가 없습니다.</Empty>
-        : <ul className="link-list">{view.duplicates.map((link, index) =>
-            <LinkCard key={`${link.left.workItemId}-${link.right.workItemId}-${index}`} link={link} />)}</ul>)}
+        : <><Capped shown={view.duplicates.length} total={view.duplicateTotal} />
+          <ul className="link-list">{view.duplicates.map((link, index) =>
+            <LinkCard key={`${link.left.workItemId}-${link.right.workItemId}-${index}`} link={link} />)}</ul></>)}
 
       {tab === 'SIMILAR' && (view.similar.length === 0
         ? <Empty>연결할 유사 업무가 없습니다.</Empty>
-        : <ul className="link-list">{view.similar.map((link, index) =>
-            <LinkCard key={`${link.left.workItemId}-${link.right.workItemId}-${index}`} link={link} />)}</ul>)}
+        : <><Capped shown={view.similar.length} total={view.similarTotal} />
+          <ul className="link-list">{view.similar.map((link, index) =>
+            <LinkCard key={`${link.left.workItemId}-${link.right.workItemId}-${index}`} link={link} />)}</ul></>)}
 
       {tab === 'COLLAB' && (view.collaboration.length === 0
         ? <Empty>조직 간 연결된 업무가 없습니다.</Empty>
@@ -114,4 +116,19 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
           </table></div>)}
     </Card>}
   </>
+}
+
+/**
+ * Says when a list is showing only part of what matched.
+ *
+ * The endpoint returns the strongest links rather than all of them — every pair
+ * was once serialized, which for 1,805 tasks meant 1.6 million entries — so the
+ * screen has to say what it is leaving out instead of looking complete.
+ */
+function Capped({ shown, total }: { shown: number; total: number }) {
+  if (total <= shown) return null
+  return <p className="muted capped-note">
+    조건에 맞는 {total.toLocaleString()}건 중 관련도가 높은 {shown.toLocaleString()}건만 보여 줍니다.
+    범위를 좁히려면 위의 기간을 줄이세요.
+  </p>
 }

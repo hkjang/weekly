@@ -230,17 +230,7 @@ type digestView struct {
 // and every contribution is listed back to the reader as grounds. An executive
 // who cannot see why an item was selected has no way to disagree with it, and
 // an unfalsifiable summary is worse than none.
-func buildDigest(items []workItemView, links []workLink, cfg rollupConfig) []digestEntry {
-	duplicateByItem := map[int64]workLink{}
-	for _, link := range links {
-		if !link.Duplicate {
-			continue
-		}
-		if _, exists := duplicateByItem[link.Left.WorkItemID]; !exists {
-			duplicateByItem[link.Left.WorkItemID] = link
-		}
-	}
-
+func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, cfg rollupConfig) []digestEntry {
 	entries := []digestEntry{}
 	for _, item := range items {
 		score := 0
@@ -338,8 +328,11 @@ func (a *App) executiveDigest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "경영 요약을 만들 수 없습니다.")
 		return
 	}
-	links := linkWorkItems(items)
+	// Every duplicate counts here, not only the ones a ranked list would show:
+	// the digest scores each task, so a task whose link fell outside a cap
+	// would quietly drop out of the top ten.
+	graph := linkWorkItems(items, insightLinkLimit)
 	view := digestView{Weeks: weeks, Since: since, Scope: scopeTeam, Considered: len(items),
-		Entries: buildDigest(items, links, a.rollupConfig(r.Context()))}
+		Entries: buildDigest(items, graph.DuplicateByItem, a.rollupConfig(r.Context()))}
 	writeData(w, http.StatusOK, view)
 }

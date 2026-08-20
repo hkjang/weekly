@@ -175,7 +175,7 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
         <kbd>Esc</kbd>
       </div>
       <div className="palette-list" ref={listRef} role="listbox">
-        {!results.length ? <p className="palette-empty">{searching ? '검색 중…' : '일치하는 항목이 없습니다.'}</p> : results.map((command, index) => {
+        {!results.length ? <p className="palette-empty">{searching ? '검색 중…' : query.trim().length === 1 ? '두 글자 이상 입력하면 보고서 내용도 함께 찾습니다.' : '일치하는 항목이 없습니다.'}</p> : results.map((command, index) => {
           const header = command.group !== lastGroup ? command.group : ''
           lastGroup = command.group
           return <div key={command.id}>

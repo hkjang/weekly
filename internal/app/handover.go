@@ -153,14 +153,10 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "인수인계 자료를 만들 수 없습니다.")
 		return
 	}
-	// Relations are computed over everything visible, then filtered, so the new
-	// owner learns who else is working on the same subject.
-	links := linkWorkItems(items)
-	related := map[int64][]workRef{}
-	for _, link := range links {
-		related[link.Left.WorkItemID] = append(related[link.Left.WorkItemID], link.Right)
-		related[link.Right.WorkItemID] = append(related[link.Right.WorkItemID], link.Left)
-	}
+	// Only pairs touching this person's tasks, ranked per task. The handover
+	// answers "who else is near this work", which is a question about a few
+	// dozen tasks, not about the whole organisation.
+	related := relatedForUser(items, target, handoverRelatedPerItem)
 
 	view := handoverView{UserID: target, Items: []handoverItem{}}
 	for _, item := range items {
@@ -211,14 +207,28 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 // Work graph endpoint
 // ---------------------------------------------------------------------------
 
+// How many links each list carries. Enough that a reader scrolling the screen
+// runs out of attention before the list runs out of entries, and few enough
+// that the response stays something a browser can render.
+const (
+	insightLinkLimit = 200
+	// Per task, not per handover: a reader scanning a colleague's work wants a
+	// few names beside each item, not a ranked list of the whole company.
+	handoverRelatedPerItem = 5
+)
+
 type workGraphView struct {
-	Weeks         int                 `json:"weeks"`
-	Since         string              `json:"since"`
-	WorkItems     int                 `json:"workItems"`
-	Similar       []workLink          `json:"similar"`
-	Duplicates    []workLink          `json:"duplicates"`
-	Collaboration []collaborationEdge `json:"collaboration"`
-	Recurring     []recurringWork     `json:"recurring"`
+	Weeks     int    `json:"weeks"`
+	Since     string `json:"since"`
+	WorkItems int    `json:"workItems"`
+	// The lists are capped; the totals say by how much, so the screen can state
+	// what it is not showing rather than implying it has shown everything.
+	Similar        []workLink          `json:"similar"`
+	SimilarTotal   int                 `json:"similarTotal"`
+	Duplicates     []workLink          `json:"duplicates"`
+	DuplicateTotal int                 `json:"duplicateTotal"`
+	Collaboration  []collaborationEdge `json:"collaboration"`
+	Recurring      []recurringWork     `json:"recurring"`
 }
 
 func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
@@ -241,19 +251,15 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 인사이트를 만들 수 없습니다.")
 		return
 	}
-	links := linkWorkItems(items)
-	duplicates := []workLink{}
-	similar := []workLink{}
-	for _, link := range links {
-		if link.Duplicate {
-			duplicates = append(duplicates, link)
-			continue
-		}
-		similar = append(similar, link)
+	graph := linkWorkItems(items, insightLinkLimit)
+	if graph.SimilarTotal > len(graph.Similar) || graph.DuplicateTotal > len(graph.Duplicates) {
+		a.logger.Info("work graph truncated", "workItems", len(items),
+			"similar", graph.SimilarTotal, "duplicates", graph.DuplicateTotal, "limit", insightLinkLimit)
 	}
 	writeData(w, http.StatusOK, workGraphView{
 		Weeks: weeks, Since: since, WorkItems: len(items),
-		Similar: similar, Duplicates: duplicates,
-		Collaboration: collaborationEdges(links), Recurring: recurringWorkItems(items),
+		Similar: graph.Similar, SimilarTotal: graph.SimilarTotal,
+		Duplicates: graph.Duplicates, DuplicateTotal: graph.DuplicateTotal,
+		Collaboration: graph.Collaboration, Recurring: recurringWorkItems(items),
 	})
 }

@@ -172,7 +172,10 @@ func distinctiveTokens(title string) map[string]bool {
 
 // sharedDistinctive returns the meaningful words two titles have in common.
 func sharedDistinctive(left, right string) []string {
-	leftTokens, rightTokens := distinctiveTokens(left), distinctiveTokens(right)
+	return sharedTokens(distinctiveTokens(left), distinctiveTokens(right))
+}
+
+func sharedTokens(leftTokens, rightTokens map[string]bool) []string {
 	shared := []string{}
 	for token := range leftTokens {
 		if rightTokens[token] {
@@ -221,67 +224,206 @@ func sameOrganization(left, right workItemView) bool {
 	return *left.OrganizationID == *right.OrganizationID
 }
 
-// weeksInCommon counts the weeks both tasks were reported in. Work that ran at
-// the same time is a far stronger duplicate signal than work separated by a
-// year, which is more likely a repeat of a finished effort.
-func weeksInCommon(left, right workItemView) int {
-	weeks := map[string]bool{}
-	for _, week := range left.Weeks {
+// linkWorkItems finds pairs of related work belonging to different people.
+//
+// Same owner is excluded on purpose: one person reporting two similar tasks is
+// how work is normally broken down, and the period rollup already merges those.
+// linkWorkItems finds related work across owners, keeping only the strongest
+// links of each kind.
+//
+// Every qualifying pair used to be returned. That is quadratic in the number of
+// tasks and unbounded in the response: measured on 1,805 work items it produced
+// 1,606,500 links and a 911MB body in 8.8 seconds, and the screen rendered all
+// of them. The pairs still have to be compared — that is what finding related
+// work means — but only the ones anyone can act on are carried out of here, and
+// the totals go with them so the screen never implies it is showing everything.
+//
+// Duplicates and merely-similar links are ranked separately: a handful of
+// cross-organisation duplicates is the point of the feature, and they must not
+// be crowded out by thousands of loosely similar titles.
+type workLinkResult struct {
+	// Ranked and capped, for screens that list pairs.
+	Duplicates []workLink
+	Similar    []workLink
+	// How many qualified in total, so a screen can say what it is not showing.
+	DuplicateTotal int
+	SimilarTotal   int
+	// Aggregated over every qualifying pair, not over the capped lists.
+	Collaboration []collaborationEdge
+	// One duplicate link per work item, for callers that score tasks rather
+	// than list pairs. Bounded by the number of tasks, so it can cover every
+	// duplicate even when the ranked list cannot.
+	DuplicateByItem map[int64]workLink
+}
+
+func linkWorkItems(items []workItemView, limit int) workLinkResult {
+	var duplicateTotal, similarTotal int
+	var duplicateByItem map[int64]workLink
+	topDuplicates := newLinkTop(limit)
+	topSimilar := newLinkTop(limit)
+	// Titles are tokenized once each rather than twice per pair. The comparison
+	// itself is unavoidably quadratic, but the tokenizing was too: 1,800 tasks
+	// meant 3.2 million passes over the same few hundred strings.
+	tokens := make([]map[string]bool, len(items))
+	distinctive := make([]map[string]bool, len(items))
+	weeks := make([]map[string]bool, len(items))
+	for index := range items {
+		tokens[index] = titleTokens(items[index].Title)
+		distinctive[index] = distinctiveTokens(items[index].Title)
+		weeks[index] = weekSet(items[index])
+	}
+	// Collaboration is aggregated over every qualifying pair, not over the
+	// ranked survivors: it groups by organisation pair, so it is small however
+	// many links there are, and building it from a top-200 sample would drop
+	// whole organisation pairs from the map while presenting it as complete.
+	collaboration := newCollaboration()
+	duplicateByItem = map[int64]workLink{}
+	for left := 0; left < len(items); left++ {
+		for right := left + 1; right < len(items); right++ {
+			first, second := &items[left], &items[right]
+			if first.UserID == second.UserID {
+				continue
+			}
+			similarity := tokenSimilarity(tokens[left], tokens[right])
+			if similarity < relatedTitleSimilarity {
+				continue
+			}
+			shared := sharedTokens(distinctive[left], distinctive[right])
+			if len(shared) == 0 {
+				// Everything the two titles agree on is boilerplate.
+				continue
+			}
+			crossOrg := !sameOrganization(*first, *second)
+			overlap := weeksOverlap(weeks[left], weeks[right])
+			duplicate := crossOrg && similarity >= duplicateTitleSimilarity &&
+				!first.Completed && !second.Completed && overlap > 0
+			link := workLink{
+				Similarity: similarity, SharedTerms: shared, CrossOrg: crossOrg,
+				Duplicate: duplicate, OverlapWeeks: overlap,
+				Left: referenceTo(*first), Right: referenceTo(*second),
+			}
+			link.Reason = describeLink(link)
+			collaboration.add(link)
+			if link.Duplicate {
+				duplicateTotal++
+				// Recorded for every duplicate, not just the ranked ones: the
+				// executive digest scores each task on whether it has a
+				// duplicate, and a task whose link fell outside the cap would
+				// silently lose that ground.
+				if _, seen := duplicateByItem[first.ID]; !seen {
+					duplicateByItem[first.ID] = link
+				}
+				if _, seen := duplicateByItem[second.ID]; !seen {
+					// Stored from the other task's point of view, so the entry
+					// always names the counterpart.
+					mirrored := link
+					mirrored.Left, mirrored.Right = link.Right, link.Left
+					duplicateByItem[second.ID] = mirrored
+				}
+				topDuplicates.offer(link)
+				continue
+			}
+			similarTotal++
+			topSimilar.offer(link)
+		}
+	}
+	return workLinkResult{
+		Duplicates: topDuplicates.sorted(), Similar: topSimilar.sorted(),
+		DuplicateTotal: duplicateTotal, SimilarTotal: similarTotal,
+		Collaboration: collaboration.edges(), DuplicateByItem: duplicateByItem,
+	}
+}
+
+// weekSet is the set of weeks a task was reported in, built once per task
+// rather than twice per pair.
+func weekSet(item workItemView) map[string]bool {
+	weeks := make(map[string]bool, len(item.Weeks))
+	for _, week := range item.Weeks {
 		weeks[week.WeekStart] = true
 	}
+	return weeks
+}
+
+func weeksOverlap(left, right map[string]bool) int {
+	// Walk the smaller set, so the cost follows the shorter history.
+	if len(right) < len(left) {
+		left, right = right, left
+	}
 	count := 0
-	for _, week := range right.Weeks {
-		if weeks[week.WeekStart] {
+	for week := range left {
+		if right[week] {
 			count++
 		}
 	}
 	return count
 }
 
-// linkWorkItems finds pairs of related work belonging to different people.
+// linkTop keeps the highest ranked links seen so far, bounded.
 //
-// Same owner is excluded on purpose: one person reporting two similar tasks is
-// how work is normally broken down, and the period rollup already merges those.
-func linkWorkItems(items []workItemView) []workLink {
-	links := []workLink{}
-	for left := 0; left < len(items); left++ {
-		for right := left + 1; right < len(items); right++ {
-			first, second := items[left], items[right]
-			if first.UserID == second.UserID {
-				continue
-			}
-			similarity := titleSimilarity(first.Title, second.Title)
-			if similarity < relatedTitleSimilarity {
-				continue
-			}
-			shared := sharedDistinctive(first.Title, second.Title)
-			if len(shared) == 0 {
-				// Everything the two titles agree on is boilerplate.
-				continue
-			}
-			crossOrg := !sameOrganization(first, second)
-			overlap := weeksInCommon(first, second)
-			duplicate := crossOrg && similarity >= duplicateTitleSimilarity &&
-				!first.Completed && !second.Completed && overlap > 0
-			link := workLink{
-				Similarity: similarity, SharedTerms: shared, CrossOrg: crossOrg,
-				Duplicate: duplicate, OverlapWeeks: overlap,
-				Left: referenceTo(first), Right: referenceTo(second),
-			}
-			link.Reason = describeLink(link)
-			links = append(links, link)
-		}
+// A slice of everything would defeat the purpose: the memory is the problem, not
+// only the response size.
+type linkTop struct {
+	limit int
+	links []workLink
+}
+
+func newLinkTop(limit int) *linkTop {
+	if limit < 1 {
+		limit = 1
 	}
-	sort.SliceStable(links, func(x, y int) bool {
-		if links[x].Duplicate != links[y].Duplicate {
-			return links[x].Duplicate
+	return &linkTop{limit: limit, links: make([]workLink, 0, limit)}
+}
+
+// linkRank orders by how much a reader would want to see the pair: how alike
+// the titles are, and then how long the two ran at the same time.
+func linkRank(link workLink) int {
+	return link.Similarity*1000 + min(link.OverlapWeeks, 999)
+}
+
+// linkRecency is the later of the pair's two last reported weeks.
+func linkRecency(link workLink) string {
+	return max(link.Left.LastWeek, link.Right.LastWeek)
+}
+
+// linkBetter decides which of two links keeps its place. Rank decides first,
+// and ties go to the more recent pair. Ties are not rare: an exact title match
+// scores 100 for every pair, so without this a page of perfect scores would be
+// whichever pairs the scan reached first, which is the lowest work item ids,
+// which is the oldest work. Reviving that page every week is the point.
+func linkBetter(left, right workLink) bool {
+	leftRank, rightRank := linkRank(left), linkRank(right)
+	if leftRank != rightRank {
+		return leftRank > rightRank
+	}
+	return linkRecency(left) > linkRecency(right)
+}
+
+func (top *linkTop) offer(link workLink) {
+	if len(top.links) < top.limit {
+		top.links = append(top.links, link)
+		if len(top.links) == top.limit {
+			top.reorder()
 		}
-		if links[x].Similarity != links[y].Similarity {
-			return links[x].Similarity > links[y].Similarity
-		}
-		return links[x].OverlapWeeks > links[y].OverlapWeeks
-	})
-	return links
+		return
+	}
+	// The slice is kept weakest-first once full, so one comparison against the
+	// front decides whether the newcomer belongs at all.
+	if !linkBetter(link, top.links[0]) {
+		return
+	}
+	top.links[0] = link
+	top.reorder()
+}
+
+// reorder puts the weakest link at the front.
+func (top *linkTop) reorder() {
+	sort.Slice(top.links, func(i, j int) bool { return linkBetter(top.links[j], top.links[i]) })
+}
+
+func (top *linkTop) sorted() []workLink {
+	result := append([]workLink{}, top.links...)
+	sort.Slice(result, func(i, j int) bool { return linkBetter(result[i], result[j]) })
+	return result
 }
 
 // describeLink states why the pair was surfaced, in the words a reader needs to
@@ -319,18 +461,42 @@ type collaborationEdge struct {
 // This is a map of shared subject matter, not of communication. Two teams
 // working on the same topic may never have spoken, which is exactly what makes
 // the map worth looking at.
+// collaboration accumulates the organisation-pair map one link at a time.
+//
+// It used to be built from a finished list of links. Once that list became a
+// ranked top-200 the map turned into a biased sample of itself: whole
+// organisation pairs disappeared while the screen still presented it as the
+// complete picture. Aggregation is cheap and bounded by the number of
+// organisation pairs, so it now sees every qualifying link.
+type collaborationAccumulator struct {
+	work   int
+	people map[int64]bool
+	topics map[string]int
+}
+
+type collaboration struct {
+	pairs map[string]*collaborationAccumulator
+	names map[string][2]string
+}
+
+func newCollaboration() *collaboration {
+	return &collaboration{pairs: map[string]*collaborationAccumulator{}, names: map[string][2]string{}}
+}
+
 func collaborationEdges(links []workLink) []collaborationEdge {
-	type accumulator struct {
-		work   int
-		people map[int64]bool
-		topics map[string]int
-	}
-	edges := map[string]*accumulator{}
-	names := map[string][2]string{}
+	built := newCollaboration()
 	for _, link := range links {
-		if !link.CrossOrg {
-			continue
-		}
+		built.add(link)
+	}
+	return built.edges()
+}
+
+func (c *collaboration) add(link workLink) {
+	if !link.CrossOrg {
+		return
+	}
+	edges, names := c.pairs, c.names
+	{
 		left, right := link.Left.OrganizationName, link.Right.OrganizationName
 		if left == "" {
 			left = "조직 미지정"
@@ -344,7 +510,7 @@ func collaborationEdges(links []workLink) []collaborationEdge {
 		key := left + "\x00" + right
 		entry := edges[key]
 		if entry == nil {
-			entry = &accumulator{people: map[int64]bool{}, topics: map[string]int{}}
+			entry = &collaborationAccumulator{people: map[int64]bool{}, topics: map[string]int{}}
 			edges[key] = entry
 			names[key] = [2]string{left, right}
 		}
@@ -355,6 +521,10 @@ func collaborationEdges(links []workLink) []collaborationEdge {
 			entry.topics[term]++
 		}
 	}
+}
+
+func (c *collaboration) edges() []collaborationEdge {
+	edges, names := c.pairs, c.names
 	result := make([]collaborationEdge, 0, len(edges))
 	for key, entry := range edges {
 		topics := make([]string, 0, len(entry.topics))
@@ -442,4 +612,59 @@ func recurringWorkItems(items []workItemView) []recurringWork {
 		return result[x].Title < result[y].Title
 	})
 	return result
+}
+
+// relatedForUser lists, per task belonging to one person, the closest work other
+// people are doing.
+//
+// A handover asks a narrow question — who else is near *these* tasks — so it
+// compares only pairs that touch them. Ranking the whole organisation and then
+// filtering, as this used to do, meant that on a large tenant the global top
+// slice could contain none of the target's tasks and the screen showed no
+// related work at all, precisely where it would have been most useful.
+func relatedForUser(items []workItemView, userID int64, perItem int) map[int64][]workRef {
+	if perItem < 1 {
+		perItem = 1
+	}
+	tokens := make([]map[string]bool, len(items))
+	distinctive := make([]map[string]bool, len(items))
+	for index := range items {
+		tokens[index] = titleTokens(items[index].Title)
+		distinctive[index] = distinctiveTokens(items[index].Title)
+	}
+	type scored struct {
+		rank int
+		ref  workRef
+	}
+	found := map[int64][]scored{}
+	for mine := range items {
+		if items[mine].UserID != userID {
+			continue
+		}
+		for other := range items {
+			if items[other].UserID == userID {
+				continue
+			}
+			similarity := tokenSimilarity(tokens[mine], tokens[other])
+			if similarity < relatedTitleSimilarity {
+				continue
+			}
+			if len(sharedTokens(distinctive[mine], distinctive[other])) == 0 {
+				continue
+			}
+			id := items[mine].ID
+			found[id] = append(found[id], scored{rank: similarity, ref: referenceTo(items[other])})
+		}
+	}
+	related := map[int64][]workRef{}
+	for id, candidates := range found {
+		sort.SliceStable(candidates, func(x, y int) bool { return candidates[x].rank > candidates[y].rank })
+		if len(candidates) > perItem {
+			candidates = candidates[:perItem]
+		}
+		for _, candidate := range candidates {
+			related[id] = append(related[id], candidate.ref)
+		}
+	}
+	return related
 }
