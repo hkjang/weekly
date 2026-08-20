@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -268,15 +269,22 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "사용자 수를 조회할 수 없습니다.")
 		return
 	}
+	// The deadline is an instant in the service timezone, not a date in whatever
+	// timezone the database session happens to be in. The previous expression
+	// cast submitted_at to a date in UTC, so a report handed in at 08:00 KST the
+	// day after the deadline was dated to the previous day and counted on time.
+	deadline := a.deadlineRule(r.Context())
 	rows, err := a.db.Query(r.Context(), `
 		SELECT r.week_start,
 		  count(*),
 		  count(*) FILTER (WHERE r.status <> 'DRAFT'),
-		  count(*) FILTER (WHERE r.submitted_at IS NOT NULL AND r.submitted_at::date <= r.week_start + 7),
-		  count(*) FILTER (WHERE r.submitted_at IS NOT NULL AND r.submitted_at::date > r.week_start + 7)
+		  count(*) FILTER (WHERE r.submitted_at IS NOT NULL AND r.submitted_at < deadline.at),
+		  count(*) FILTER (WHERE r.submitted_at IS NOT NULL AND r.submitted_at >= deadline.at)
 		FROM weekly_reports r
+		CROSS JOIN LATERAL (SELECT (r.week_start + make_interval(days => $3, hours => $4)) AT TIME ZONE $5 AS at) deadline
 		WHERE r.week_start BETWEEN $1 AND $2
-		GROUP BY r.week_start ORDER BY r.week_start`, start, end)
+		GROUP BY r.week_start ORDER BY r.week_start`,
+		start, end, deadline.Days, deadline.Hour, deadline.Timezone)
 	if err != nil {
 		a.logger.Error("participation analytics", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "제출 현황을 조회할 수 없습니다.")
@@ -342,5 +350,34 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{
 		"start": start.Format("2006-01-02"), "end": end.Format("2006-01-02"),
 		"weeks": weeks, "activeUsers": activeUsers, "trend": trend, "missing": missing,
+		// Carried in the response so the screen can state the rule it is
+		// reporting against. A punctuality figure whose definition is invisible
+		// invites everyone to assume a different one.
+		"deadline": deadline,
 	})
+}
+
+// deadlineRule is the submission deadline, expressed the way a policy is
+// stated: so many days after the week starts, by such an hour of that day.
+type deadlineRule struct {
+	Days     int    `json:"days"`
+	Hour     int    `json:"hour"`
+	Timezone string `json:"timezone"`
+	// Label is the rule in words, so a screen does not have to reassemble it and
+	// risk describing it differently from the number beside it.
+	Label string `json:"label"`
+}
+
+func (a *App) deadlineRule(ctx context.Context) deadlineRule {
+	rule := deadlineRule{
+		Days:     a.settingInt(ctx, "workflow.deadline_days", 7),
+		Hour:     a.settingInt(ctx, "workflow.deadline_hour", 24),
+		Timezone: a.setting(ctx, "service.timezone", "Asia/Seoul"),
+	}
+	if rule.Hour == 24 {
+		rule.Label = fmt.Sprintf("주차 시작일로부터 %d일째 되는 날 자정까지 (%s)", rule.Days, rule.Timezone)
+	} else {
+		rule.Label = fmt.Sprintf("주차 시작일로부터 %d일째 되는 날 %d시까지 (%s)", rule.Days, rule.Hour, rule.Timezone)
+	}
+	return rule
 }

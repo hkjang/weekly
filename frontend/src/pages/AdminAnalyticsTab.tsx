@@ -127,7 +127,7 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
               <small>{participation.trend[participation.trend.length - 1]?.submitted ?? 0}명 제출</small></Card>
             <Card><span className="metric-label">기한 내 제출</span><strong className="metric-value">
               {(participation.trend[participation.trend.length - 1]?.onTimeRate ?? 0).toFixed(0)}%</strong>
-              <small>주차 종료 후 7일 이내</small></Card>
+              <small>{participation.deadline?.label ?? '기준 미설정'}</small></Card>
             <Card><span className="metric-label">미제출 인원</span><strong className="metric-value">{participation.missing.length}</strong><small>기간 내 1회 이상 누락</small></Card>
           </div>
         </>}

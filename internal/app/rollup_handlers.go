@@ -135,7 +135,7 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 
 	entries := []sourceEntry{}
 	if len(reportIDs) > 0 {
-		itemRows, err := a.db.Query(ctx, `SELECT i.report_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.management_ask,i.progress
+		itemRows, err := a.db.Query(ctx, `SELECT i.report_id,i.work_item_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.management_ask,i.progress
 			FROM report_items i WHERE i.report_id = ANY($1) ORDER BY i.report_id,i.sort_order,i.id`, reportIDs)
 		if err != nil {
 			return rollupView{}, err
@@ -148,7 +148,7 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 		for itemRows.Next() {
 			var entry sourceEntry
 			var id int64
-			if err := itemRows.Scan(&id, &entry.Category, &entry.Title, &entry.CurrentResult, &entry.NextPlan, &entry.Issue, &entry.ManagementAsk, &entry.Progress); err != nil {
+			if err := itemRows.Scan(&id, &entry.WorkItemID, &entry.Category, &entry.Title, &entry.CurrentResult, &entry.NextPlan, &entry.Issue, &entry.ManagementAsk, &entry.Progress); err != nil {
 				return rollupView{}, err
 			}
 			report := byReport[id]

@@ -85,9 +85,10 @@ export interface ParticipationWeek {
   onTime: number; late: number; submissionRate: number; onTimeRate: number
 }
 export interface MissingReporter { userId: number; displayName: string; username: string; organization: string; missedWeeks: number; lastWeek: string }
+export interface DeadlineRule { days: number; hour: number; timezone: string; label: string }
 export interface ParticipationAnalytics {
   start: string; end: string; weeks: number; activeUsers: number
-  trend: ParticipationWeek[]; missing: MissingReporter[]
+  trend: ParticipationWeek[]; missing: MissingReporter[]; deadline: DeadlineRule
 }
 
 export interface SearchMatch { field: string; label: string; title?: string; snippet: string }

@@ -25,8 +25,12 @@ var settingDefinitions = map[string]settingDefinition{
 	"service.timezone":    {Validate: validTimezone},
 	"workflow.enabled":    {Validate: booleanValue},
 	"workflow.week_start": {Validate: oneOf("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")},
-	"auth.local_enabled":  {Validate: booleanValue},
-	"auth.session_hours":  {Validate: integerRange(1, 720)},
+	// Days after the week start, and the hour of that day. 24 means "by the end
+	// of that day", which is how a deadline is usually stated out loud.
+	"workflow.deadline_days": {Validate: integerRange(0, 13)},
+	"workflow.deadline_hour": {Validate: integerRange(1, 24)},
+	"auth.local_enabled":     {Validate: booleanValue},
+	"auth.session_hours":     {Validate: integerRange(1, 720)},
 	// Zero disables each limit; the account limit ships enabled and the address
 	// limit ships disabled. See loginThrottleFor for why they differ.
 	"auth.max_login_attempts":             {Validate: integerRange(0, 1000)},

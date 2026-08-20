@@ -99,7 +99,7 @@ func TestSelectColumnsMatchScanDestinations(t *testing.T) {
 		file, selectMarker string
 		wantColumns        int
 	}{
-		{"rollup_handlers.go", "SELECT i.report_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.management_ask,i.progress", 8},
+		{"rollup_handlers.go", "SELECT i.report_id,i.work_item_id,i.category,i.title,i.current_result,i.next_plan,i.issue,i.management_ask,i.progress", 9},
 	}
 	for _, testCase := range cases {
 		body, err := os.ReadFile(filepath.Join("./", testCase.file))

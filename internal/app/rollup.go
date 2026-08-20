@@ -46,7 +46,11 @@ func defaultRollupConfig() rollupConfig {
 
 // sourceEntry is one weekly report item feeding the rollup.
 type sourceEntry struct {
-	ReportID      int64
+	ReportID int64
+	// WorkItemID is the stored identity of the task, including any merge or
+	// split its owner made by hand. When it is present it decides the grouping
+	// outright; the title is only a fallback for rows that never got one.
+	WorkItemID    *int64
 	UserID        int64
 	DisplayName   string
 	WeekStart     string
@@ -441,17 +445,20 @@ func titleSimilarity(left, right string) int {
 // ---------------------------------------------------------------------------
 
 type itemAccumulator struct {
-	key           string
-	category      string
-	title         string
-	titles        map[string]bool
-	mergedTitles  []string
-	current       *lineSet
-	next          *lineSet
-	issue         *lineSet
-	ask           *lineSet
-	owners        []string
-	ownerSeen     map[string]bool
+	key          string
+	category     string
+	title        string
+	titles       map[string]bool
+	mergedTitles []string
+	current      *lineSet
+	next         *lineSet
+	issue        *lineSet
+	ask          *lineSet
+	owners       []string
+	ownerSeen    map[string]bool
+	// ownerIDs is what the fuzzy title rule consults. Work item identity is per
+	// owner, so a guess is only allowed to reach across people.
+	ownerIDs      map[int64]bool
 	weeks         []rollupItemWeek
 	weekSeen      map[string]int
 	firstProgress int
@@ -464,11 +471,12 @@ func newAccumulator(key string, entry sourceEntry) *itemAccumulator {
 	return &itemAccumulator{
 		key: key, category: entry.Category, title: entry.Title,
 		titles: map[string]bool{}, current: newLineSet(), next: newLineSet(), issue: newLineSet(), ask: newLineSet(),
-		ownerSeen: map[string]bool{}, weekSeen: map[string]int{}, firstProgress: entry.Progress,
+		ownerSeen: map[string]bool{}, ownerIDs: map[int64]bool{}, weekSeen: map[string]int{}, firstProgress: entry.Progress,
 	}
 }
 
 func (acc *itemAccumulator) absorb(entry sourceEntry) {
+	acc.ownerIDs[entry.UserID] = true
 	// The most recent week wins for the human readable label, so a renamed task
 	// shows its current name while still carrying the whole history.
 	if entry.WeekStart >= acc.lastWeek {
@@ -521,22 +529,26 @@ func aggregateRollupItems(entries []sourceEntry, cfg rollupConfig) []rollupItem 
 		return sorted[i].Title < sorted[j].Title
 	})
 
+	canonical, split := workItemKeys(sorted)
+
 	order := []string{}
 	byKey := map[string]*itemAccumulator{}
 	for _, entry := range sorted {
-		key := candidateTitleKey(entry.Title)
-		if key == "" {
-			key = strings.ToLower(strings.TrimSpace(entry.Title))
-		}
+		key, corrected := rollupKey(entry, canonical, split)
 		if key == "" {
 			continue
 		}
 		if _, ok := byKey[key]; !ok {
 			// Exact normalization missed it; try a conservative fuzzy match so
 			// "AI 게이트웨이 PoC" and "AI 게이트웨이 PoC 검증" become one task.
-			if merged := fuzzyMatch(order, byKey, entry.Title, cfg.MergeSimilarity); merged != "" {
-				key = merged
-			} else {
+			// Skipped for a task its owner has split apart, since the fuzzy rule
+			// compares titles and the two halves usually still share one.
+			if !corrected {
+				if merged := fuzzyMatch(order, byKey, entry, cfg.MergeSimilarity); merged != "" {
+					key = merged
+				}
+			}
+			if _, ok := byKey[key]; !ok {
 				byKey[key] = newAccumulator(key, entry)
 				order = append(order, key)
 			}
@@ -604,13 +616,96 @@ func aggregateRollupItems(entries []sourceEntry, cfg rollupConfig) []rollupItem 
 	return result
 }
 
-func fuzzyMatch(order []string, byKey map[string]*itemAccumulator, title string, threshold int) string {
+// ownerTitle is one person's version of one task name.
+type ownerTitle struct {
+	owner int64
+	key   string
+}
+
+// workItemKeys decides how stored identity feeds the period grouping.
+//
+// Identity is per owner, and a period report exists to show one task once for
+// the whole organisation rather than once per person, so the work item cannot
+// simply become the grouping key. It is used for the two things a title cannot
+// express, both of which are corrections its owner made by hand:
+//
+//   - a merge, where one work item carries two different titles: every entry
+//     takes the work item's most recent title, so both spellings land together
+//     and other people's reports of the same task join them;
+//   - a split, where one owner has one title under two work items: those entries
+//     get the work item appended so they stay apart.
+//
+// Everything else keys on the title exactly as before.
+func workItemKeys(sorted []sourceEntry) (map[int64]string, map[ownerTitle]map[int64]bool) {
+	canonical := map[int64]string{}
+	for _, entry := range sorted {
+		if entry.WorkItemID == nil {
+			continue
+		}
+		if key := titleGroupKey(entry.Title); key != "" {
+			// sorted runs oldest first, so the last write is the latest wording.
+			canonical[*entry.WorkItemID] = key
+		}
+	}
+	split := map[ownerTitle]map[int64]bool{}
+	for _, entry := range sorted {
+		if entry.WorkItemID == nil {
+			continue
+		}
+		seen := ownerTitle{owner: entry.UserID, key: canonical[*entry.WorkItemID]}
+		if split[seen] == nil {
+			split[seen] = map[int64]bool{}
+		}
+		split[seen][*entry.WorkItemID] = true
+	}
+	return canonical, split
+}
+
+// rollupKey returns the grouping key for one entry, and whether that key came
+// from a correction its owner made rather than from the title alone.
+func rollupKey(entry sourceEntry, canonical map[int64]string, split map[ownerTitle]map[int64]bool) (string, bool) {
+	key := titleGroupKey(entry.Title)
+	if entry.WorkItemID == nil {
+		return key, false
+	}
+	if stored := canonical[*entry.WorkItemID]; stored != "" {
+		key = stored
+	}
+	if key == "" {
+		return "", false
+	}
+	if len(split[ownerTitle{owner: entry.UserID, key: key}]) > 1 {
+		return fmt.Sprintf("%s#%d", key, *entry.WorkItemID), true
+	}
+	return key, false
+}
+
+func titleGroupKey(title string) string {
+	if key := candidateTitleKey(title); key != "" {
+		return key
+	}
+	return strings.ToLower(strings.TrimSpace(title))
+}
+
+// fuzzyMatch finds a task whose title is close enough to be the same work under
+// a slightly different name.
+//
+// It refuses to merge two tasks the same person reported when both carry a
+// stored identity. Within one owner that identity is the answer and is theirs to
+// correct; guessing on top of it would let a period report contradict every
+// other screen and re-join what they deliberately kept apart. Across owners
+// nothing stored spans people, so the title is still the only evidence there is.
+func fuzzyMatch(order []string, byKey map[string]*itemAccumulator, entry sourceEntry, threshold int) string {
 	if threshold <= 0 || threshold > 100 {
 		return ""
 	}
 	best, bestScore := "", 0
 	for _, key := range order {
-		score := titleSimilarity(byKey[key].title, title)
+		accumulator := byKey[key]
+		if entry.WorkItemID != nil && accumulator.ownerIDs[entry.UserID] {
+			continue
+		}
+		score := titleSimilarity(accumulator.title, entry.Title)
 		if score >= threshold && score > bestScore {
 			best, bestScore = key, score
 		}

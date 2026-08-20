@@ -66,6 +66,8 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 - `GET /readyz`: PostgreSQL 연결 포함 준비 상태
 - 관리자 `보고 · 서비스 분석`: 최근 24시간 경로별 호출, 평균/최대 지연, 4xx/5xx 비율
 
+정시 제출 판정 기준은 관리자 설정의 `제출 마감`이다. `주차 시작일 + N일 + H시`를 서비스 시간대로 해석한 시각과 제출 시각을 비교하며, 기본값 7일 24시는 주차 시작일로부터 7일째 되는 날 자정이다. 보고 분석 화면이 이 기준을 그대로 표시한다.
+
 Import Worker는 API 프로세스 내부에서 동작하며 PostgreSQL의 `FOR UPDATE SKIP LOCKED`로 작업을 하나씩 가져간다. 프로세스 재시작 시 `PROCESSING` 작업은 `PENDING/QUEUED`로 복구된다. 작업이 멈춘 것처럼 보이면 AI Gateway 연결과 모델의 JSON Schema 지원 여부, `/var/lib/weekly/imports` 쓰기 권한, Import 상세 오류를 순서대로 점검한다.
 
 `import.retention_days`가 지난 `CONFIRMED`, `SKIPPED`, `FAILED` 원본은 30분 유지보수 주기에 최대 500개씩 제거된다. 분석 메타데이터는 삭제하지 않는다. 원본까지 장기 보존해야 한다면 관리자 설정에서 기간을 늘리고 DB와 볼륨을 같은 복구 시점으로 백업한다.

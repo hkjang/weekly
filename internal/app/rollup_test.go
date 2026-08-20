@@ -373,3 +373,86 @@ func TestAggregateMergesSameTaskAcrossOwners(t *testing.T) {
 		t.Errorf("progress = %d, want the furthest progress 50", items[0].Progress)
 	}
 }
+
+func workEntry(week, title string, workItemID int64, progress int) sourceEntry {
+	item := entry(week, "플랫폼", title, "진행", "", "", progress)
+	item.WorkItemID = &workItemID
+	return item
+}
+
+// The period rollup used to re-guess task identity from titles, which meant it
+// could re-merge tasks their owner had just split and could disagree with every
+// other screen about what counts as one task.
+func TestAggregateGroupsByStoredWorkItemIdentity(t *testing.T) {
+	// Same title, two identities: the owner split this task apart by hand.
+	split := aggregateRollupItems([]sourceEntry{
+		workEntry("2026-08-03", "통합 인증 개선", 1, 30),
+		workEntry("2026-08-10", "통합 인증 개선", 2, 40),
+	}, defaultRollupConfig())
+	if len(split) != 2 {
+		t.Fatalf("a hand split was re-merged: got %d items, want 2", len(split))
+	}
+
+	// Different titles, one identity: the owner merged them.
+	merged := aggregateRollupItems([]sourceEntry{
+		workEntry("2026-08-03", "통합 인증 개선", 5, 30),
+		workEntry("2026-08-10", "인증 연동 2단계", 5, 60),
+	}, defaultRollupConfig())
+	if len(merged) != 1 {
+		t.Fatalf("a hand merge was ignored: got %d items, want 1", len(merged))
+	}
+	if merged[0].Progress != 60 {
+		t.Fatalf("merged progress=%d want=60", merged[0].Progress)
+	}
+
+	// Titles similar enough for the old fuzzy rule, but distinct identities.
+	// The stored answer wins over the guess.
+	contained := aggregateRollupItems([]sourceEntry{
+		workEntry("2026-08-03", "AI 게이트웨이 PoC", 8, 40),
+		workEntry("2026-08-10", "AI 게이트웨이 PoC 검증", 9, 20),
+	}, defaultRollupConfig())
+	if len(contained) != 2 {
+		t.Fatalf("similar titles with different identities were merged: got %d, want 2", len(contained))
+	}
+}
+
+// Rows with no stored identity still fall back to the title rules, so a corpus
+// that predates work items keeps aggregating the way it always did.
+func TestAggregateFallsBackToTitlesWithoutWorkItems(t *testing.T) {
+	items := aggregateRollupItems([]sourceEntry{
+		entry("2026-08-03", "플랫폼", "AI 게이트웨이 PoC", "설계", "", "", 20),
+		entry("2026-08-10", "플랫폼", "AI 게이트웨이 PoC 검증", "시험", "", "", 50),
+	}, defaultRollupConfig())
+	if len(items) != 1 {
+		t.Fatalf("title fallback stopped merging: got %d items, want 1", len(items))
+	}
+}
+
+// The period report exists to show one organisation-wide task once, and work
+// item identity is per owner, so a guess is still allowed to reach across
+// people even when both sides carry a stored identity.
+func TestAggregateStillMergesSimilarTitlesAcrossOwners(t *testing.T) {
+	first := workEntry("2026-08-03", "AI 게이트웨이 구축", 11, 30)
+	second := workEntry("2026-08-10", "AI 게이트웨이 구축 지원", 22, 50)
+	second.UserID = 8
+	second.DisplayName = "김담당"
+	items := aggregateRollupItems([]sourceEntry{first, second}, defaultRollupConfig())
+	if len(items) != 1 {
+		t.Fatalf("two people's version of one task split apart: got %d items, want 1", len(items))
+	}
+	if len(items[0].Owners) != 2 {
+		t.Fatalf("owners=%v want two contributors", items[0].Owners)
+	}
+}
+
+// The same two titles under one person stay apart, because that owner has a
+// stored answer and a tool to change it.
+func TestAggregateDoesNotGuessWithinOneOwner(t *testing.T) {
+	items := aggregateRollupItems([]sourceEntry{
+		workEntry("2026-08-03", "AI 게이트웨이 구축", 11, 30),
+		workEntry("2026-08-10", "AI 게이트웨이 구축 지원", 22, 50),
+	}, defaultRollupConfig())
+	if len(items) != 2 {
+		t.Fatalf("one owner's two tasks were guessed into one: got %d items, want 2", len(items))
+	}
+}
