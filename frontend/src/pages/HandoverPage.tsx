@@ -58,7 +58,7 @@ export default function HandoverPage({ session, notify }: {
         : undefined} />
 
     {view === undefined ? <Spinner/> : view.items.length === 0
-      ? <Empty>인수인계할 업무 기록이 없습니다.</Empty>
+      ? <Empty>선택한 담당자에게는 아직 인수인계할 업무 기록이 없습니다. 주간보고가 쌓이면 진행 경과와 미해결 이슈가 여기에 모입니다.</Empty>
       : <>
         <div className="meeting-summary">
           <span><strong>{view.displayName}</strong></span>

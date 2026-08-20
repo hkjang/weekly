@@ -6,6 +6,7 @@ import type { Command } from './CommandPalette'
 import { navigateTo, parseRoute, replaceRoute, routeHash } from './router'
 import { confirmDiscard, hasUnsavedWork } from './unsavedGuard'
 import { onSessionLost } from './session'
+import { popLayer, pushLayer } from './layers'
 import ErrorBoundary from './ErrorBoundary'
 import type { PageName } from './router'
 import type { Providers, SessionInfo } from './types'
@@ -119,6 +120,14 @@ export default function App() {
   useEffect(() => {
     navRef.current?.querySelector('button.active')?.scrollIntoView({ block: 'nearest', inline: 'center' })
   }, [page])
+
+  // The palette is a layer like any other, so a dialog underneath it does not
+  // also close when Escape dismisses the palette.
+  useEffect(() => {
+    if (!paletteOpen) return
+    const id = pushLayer()
+    return () => popLayer(id)
+  }, [paletteOpen])
   useEffect(() => {
     if (!session) return
     const teamOnly = page === 'team' || page === 'analytics' || page === 'digest' || page === 'insights'
@@ -151,6 +160,7 @@ export default function App() {
         return
       }
       if (event.key === 'Escape' && paletteOpen) { setPaletteOpen(false); return }
+      // Anything below is only for the page itself, never for an overlay.
       if (paletteOpen || event.ctrlKey || event.metaKey || event.altKey || typingInFormField(event.target)) return
       if (event.key === '/' || event.key === '?') { event.preventDefault(); setPaletteOpen(true); return }
       if (awaitingGoto) {

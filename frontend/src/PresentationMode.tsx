@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import PresenterWindow from './PresenterWindow'
 import { api } from './api'
+import { isTopLayer, popLayer, pushLayer } from './layers'
 
 /**
  * Presentation mode: any deck the app can export as PPTX can also be presented
@@ -190,10 +191,21 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
     }
   }, [blackout, go, jump, leave, notes, notesOpen, overviewOpen, pushDigit, toggleFullscreen, total])
 
+  // Registered in the shared layer stack: a deck opened over a detail dialog
+  // must be the only thing Escape closes.
+  const layer = useRef<symbol>(undefined)
+  useEffect(() => {
+    layer.current = pushLayer()
+    return () => { if (layer.current) popLayer(layer.current) }
+  }, [])
   useEffect(() => {
     container.current?.focus()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const guarded = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && layer.current && !isTopLayer(layer.current)) return
+      onKey(event)
+    }
+    window.addEventListener('keydown', guarded)
+    return () => window.removeEventListener('keydown', guarded)
   }, [onKey])
 
   useEffect(() => {

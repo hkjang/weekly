@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api } from '../api'
-import { Button, Card, Empty, PageHeader, Spinner } from '../components'
+import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import PresentationMode from '../PresentationMode'
 import { rollupSlides } from '../presentSlides'
 import { CompositionBar, ProgressTrendChart, RankBars, TaskTimeline, WeeklyStateChart } from '../charts'
@@ -212,8 +212,7 @@ export default function RollupPage({ session, route, notify }: {
       </>}
     </>}
 
-    {detail && <div className="modal-backdrop" onClick={() => setDetail(undefined)}>
-      <div className="modal wide" onClick={event => event.stopPropagation()}>
+    {detail && <Modal onClose={() => setDetail(undefined)} label={`${detail.title} 상세`} className="wide">
         <header>
           <div>
             <span className="week-label">{detail.category || '미분류'} · {detail.firstWeek} ~ {detail.lastWeek} · {detail.weekCount}개 주차</span>
@@ -236,8 +235,7 @@ export default function RollupPage({ session, route, notify }: {
           <section><b>남은 계획</b><p>{detail.nextPlan || '-'}</p></section>
           <section><b>이슈</b><p>{detail.issue || '-'}</p></section>
         </div>
-      </div>
-    </div>}
+    </Modal>}
     {presenting && rollup && <PresentationMode label={`${rollup.label} · ${rollup.scopeLabel}`}
       slides={rollupSlides(rollup)} onClose={() => setPresenting(false)} />}
   </>

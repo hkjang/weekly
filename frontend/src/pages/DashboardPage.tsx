@@ -21,7 +21,7 @@ export default function DashboardPage({ session, navigate }: { session: SessionI
           <strong>{group.count}</strong><span>{group.title}</span>
         </li>)}</ul>
       </Card>}
-      <Card title="이번 주 이슈">{report && report.items.some(i => i.issue.trim()) ? <ul className="issue-list">{report.items.filter(i => i.issue.trim()).map((item, index) => <li key={index}><span>{item.title}</span><p>{item.issue}</p></li>)}</ul> : <Empty>등록된 이슈가 없습니다.</Empty>}</Card>
+      <Card title="이번 주 이슈">{report && report.items.some(i => i.issue.trim()) ? <ul className="issue-list">{report.items.filter(i => i.issue.trim()).map((item, index) => <li key={index}><span>{item.title}</span><p>{item.issue}</p></li>)}</ul> : <Empty>이번 주 보고서에 적은 이슈가 없습니다.</Empty>}</Card>
     </div>
   </>
 }

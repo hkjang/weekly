@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api } from '../api'
-import { Card, Empty, Spinner } from '../components'
+import { Modal, Card, Empty, Spinner } from '../components'
 import { ProgressTrendChart, RankBars } from '../charts'
 import WordCloud, { termTrend, trendColors } from '../WordCloud'
 import type { AnalysisTerm, KeywordAnalytics, OrganizationAnalytics, ParticipationAnalytics } from '../types'
@@ -148,8 +148,7 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
       </Card>}
     </>}
 
-    {selected && <div className="modal-backdrop" onClick={() => setSelected(undefined)}>
-      <div className="modal" onClick={event => event.stopPropagation()}>
+    {selected && <Modal onClose={() => setSelected(undefined)} label={`${selected.term} 키워드 상세`}>
         <header><div><span className="week-label">키워드</span><h2>{selected.term}</h2></div>
           <button onClick={() => setSelected(undefined)}>×</button></header>
         <div className="rollup-detail">
@@ -161,7 +160,6 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
           </div>
           <p className="muted">빠른 이동(Ctrl+K)에서 이 키워드로 검색하면 해당 문장이 포함된 보고서를 바로 열 수 있습니다.</p>
         </div>
-      </div>
-    </div>}
+    </Modal>}
   </>
 }

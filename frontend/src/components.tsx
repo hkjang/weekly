@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react'
 import type { PropsWithChildren, ReactNode } from 'react'
+import { isTopLayer, popLayer, pushLayer } from './layers'
 import type { ReportSource, ReportStatus } from './types'
 
 export function Button({ children, variant = 'primary', className = '', ...props }: PropsWithChildren<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }>) {
@@ -18,7 +20,86 @@ export function StatusBadge({ status }: { status: ReportStatus }) { return <span
 const sourceNames: Record<ReportSource, string> = { MANUAL: '직접 작성', AI_TEXT: 'AI 초안', PPTX_IMPORT: 'PPTX 가져오기', CONFLUENCE_AI: 'Confluence 자동 초안', CLONED: '보고서 복제', API: 'API', JIRA: 'Jira' }
 export function SourceBadge({ source }: { source: ReportSource }) { return <span className={`badge source-${source.toLowerCase()}`}>{sourceNames[source]}</span> }
 
-export function Empty({ children }: PropsWithChildren) { return <div className="empty"><span className="empty-icon">◇</span><p>{children}</p></div> }
+export function Empty({ children, action }: PropsWithChildren<{ action?: ReactNode }>) {
+  return <div className="empty"><span className="empty-icon">◇</span><p>{children}</p>{action && <div className="empty-action">{action}</div>}</div>
+}
+
+/**
+ * A dialog that behaves like one: Escape closes it, focus moves into it when it
+ * opens and returns where it came from when it closes, and Tab stays inside
+ * while it is up.
+ *
+ * These were previously written inline on each screen, so closing a window
+ * meant a different gesture depending on which screen you were on — the command
+ * palette and presentation mode took Escape, the detail views did not.
+ */
+export function Modal({ onClose, beforeClose, label, className = '', children }: PropsWithChildren<{
+  onClose: () => void
+  /** Return false to keep the dialog open, for unsaved work worth a question. */
+  beforeClose?: () => boolean
+  label: string
+  className?: string
+}>) {
+  const panel = useRef<HTMLDivElement>(null)
+  // Read through a ref because every call site passes a fresh closure on each
+  // render. With these in the dependency list the effect tore down and set up
+  // again on every keystroke, and its setup moved focus to the dialog itself —
+  // so the first character typed into a field was also the last.
+  const handlers = useRef({ onClose, beforeClose })
+  handlers.current = { onClose, beforeClose }
+  const close = () => {
+    if (handlers.current.beforeClose && !handlers.current.beforeClose()) return
+    handlers.current.onClose()
+  }
+
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    panel.current?.focus({ preventScroll: true })
+    const id = pushLayer()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        // Someone earlier in the dispatch already dealt with this keypress. The
+        // layer check alone is not enough: React flushes state synchronously
+        // during a keydown, so an overlay that closes itself has already left
+        // the stack by the time this listener runs, and this dialog would find
+        // itself on top and close too.
+        if (event.defaultPrevented) return
+        // Only the top layer answers, so leaving a deck opened above this
+        // dialog does not also close the dialog underneath it.
+        if (!isTopLayer(id)) return
+        // A Korean input method uses Escape to cancel its candidate list; that
+        // keypress must not also throw away the form.
+        if (event.isComposing) return
+        event.preventDefault()
+        if (handlers.current.beforeClose && !handlers.current.beforeClose()) return
+        handlers.current.onClose()
+        return
+      }
+      if (event.key !== 'Tab' || !panel.current) return
+      // Tab used to walk out of the dialog and into the page behind it, which
+      // leaves a keyboard user editing something they cannot see.
+      const stops = panel.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+      if (!stops.length) return
+      const first = stops[0]
+      const last = stops[stops.length - 1]
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      popLayer(id)
+      opener?.focus?.({ preventScroll: true })
+    }
+    // Opened once for the lifetime of the dialog; the handlers are read live.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return <div className="modal-backdrop" onClick={close}>
+    <div className={`modal ${className}`} ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={label}
+      onClick={event => event.stopPropagation()}>{children}</div>
+  </div>
+}
 export function Spinner() { return <div className="spinner-wrap"><span className="spinner"/><span>불러오는 중…</span></div> }
 
 export function Toast({ message, kind = 'success', onClose }: { message: string; kind?: 'success' | 'error'; onClose: () => void }) {

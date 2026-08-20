@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api, post } from '../api'
-import { Button, Card, Empty, PageHeader, Spinner } from '../components'
+import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
@@ -192,8 +192,7 @@ export default function WorkItemsPage({ session, notify }: {
       </Card>
     </>}
 
-    {detail && <div className="modal-backdrop" onClick={closeDetail}>
-      <div className="modal wide" onClick={event => event.stopPropagation()}>
+    {detail && <Modal onClose={closeDetail} label={`${detail.title} 상세`} className="wide">
         <header>
           <div>
             <span className="week-label">{detail.category || '미분류'} · {detail.displayName}</span>
@@ -258,7 +257,6 @@ export default function WorkItemsPage({ session, notify }: {
             </div>
           </div>}
         </div>
-      </div>
-    </div>}
+    </Modal>}
   </>
 }
