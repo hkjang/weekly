@@ -289,3 +289,70 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 		Collaboration: graph.Collaboration, Recurring: recurringWorkItems(items),
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Who a leader can hand work over for
+// ---------------------------------------------------------------------------
+
+type teamMember struct {
+	ID               int64  `json:"id"`
+	DisplayName      string `json:"displayName"`
+	OrganizationName string `json:"organizationName"`
+	Active           bool   `json:"active"`
+	LastWeek         string `json:"lastWeek"`
+}
+
+// teamMembers lists the people whose work this leader can open.
+//
+// The handover screen used to build this list out of 팀 주간보고, which returns
+// a page of reports. Measured on 120 people over 26 weeks that page held the
+// most recent five weeks, so anyone who had stopped reporting before then was
+// simply not in the list — and the person who stopped reporting is exactly the
+// person a handover is for. Someone who left six weeks ago was unreachable on
+// the screen built to hand over their work.
+//
+// People come from the people table. Inactive accounts are included and marked,
+// because they are the ones being handed over.
+func (a *App) teamMembers(w http.ResponseWriter, r *http.Request) {
+	p := currentPrincipal(r.Context())
+	query := `SELECT u.id,u.display_name,COALESCE(o.name,''),u.active,
+			COALESCE(MAX(rep.week_start)::text,'')
+		FROM users u
+		LEFT JOIN organizations o ON o.id=u.organization_id
+		LEFT JOIN weekly_reports rep ON rep.user_id=u.id
+		WHERE 1=1`
+	args := []any{}
+	if p.Role != "ADMIN" {
+		if p.OrganizationID == nil {
+			args = append(args, p.ID)
+			query += fmt.Sprintf(" AND u.id=$%d", len(args))
+		} else {
+			args = append(args, p.ID)
+			query += fmt.Sprintf(" AND (u.id=$%d", len(args))
+			args = append(args, *p.OrganizationID)
+			query += fmt.Sprintf(` OR u.organization_id IN (WITH RECURSIVE orgs AS
+				(SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o2.id FROM organizations o2 JOIN orgs x ON o2.parent_id=x.id)
+				SELECT id FROM orgs))`, len(args))
+		}
+	}
+	// Active people first, then by name: a picker is read top down, and the
+	// accounts still filing reports are the ones opened most often.
+	query += ` GROUP BY u.id,u.display_name,o.name,u.active ORDER BY u.active DESC,u.display_name`
+	rows, err := a.db.Query(r.Context(), query, args...)
+	if err != nil {
+		a.logger.Error("team members", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "담당자 목록을 조회할 수 없습니다.")
+		return
+	}
+	defer rows.Close()
+	members := []teamMember{}
+	for rows.Next() {
+		var member teamMember
+		if err := rows.Scan(&member.ID, &member.DisplayName, &member.OrganizationName, &member.Active, &member.LastWeek); err != nil {
+			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "담당자 목록을 조회할 수 없습니다.")
+			return
+		}
+		members = append(members, member)
+	}
+	writeData(w, http.StatusOK, members)
+}

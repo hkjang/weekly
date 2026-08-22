@@ -668,33 +668,82 @@ func (a *App) addComment(w http.ResponseWriter, r *http.Request) {
 func (a *App) listReports(w http.ResponseWriter, r *http.Request) { a.queryReports(w, r, false) }
 func (a *App) teamReports(w http.ResponseWriter, r *http.Request) { a.queryReports(w, r, true) }
 
+// clampQueryInt reads a whole-number query parameter, falling back when it is
+// absent or unreadable and holding the result inside [low, high]. An unreadable
+// value is not an error: a caller sending limit=abc gets the default page,
+// which is more useful than a 400 telling them what they already typed.
+func clampQueryInt(r *http.Request, name string, fallback, low, high int) int {
+	value := strings.TrimSpace(r.URL.Query().Get(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return min(max(parsed, low), high)
+}
+
+// How many reports one request returns, and the most it will return however
+// large the limit asked for. The list used to end at a bare LIMIT 500 with no
+// total beside it: measured on 120 people over 26 weeks, 팀 주간보고 held 3,120
+// reports, returned 500 of them, and the screen showed five weeks as though
+// that were the whole record.
+const (
+	reportPageDefault = 200
+	reportPageMaximum = 500
+)
+
+// reportListView carries what was returned and what exists, so a screen can
+// never present a page as the whole set.
+type reportListView struct {
+	Items  []reportListItem `json:"items"`
+	Total  int              `json:"total"`
+	Limit  int              `json:"limit"`
+	Offset int              `json:"offset"`
+}
+
 func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool) {
 	p := currentPrincipal(r.Context())
 	week := strings.TrimSpace(r.URL.Query().Get("weekStart"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,r.submitted_at,r.updated_at
-		FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1`
+	limit := clampQueryInt(r, "limit", reportPageDefault, 1, reportPageMaximum)
+	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
+
+	where := ""
 	args := []any{}
 	if !teamOnly {
 		args = append(args, p.ID)
-		query += fmt.Sprintf(" AND r.user_id=$%d", len(args))
+		where += fmt.Sprintf(" AND r.user_id=$%d", len(args))
 	} else if p.Role != "ADMIN" {
 		if p.OrganizationID == nil {
-			writeData(w, 200, []reportListItem{})
+			writeData(w, 200, reportListView{Items: []reportListItem{}, Limit: limit, Offset: offset})
 			return
 		}
 		args = append(args, *p.OrganizationID)
-		query += fmt.Sprintf(" AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)", len(args))
+		where += fmt.Sprintf(" AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)", len(args))
 	}
 	if week != "" {
 		args = append(args, week)
-		query += fmt.Sprintf(" AND r.week_start=$%d", len(args))
+		where += fmt.Sprintf(" AND r.week_start=$%d", len(args))
 	}
 	if status != "" {
 		args = append(args, status)
-		query += fmt.Sprintf(" AND r.status=$%d", len(args))
+		where += fmt.Sprintf(" AND r.status=$%d", len(args))
 	}
-	query += " ORDER BY r.week_start DESC,u.display_name LIMIT 500"
+
+	total := 0
+	countQuery := `SELECT count(*) FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1` + where
+	if err := a.db.QueryRow(r.Context(), countQuery, args...).Scan(&total); err != nil {
+		a.logger.Error("count reports", "error", err)
+		writeError(w, 500, "QUERY_FAILED", "보고서 목록을 조회할 수 없습니다.")
+		return
+	}
+
+	query := `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,r.submitted_at,r.updated_at
+		FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE 1=1` + where
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(" ORDER BY r.week_start DESC,u.display_name,r.id LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := a.db.Query(r.Context(), query, args...)
 	if err != nil {
 		a.logger.Error("list reports", "error", err)
@@ -713,7 +762,10 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 		item.WeekStart = weekDate.Format("2006-01-02")
 		result = append(result, item)
 	}
-	writeData(w, 200, result)
+	if total > len(result)+offset {
+		a.logger.Info("report list truncated", "total", total, "returned", len(result), "limit", limit, "offset", offset)
+	}
+	writeData(w, 200, reportListView{Items: result, Total: total, Limit: limit, Offset: offset})
 }
 
 func (a *App) canViewReport(ctx context.Context, p *principal, reportID int64) bool {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.27.0
+  version: 0.28.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -216,12 +216,52 @@ paths:
         "200": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
-  /reports:
+  /team/reports:
     get:
-      summary: 권한 범위 보고서 검색
+      summary: 조직 구성원 보고서 목록, 팀장 이상
+      description: |
+        조회 권한 범위의 보고서를 `/reports`와 같은 형식으로 반환한다.
+        `{items, total, limit, offset}`이며 limit 기본 200, 최대 500이다.
+
+        담당자 목록을 만들 목적으로 쓰지 말 것. 이 응답은 한 쪽일 뿐이라 최근에
+        보고한 사람만 담긴다. 사람 목록은 `/team/members`에 있다.
       parameters:
         - { in: query, name: weekStart, schema: { type: string, format: date } }
         - { in: query, name: status, schema: { $ref: "#/components/schemas/ReportStatus" } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 500, default: 200 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /team/members:
+    get:
+      summary: 인수인계·조회 대상 담당자 목록, 팀장 이상
+      description: |
+        이 사용자가 업무를 열어 볼 수 있는 사람을 반환한다. id, displayName,
+        organizationName, active, lastWeek(마지막 보고 주차, 없으면 빈 문자열).
+
+        **비활성 계정도 포함한다.** 인수인계 화면이 쓰는 목록이고, 넘겨받아야 할
+        업무를 남긴 사람은 대개 이미 떠난 사람이다. 이전에는 이 목록을 팀 보고서
+        한 쪽에서 만들어서, 최근 5주 안에 보고하지 않은 사람은 고를 수 없었다.
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /reports:
+    get:
+      summary: 권한 범위 보고서 검색
+      description: |
+        **응답은 배열이 아니라 `{items, total, limit, offset}` 객체다.** 이전에는 배열을
+        그대로 돌려주면서 SQL에 `LIMIT 500`만 걸려 있었다. 담당자 120명·26주에서
+        보고서 3,120건이 500건으로 잘려 나갔고 응답에는 잘렸다는 표시가 없었다.
+
+        limit 기본값 200, 최대 500. 범위를 벗어나면 잘라 맞추고, 읽을 수 없는 값은
+        기본값으로 본다. offset으로 다음 쪽을 가져온다. 정렬은 주차 내림차순, 이름,
+        보고서 식별자 순이며 마지막 항목이 쪽 사이의 순서를 고정한다.
+      parameters:
+        - { in: query, name: weekStart, schema: { type: string, format: date } }
+        - { in: query, name: status, schema: { $ref: "#/components/schemas/ReportStatus" } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 500, default: 200 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200": { $ref: "#/components/responses/Success" }
     post:

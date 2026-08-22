@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
-import type { HandoverView, ReportListItem, SessionInfo } from '../types'
+import type { HandoverView, SessionInfo, TeamMember } from '../types'
 
 /**
  * Handover view. Not a status list — what a new owner needs to know that the
@@ -20,19 +20,16 @@ export default function HandoverPage({ session, notify }: {
 }) {
   const canPickPerson = session.user.role !== 'USER'
   const [userId, setUserId] = useState<number>(session.user.id)
-  const [people, setPeople] = useState<{ id: number; displayName: string }[]>([])
+  const [people, setPeople] = useState<TeamMember[]>([])
   const [view, setView] = useState<HandoverView>()
 
-  // The people list is derived from the reports this leader can already read,
-  // so the picker can never offer someone whose work they cannot open.
+  // The picker used to be built from a page of 팀 주간보고, which meant it only
+  // ever offered people who had reported recently. Someone who stopped six
+  // weeks ago was missing — and that is precisely who a handover is for. It now
+  // comes from the people this leader can open, inactive accounts included.
   useEffect(() => {
     if (!canPickPerson) return
-    api<ReportListItem[]>('/api/v1/team/reports').then(reports => {
-      const seen = new Map<number, string>()
-      for (const report of reports) seen.set(report.userId, report.displayName)
-      setPeople([...seen].map(([id, displayName]) => ({ id, displayName }))
-        .sort((left, right) => left.displayName.localeCompare(right.displayName)))
-    }).catch(() => setPeople([]))
+    api<TeamMember[]>('/api/v1/team/members').then(setPeople).catch(() => setPeople([]))
   }, [canPickPerson])
 
   useEffect(() => {
@@ -54,7 +51,10 @@ export default function HandoverPage({ session, notify }: {
         ? <select value={userId} onChange={event => setUserId(Number(event.target.value))}>
             <option value={session.user.id}>{session.user.displayName} (본인)</option>
             {people.filter(person => person.id !== session.user.id)
-              .map(person => <option key={person.id} value={person.id}>{person.displayName}</option>)}
+              .map(person => <option key={person.id} value={person.id}>
+                {person.displayName}{person.active ? '' : ' (비활성)'}
+                {person.lastWeek ? ` · 최근 ${person.lastWeek}` : ' · 보고 없음'}
+              </option>)}
           </select>
         : undefined} />
 

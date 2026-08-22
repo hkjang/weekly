@@ -203,6 +203,8 @@ export interface WorkSearchHit extends WorkRef {
 export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; hits: WorkSearchHit[] }
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
+export interface ReportListView { items: ReportListItem[]; total: number; limit: number; offset: number }
+export interface TeamMember { id: number; displayName: string; organizationName: string; active: boolean; lastWeek: string }
 export interface HandoverWeek { week: string; progress: number; issue?: boolean }
 export interface HandoverItem {
   workItemId: number; title: string; category: string; organizationName: string

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { matchScore } from './router'
 import type { PageName } from './router'
-import type { ReportListItem, SearchResponse, SessionInfo } from './types'
+import type { ReportListItem, ReportListView, SearchResponse, SessionInfo } from './types'
 
 /**
  * Quick navigation. Ctrl+K (Cmd+K on macOS) opens a searchable list of screens,
@@ -101,7 +101,7 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
     inputRef.current?.focus()
     // Recent reports are only worth fetching once the palette is actually used.
     if (reports === undefined) {
-      api<ReportListItem[]>('/api/v1/reports').then(value => setReports(value.slice(0, 8))).catch(() => setReports([]))
+      api<ReportListView>('/api/v1/reports?limit=8').then(value => setReports(value.items)).catch(() => setReports([]))
     }
   }, [open])
 
