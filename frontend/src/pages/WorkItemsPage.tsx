@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api, post } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
+import { WeekTrack } from '../charts'
 import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
@@ -211,6 +212,11 @@ export default function WorkItemsPage({ session, notify }: {
             <strong>상위 조직 요청</strong><p>{detail.latestManagementAsk}</p>
           </div>}
           <h4 className="timeline-heading">주차별 기록</h4>
+          {/* The same record as the list below, in one strip. The list answers
+              "what happened in week N"; the strip answers "which week should I
+              be reading", which is the question someone opens this dialog with. */}
+          <WeekTrack firstWeek={detail.firstWeek} lastWeek={detail.lastWeek}
+            track={detail.weeks.map(week => ({ week: week.weekStart, progress: week.progress, issue: !!week.issue.trim() }))} />
           <ol className="work-timeline">{detail.weeks.map(week => <li key={week.weekStart}>
             <div className="work-timeline-head">
               {canEdit(detail) && <label className="week-pick" title="이 주차를 다른 업무로 분리">

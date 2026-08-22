@@ -572,3 +572,44 @@ export function ScoreStack({ grounds, score, maximum }: {
     {node}
   </div>
 }
+
+// Weekly change reuses the delivery vocabulary rather than inventing a seventh
+// palette: 신규·재개·진척 are all movement and share the 진행 blue, 역행 is a
+// problem, 정체 is 정체, 누락 is 멈춤. The three blues sit next to each other in
+// the reading order, so the bar reads as one "moved" block, which is the answer
+// to the question the card asks.
+export const changeColors: Record<string, string> = {
+  COMPLETED: stateColors.completed,
+  NEW: stateColors.progress, RESUMED: stateColors.progress, PROGRESSED: stateColors.progress,
+  REGRESSED: stateColors.risk, STALLED: stateColors.stalled,
+  SILENT: stateColors.notStarted, STEADY: stateColors.notStarted, ABSENT: stateColors.notStarted,
+}
+
+/**
+ * Which way the week went, as one bar.
+ *
+ * The dashboard listed seven counts side by side, which is the data but not the
+ * answer: "완료 3 신규 5 재개 1 진척 12 역행 2 정체 8 누락 4" has to be added up
+ * before it says anything. The bar spans the items that changed, so the shape
+ * is the answer — a wide amber block is a stalled week however the counts read.
+ *
+ * The bar covers the changed items, not every reported one. Twelve changes out
+ * of two hundred would be six percent of the width, and seven segments inside
+ * six percent are invisible. The count of reported work is in the sentence
+ * above it, where a proportion belongs.
+ */
+export function ChangeFlow({ groups }: { groups: { kind: string; title: string; count: number }[] }) {
+  const { bind, node } = useTooltip()
+  const shown = groups.filter(group => group.count > 0)
+  const total = shown.reduce((sum, group) => sum + group.count, 0)
+  if (total === 0) return null
+  return <div className="change-flow">
+    <div className="change-flow-bar">
+      {shown.map(group => <span key={group.kind}
+        style={{ width: `${(group.count / total) * 100}%`, background: changeColors[group.kind] ?? stateColors.notStarted }}
+        {...bind(<><strong>{group.title} {group.count}건</strong>
+          <span>변화 {total}건 중 {Math.round((group.count / total) * 100)}%</span></>)} />)}
+    </div>
+    {node}
+  </div>
+}

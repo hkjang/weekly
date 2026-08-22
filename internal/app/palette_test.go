@@ -35,6 +35,8 @@ func TestColourVocabularyIsSharedAcrossBadgesAndCharts(t *testing.T) {
 		"--state-progress":       {"진행", "#2563eb"},
 		"--state-not-started":    {"멈춤", "#94a3b8"},
 		"--state-stalled":        {"정체", "#d97706"},
+		"--state-stalled-bg":     {"정체", "#fef3c7"},
+		"--state-stalled-ink":    {"정체", "#92400e"},
 		"--state-risk":           {"문제", "#dc2626"},
 		"--status-draft-bg":      {"멈춤", "#f1f5f9"},
 		"--status-draft-ink":     {"멈춤", "#475569"},
@@ -125,6 +127,93 @@ func TestChartsReadTheSharedPaletteRatherThanTheirOwnHexes(t *testing.T) {
 			t.Errorf("%s writes the literal colour %s.\n"+
 				"Data colours come from the tokens in styles.css (var(--state-…), var(--series-…)); "+
 				"add it to the chrome allow list only if it carries no meaning.", name, value)
+		}
+	}
+}
+
+// A class defined twice with different colours is a bug that compiles: the
+// later rule wins everywhere and the earlier one is dead, so the feature that
+// wrote it sees a colour it never chose.
+//
+// This is not hypothetical. .delta-up and .delta-down were each written twice —
+// once for 용어 언급 증감 (blue/grey, the trend axis) and once for 진척 증감
+// (green/red) — and the second pair silently repainted the first. The word
+// cloud's rising terms had been drawn in the falling colour for as long as both
+// rules existed.
+func TestNoClassIsDefinedTwiceWithDifferentColours(t *testing.T) {
+	body, err := os.ReadFile("../../frontend/src/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paint := regexp.MustCompile(`(?:^|;)\s*(color|background|background-color|border-color)\s*:\s*([^;]+)`)
+	seen := map[string]map[string]string{}
+	// Two spellings of one colour are not a conflict. var(--blue) and #2563eb
+	// are the same paint, and `background:none` and `background:transparent`
+	// both mean no paint. Only a genuinely different colour is a bug.
+	tokenValue := map[string]string{}
+	for _, match := range regexp.MustCompile(`(--[a-z0-9-]+):(#[0-9a-f]{3,8})`).FindAllStringSubmatch(string(body), -1) {
+		tokenValue["var("+match[1]+")"] = match[2]
+	}
+	normalise := func(value string) string {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if resolved, ok := tokenValue[value]; ok {
+			return resolved
+		}
+		if value == "none" {
+			return "transparent"
+		}
+		return value
+	}
+
+	// The stylesheet is minified onto a few very long lines, so it is walked
+	// rather than matched: the whole selector has to be the key. Matching only
+	// the last fragment collapsed every ".tab.active", ".chip.active" and
+	// ".row.active" into one ".active" and reported them as conflicts.
+	css := string(body)
+	context, selector := "", strings.Builder{}
+	depth := 0
+	for index := 0; index < len(css); index++ {
+		switch css[index] {
+		case '{':
+			text := strings.Join(strings.Fields(selector.String()), " ")
+			selector.Reset()
+			if strings.HasPrefix(text, "@") {
+				context = text
+				depth++
+				continue
+			}
+			close := strings.IndexByte(css[index:], '}')
+			if close < 0 {
+				index = len(css)
+				continue
+			}
+			block := css[index+1 : index+close]
+			index += close
+			for _, part := range strings.Split(text, ",") {
+				key := context + "|" + strings.TrimSpace(part)
+				for _, declaration := range paint.FindAllStringSubmatch(block, -1) {
+					property, value := declaration[1], normalise(declaration[2])
+					if seen[key] == nil {
+						seen[key] = map[string]string{}
+					}
+					if earlier, repeated := seen[key][property]; repeated && earlier != value {
+						t.Errorf("%s is defined twice with different %s (%q then %q).\n"+
+							"The later rule wins everywhere, so whichever feature wrote the earlier one "+
+							"is showing a colour it did not choose. Give one of them its own class name.",
+							key, property, earlier, value)
+					}
+					seen[key][property] = value
+				}
+			}
+		case '}':
+			if depth > 0 {
+				depth--
+				if depth == 0 {
+					context = ""
+				}
+			}
+		default:
+			selector.WriteByte(css[index])
 		}
 	}
 }

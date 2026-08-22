@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner, StatusBadge } from '../components'
+import { ChangeFlow, changeColors } from '../charts'
 import type { AnalyticsOverview, ChangeSummary, Report, SessionInfo } from '../types'
 
 export default function DashboardPage({ session, navigate }: { session: SessionInfo; navigate: (page: 'current' | 'team') => void }) {
@@ -17,7 +18,9 @@ export default function DashboardPage({ session, navigate }: { session: SessionI
       {analytics && <Card title="팀 제출 현황" action={<button className="text-button" onClick={() => navigate('team')}>자세히 →</button>}><div className="progress-ring-row"><div className="ring" style={{ '--percent': `${analytics.submissionRate * 3.6}deg` } as React.CSSProperties}><strong>{Math.round(analytics.submissionRate)}%</strong></div><div><b>{analytics.submittedUsers} / {analytics.totalUsers}명 제출</b><p>현재 주차 기준 제출·확정 보고서</p></div></div></Card>}
       {changes && changes.reported > 0 && <Card title="지난주 대비 변화" action={<span className="muted">{changes.previousWeek} → {changes.week}</span>}>
         <p className="muted">보고된 {changes.reported}건 중 {changes.changed}건이 지난주와 달라졌습니다. 그대로 진행 중인 업무는 세지 않고 보여 주지도 않습니다.</p>
+        <ChangeFlow groups={changes.groups} />
         <ul className="change-counts">{changes.groups.map(group => <li key={group.kind} className={group.count > 0 ? `on ${group.kind.toLowerCase()}` : ''}>
+          {group.count > 0 && <i className="change-swatch" style={{ background: changeColors[group.kind] }} />}
           <strong>{group.count}</strong><span>{group.title}</span>
         </li>)}</ul>
       </Card>}

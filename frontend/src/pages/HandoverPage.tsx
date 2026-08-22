@@ -72,7 +72,7 @@ export default function HandoverPage({ session, notify }: {
             <span>{item.firstWeek} ~ {item.lastWeek}</span>
             <span>{item.ageWeeks}주 경과 · {item.reportedWeeks}주 보고</span>
             {item.category && <span>{item.category}</span>}
-            {item.stalled && <span className="delta-down">정체</span>}
+            {item.stalled && <span className="state-chip stalled">정체</span>}
           </div>
           {item.caution && <p className="handover-caution">{item.caution}</p>}
 

@@ -79,7 +79,7 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
                     띄어쓰기 다른 표기 {term.variants.length}건 합산</small> : null}</td>
                 <td>{term.count}</td>
                 <td>{term.documents}</td>
-                <td className={term.delta > 0 ? 'delta-up' : term.delta < 0 ? 'delta-down' : ''}>
+                <td className={term.delta > 0 ? 'term-up' : term.delta < 0 ? 'term-down' : ''}>
                   {term.delta > 0 ? `+${term.delta}` : term.delta}</td>
               </tr>)}</tbody>
             </table></div>
