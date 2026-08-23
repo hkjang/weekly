@@ -69,9 +69,12 @@ type workItemView struct {
 	AtRisk    bool `json:"atRisk"`
 	Carryover bool `json:"carryover"`
 
-	LatestIssue         string         `json:"latestIssue"`
-	LatestManagementAsk string         `json:"latestManagementAsk"`
-	Weeks               []workItemWeek `json:"weeks"`
+	LatestIssue         string `json:"latestIssue"`
+	LatestManagementAsk string `json:"latestManagementAsk"`
+	// Omitted by the list, carried by the detail. It is the bulk of the
+	// payload and nothing in the table reads it, so a reader who never
+	// opens a task never downloads it.
+	Weeks []workItemWeek `json:"weeks,omitempty"`
 }
 
 // resolveWorkItem returns the identity for a task title, creating it when the
@@ -144,7 +147,14 @@ func (a *App) backfillWorkItems(ctx context.Context) {
 		if batchScanned < backfillBatchSize {
 			break
 		}
-		a.logger.Info("work item backfill progress", "linked", linked, "scanned", scanned, "pending", pending)
+		// Remaining, not the original total. Logging the figure from the first
+		// batch every time left an operator watching a number that never moved
+		// while the work was in fact finishing.
+		remaining := pending - scanned
+		if remaining < 0 {
+			remaining = 0
+		}
+		a.logger.Info("work item backfill progress", "linked", linked, "scanned", scanned, "remaining", remaining)
 	}
 	a.logger.Info("work item backfill complete", "linked", linked, "scanned", scanned)
 }
@@ -247,7 +257,68 @@ func (a *App) listWorkItems(w http.ResponseWriter, r *http.Request) {
 		return a.Progress < b.Progress
 	})
 	a.attachAgreedDueDates(r.Context(), result)
-	writeData(w, http.StatusOK, result)
+
+	// The weekly snapshots are 80% of this payload and the list does not draw
+	// them — only the detail dialog does, for one task at a time. On a 300
+	// person deployment the org-wide list was 23.6 MB, of which 19 MB was
+	// weekly text nothing on screen read. They are fetched per item instead.
+	total := len(result)
+	limit := clampQueryInt(r, "limit", workItemPageDefault, 1, workItemPageMaximum)
+	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	page := result[offset:end]
+	for index := range page {
+		page[index].Weeks = nil
+	}
+	writeData(w, http.StatusOK, workItemListView{Items: page, Total: total, Limit: limit, Offset: offset})
+}
+
+// A page of work items, with what exists beside what was returned. Sending a
+// bare array let a screen present a truncated list as the whole set, which is
+// the failure this project fixed everywhere else in v0.25.
+type workItemListView struct {
+	Items  []workItemView `json:"items"`
+	Total  int            `json:"total"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
+}
+
+const (
+	workItemPageDefault = 200
+	workItemPageMaximum = 500
+)
+
+// getWorkItem returns one task with its full weekly history, which is what the
+// detail dialog needs and what the list deliberately leaves out.
+func (a *App) getWorkItem(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	p := currentPrincipal(r.Context())
+	// Loaded through the same scope predicate as the list rather than by id
+	// alone, so a task belonging to somebody the caller cannot see stays
+	// invisible here too.
+	items, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, false), "")
+	if err != nil {
+		a.logger.Error("get work item", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무를 조회할 수 없습니다.")
+		return
+	}
+	for index := range items {
+		if items[index].ID == id {
+			a.attachAgreedDueDates(r.Context(), items[index:index+1])
+			writeData(w, http.StatusOK, items[index])
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "WORK_ITEM_NOT_FOUND", "업무를 찾을 수 없습니다.")
 }
 
 // summarizeWorkItem derives the ageing figures from the weekly snapshots.

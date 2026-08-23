@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.51.0
+  version: 0.52.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -673,10 +673,43 @@ paths:
         업무 전체와 같다는 보장이 없으므로 담당자가 확인해 지정한다.
       parameters:
         - { name: scope, in: query, description: "TEAM은 팀장 이상만 조회할 수 있습니다.", schema: { type: string, enum: [SELF, TEAM], default: SELF } }
+        - { name: limit, in: query, schema: { type: integer, default: 200, minimum: 1, maximum: 500 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0, minimum: 0 } }
       responses:
-        "200": { $ref: "#/components/responses/Success" }
+        "200":
+          description: items·total·limit·offset. 목록 행에는 weeks 가 없다.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { type: object } }
+                          total: { type: integer }
+                          limit: { type: integer }
+                          offset: { type: integer }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /work-items/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+    get:
+      summary: 업무 한 건과 주차별 기록 전체
+      description: |
+        목록은 weeks 를 싣지 않는다. 주차별 기록이 응답의 대부분이고 목록 화면은 그것을
+        그리지 않기 때문이다. 300명 배포에서 조직 전체 목록이 23.6MB였고 그중 19MB가
+        화면에 나오지 않는 주차별 본문이었다. 상세 대화상자를 열 때 이 경로로 한 건만
+        가져온다.
+
+        조회 범위는 목록과 같은 술어를 쓴다. 볼 수 없는 사람의 업무는 여기서도 보이지 않는다.
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /work-items/{id}/merge:
     parameters:
       - { $ref: "#/components/parameters/ID" }

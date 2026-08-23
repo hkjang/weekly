@@ -1,6 +1,8 @@
 package app
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -114,5 +116,98 @@ func TestSummarizeWorkItemEmptyIsSafe(t *testing.T) {
 	summarizeWorkItem(item, defaultRollupConfig())
 	if item.ReportedWeeks != 0 || item.Stalled || item.AtRisk {
 		t.Error("an empty work item must summarize to nothing")
+	}
+}
+
+// Everything summarizeWorkItem writes is derived from the snapshots, so running
+// it twice must produce the same view. It did not: the issue, stall and
+// repeated-plan counters were `++` over the weeks with nothing clearing them
+// first, so a second call doubled them and turned work that moved every single
+// week into a stalled task.
+//
+// Only one caller runs it once per freshly built view, which is why this never
+// showed up in production. That is exactly the kind of property that needs a
+// test rather than a convention.
+func TestSummarizeWorkItemIsIdempotent(t *testing.T) {
+	build := func() workItemView {
+		weeks := []workItemWeek{}
+		for index, progress := range []int{10, 10, 25, 25, 25, 40} {
+			weeks = append(weeks, workItemWeek{
+				WeekStart: shiftISOWeek("2026-06-01", index), Progress: progress,
+				NextPlan: "규칙 확장", Issue: "방화벽 정책 대기",
+			})
+		}
+		return workItemView{ID: 1, Title: "업무", DueDate: "2026-09-21", Weeks: weeks}
+	}
+	once, twice := build(), build()
+	cfg := defaultRollupConfig()
+	summarizeWorkItem(&once, cfg)
+	summarizeWorkItem(&twice, cfg)
+	summarizeWorkItem(&twice, cfg)
+
+	if once.IssueWeeks != twice.IssueWeeks || once.StalledWeeks != twice.StalledWeeks || once.RepeatedPlan != twice.RepeatedPlan {
+		t.Errorf("counters drift on a second call: issue %d→%d, stalled %d→%d, plan %d→%d",
+			once.IssueWeeks, twice.IssueWeeks, once.StalledWeeks, twice.StalledWeeks, once.RepeatedPlan, twice.RepeatedPlan)
+	}
+	if once.Stalled != twice.Stalled || once.AtRisk != twice.AtRisk {
+		t.Errorf("verdicts drift: stalled %v→%v, atRisk %v→%v", once.Stalled, twice.Stalled, once.AtRisk, twice.AtRisk)
+	}
+	if once.Forecast != twice.Forecast || once.DueOutlook != twice.DueOutlook {
+		t.Errorf("forecast drifts:\n once=%+v %+v\ntwice=%+v %+v", once.Forecast, once.DueOutlook, twice.Forecast, twice.DueOutlook)
+	}
+	if len(once.Weeks) != len(twice.Weeks) {
+		t.Errorf("weeks accumulate: %d→%d", len(once.Weeks), len(twice.Weeks))
+	}
+}
+
+// A capped list has to say what it capped. Returning a bare array let a screen
+// present 200 rows as the whole set, and a team leader counting rows would
+// undercount their own team without any sign that they had.
+func TestWorkItemListCarriesWhatItLeftOut(t *testing.T) {
+	items := make([]workItemView, 640)
+	for index := range items {
+		items[index] = workItemView{ID: int64(index + 1), Weeks: []workItemWeek{{WeekStart: "2026-06-01", Progress: 10}}}
+	}
+	page := workItemListView{Items: items[:workItemPageDefault], Total: len(items), Limit: workItemPageDefault, Offset: 0}
+	if page.Total <= len(page.Items) {
+		t.Fatalf("total %d does not exceed the page %d, so this proves nothing", page.Total, len(page.Items))
+	}
+	body, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"total":640`, `"limit":200`, `"offset":0`} {
+		if !strings.Contains(string(body), key) {
+			t.Errorf("the response does not carry %s: %s", key, string(body)[:120])
+		}
+	}
+}
+
+// The weekly history is the bulk of the payload and the table never draws it.
+// Sending it for every row made the org-wide list 23.6 MB, of which 19 MB was
+// text nothing on screen read.
+func TestWorkItemListLeavesTheWeeklyHistoryOut(t *testing.T) {
+	withWeeks := workItemView{ID: 1, Title: "업무", Weeks: []workItemWeek{
+		{WeekStart: "2026-06-01", Progress: 10, CurrentResult: "진행", NextPlan: "계속"},
+		{WeekStart: "2026-06-08", Progress: 20, CurrentResult: "진행", NextPlan: "계속"},
+	}}
+	full, err := json.Marshal(withWeeks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := withWeeks
+	listed.Weeks = nil
+	trimmed, err := json.Marshal(listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(trimmed), `"weeks"`) {
+		t.Errorf("the list row still carries its history: %s", string(trimmed))
+	}
+	if !strings.Contains(string(full), `"weeks"`) {
+		t.Errorf("the detail row must still carry it: %s", string(full))
+	}
+	if len(trimmed) >= len(full) {
+		t.Errorf("trimming saved nothing: %d vs %d", len(trimmed), len(full))
 	}
 }

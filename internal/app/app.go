@@ -177,6 +177,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/team/reports", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.teamReports)))
 	a.mux.Handle("GET /api/v1/team/members", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.teamMembers)))
 	a.mux.Handle("GET /api/v1/work-items", a.requireAuth(http.HandlerFunc(a.listWorkItems)))
+	a.mux.Handle("GET /api/v1/work-items/{id}", a.requireAuth(http.HandlerFunc(a.getWorkItem)))
 	a.mux.Handle("POST /api/v1/work-items/{id}/merge", a.requireAuth(a.csrf(http.HandlerFunc(a.mergeWorkItem))))
 	a.mux.Handle("GET /api/v1/work-items/{id}/decisions", a.requireAuth(http.HandlerFunc(a.listWorkItemDecisions)))
 	a.mux.Handle("POST /api/v1/work-items/{id}/decisions", a.requireAuth(a.csrf(http.HandlerFunc(a.createWorkItemDecision))))

@@ -4,7 +4,7 @@ import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
 import DecisionPanel from '../DecisionPanel'
 import DependencyPanel from '../DependencyPanel'
-import type { DueOutlook, SessionInfo, WorkItem, WorkSearchResponse } from '../types'
+import type { DueOutlook, SessionInfo, WorkItem, WorkItemPage, WorkSearchResponse } from '../types'
 
 /**
  * Work item tracking. Each row is a task followed across every week it was
@@ -111,6 +111,10 @@ export default function WorkItemsPage({ session, notify }: {
 }) {
   const [scope, setScope] = useState<'SELF' | 'TEAM'>('SELF')
   const [items, setItems] = useState<WorkItem[]>()
+  // What exists, beside what arrived. The list is capped, and a capped list
+  // presented as the whole set is the failure this project fixed everywhere
+  // else — a reader counting rows would undercount their own team.
+  const [total, setTotal] = useState(0)
   const [filter, setFilter] = useState<FilterKey>('ALL')
   const [detail, setDetail] = useState<WorkItem>()
   // Natural language lookup over past work: "인증 연동하다 막혔던 사례".
@@ -131,8 +135,8 @@ export default function WorkItemsPage({ session, notify }: {
   useEffect(() => {
     let stale = false
     setItems(undefined)
-    api<WorkItem[]>(`/api/v1/work-items?scope=${scope}`)
-      .then(value => { if (!stale) setItems(value) })
+    api<WorkItemPage>(`/api/v1/work-items?scope=${scope}`)
+      .then(value => { if (!stale) { setItems(value.items); setTotal(value.total) } })
       .catch(error => {
         if (stale) return
         setItems([])
@@ -165,21 +169,35 @@ export default function WorkItemsPage({ session, notify }: {
     }
   }, [items])
 
-  const openDetail = (item: WorkItem) => { setDetail(item); setPicked([]); setSplitTitle(''); setMergeInto('') }
+  // The list carries no weekly history — it is 80% of the payload and nothing
+  // in the table reads it. The dialog needs it, so it is fetched for the one
+  // task being opened.
+  const openDetail = async (item: WorkItem) => {
+    setPicked([]); setSplitTitle(''); setMergeInto('')
+    setDetail(item)
+    try {
+      setDetail(await api<WorkItem>(`/api/v1/work-items/${item.id}`))
+    } catch (error) {
+      notify(errorText(error, '업무 상세를 불러올 수 없습니다.'), 'error')
+    }
+  }
   const closeDetail = () => setDetail(undefined)
   const canEdit = (item: WorkItem) => item.userId === session.user.id || session.user.role === 'ADMIN'
   const reload = async () => {
-    const fresh = await api<WorkItem[]>(`/api/v1/work-items?scope=${scope}`)
-    setItems(fresh)
-    return fresh
+    const fresh = await api<WorkItemPage>(`/api/v1/work-items?scope=${scope}`)
+    setItems(fresh.items)
+    setTotal(fresh.total)
+    return fresh.items
   }
   // A deadline is entered to see what it means, so the answer has to arrive
   // with the save. Patching only dueDate onto the open dialog left the outlook
   // showing the state from before the date existed, and the panel went blank
   // until the reader closed and reopened it.
   const refreshDetail = async () => {
-    const fresh = await reload()
-    setDetail(current => current && (fresh.find(entry => entry.id === current.id) ?? current))
+    await reload()
+    setDetail(current => current)
+    const open = detail
+    if (open) setDetail(await api<WorkItem>(`/api/v1/work-items/${open.id}`))
   }
   const runEdit = async (path: string, body: unknown, done: string) => {
     setEditBusy(true)
@@ -193,7 +211,7 @@ export default function WorkItemsPage({ session, notify }: {
     } finally { setEditBusy(false) }
   }
   const splitOff = (item: WorkItem) => {
-    const ids = item.weeks.filter(week => picked.includes(week.weekStart)).flatMap(week => week.itemIds)
+    const ids = (item.weeks ?? []).filter(week => picked.includes(week.weekStart)).flatMap(week => week.itemIds)
     return runEdit(`/api/v1/work-items/${item.id}/split`,
       { title: splitTitle, category: item.category, reportItemIds: ids },
       `${ids.length}개 주차를 '${splitTitle.trim()}' 업무로 분리했습니다.`)
@@ -252,12 +270,19 @@ export default function WorkItemsPage({ session, notify }: {
       아직 추적할 업무가 없습니다. 주간보고를 저장하면 업무가 자동으로 만들어집니다.
     </Empty> : <>
       <div className="metric-grid">
-        <Card><span className="metric-label">진행 중 업무</span><strong className="metric-value">{counts.active}</strong><small>전체 {counts.total}건</small></Card>
+        {/* The count says which set it counted. With the list capped, "전체
+            2100건" beside 200 loaded rows would be a number nobody could
+            reconcile with what is on screen. */}
+        <Card><span className="metric-label">진행 중 업무</span><strong className="metric-value">{counts.active}</strong>
+          <small>{total > counts.total ? `표시 ${counts.total}건 · 전체 ${total}건` : `전체 ${counts.total}건`}</small></Card>
         <Card><span className="metric-label">정체</span><strong className="metric-value">{counts.stalled}</strong><small>진척도 변화 없음</small></Card>
         <Card><span className="metric-label">이슈 지속</span><strong className="metric-value">{counts.risk}</strong><small>미완료 상태로 반복 보고</small></Card>
         <Card><span className="metric-label">최장 진행</span><strong className="metric-value">{counts.oldest}주</strong><small>가장 오래된 업무</small></Card>
       </div>
 
+      {total > (items?.length ?? 0) && <p className="muted">
+        업무가 {total}건이라 가장 먼저 봐야 할 {items?.length}건만 불러왔습니다. 이슈 지속·정체·오래된 순으로 정렬돼 있습니다.
+      </p>}
       <Card title="업무 목록" action={<div className="tabs rollup-filter">
         {filters.map(item => <button key={item.key} className={filter === item.key ? 'active' : ''}
           onClick={() => setFilter(item.key)}>{item.name}</button>)}
@@ -324,7 +349,12 @@ export default function WorkItemsPage({ session, notify }: {
           <h4 className="timeline-heading">주차별 기록</h4>
           {/* The same record as the list below, in one strip. The list answers
               "what happened in week N"; the strip answers "which week should I
-              be reading", which is the question someone opens this dialog with. */}
+              be reading", which is the question someone opens this dialog with.
+
+              The history arrives after the dialog does: the list does not carry
+              it, so this is a spinner for one request rather than 19 MB of text
+              downloaded for every reader who never opens a task. */}
+          {!detail.weeks ? <Spinner/> : <>
           <WeekTrack firstWeek={detail.firstWeek} lastWeek={detail.lastWeek}
             track={detail.weeks.map(week => ({ week: week.weekStart, progress: week.progress, issue: !!week.issue.trim() }))} />
           <ol className="work-timeline">{detail.weeks.map(week => <li key={week.weekStart}>
@@ -343,7 +373,8 @@ export default function WorkItemsPage({ session, notify }: {
               {week.managementAsk && <div><b>요청</b><p>{week.managementAsk}</p></div>}
             </div>
           </li>)}</ol>
-          {canEdit(detail) && <div className="work-edit">
+          </>}
+          {canEdit(detail) && detail.weeks && <div className="work-edit">
             <h4 className="timeline-heading">업무 정리</h4>
             <p className="muted">업무는 제목을 정규화해 자동으로 묶습니다. 잘못 묶였거나 잘못 나뉘었으면 여기서 바로잡으세요. 바로잡은 결과는 다음 보고서를 저장해도 유지됩니다.</p>
             <div className="work-edit-row">

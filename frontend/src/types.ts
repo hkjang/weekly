@@ -62,9 +62,16 @@ export interface WorkItem {
   progress: number; startProgress: number; progressGain: number
   stalledWeeks: number; issueWeeks: number; repeatedPlan: number
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean
-  latestIssue: string; latestManagementAsk: string; weeks: WorkItemWeek[]
+  latestIssue: string; latestManagementAsk: string
+  /**
+   * Only the detail response carries these. The list leaves them out because
+   * they are the bulk of the payload and nothing in the table reads them; open
+   * one task and GET /api/v1/work-items/{id} brings its history.
+   */
+  weeks?: WorkItemWeek[]
   forecast: CompletionForecast; dueOutlook: DueOutlook; agreedDue?: AgreedDue
 }
+export interface WorkItemPage { items: WorkItem[]; total: number; limit: number; offset: number }
 
 export type ChangeKind = 'NEW' | 'RESUMED' | 'COMPLETED' | 'PROGRESSED' | 'REGRESSED' | 'STALLED' | 'SILENT' | 'STEADY' | 'ABSENT'
 export interface ChangeEntry {
