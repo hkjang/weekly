@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -269,6 +270,43 @@ func (s *secretBox) Decrypt(value string) (string, error) {
 	return string(plain), nil
 }
 
+// Argon2id is deliberately expensive in memory, and that cost is paid per
+// call: 64 MiB is reserved for as long as one hash or verification runs. Nobody
+// noticed while logins arrived one at a time. Two hundred and fifty people
+// signing in at nine on Monday reserved sixteen gigabytes between them and the
+// container was killed — the first request of the week, on the busiest minute
+// of the week.
+//
+// So the verifications are queued rather than run all at once. Waiting is the
+// right answer here: at 61 ms each, a floor of two and a ceiling of eight
+// concurrent means the whole organisation is signed in within a couple of
+// seconds, and the peak this costs is bounded at eight times 64 MiB whatever
+// arrives. Turning the cost down instead would weaken every stored password to
+// solve a scheduling problem.
+//
+// The ceiling is eight because more than that buys no throughput — the work is
+// CPU and memory bound, not waiting on anything — while each extra slot is
+// another 64 MiB the container has to have.
+var passwordWork = make(chan struct{}, passwordWorkers())
+
+func passwordWorkers() int {
+	workers := runtime.NumCPU()
+	if workers > 8 {
+		workers = 8
+	}
+	if workers < 2 {
+		workers = 2
+	}
+	return workers
+}
+
+// withPasswordSlot runs fn while holding one of the argon2 slots.
+func withPasswordSlot[T any](fn func() T) T {
+	passwordWork <- struct{}{}
+	defer func() { <-passwordWork }()
+	return fn()
+}
+
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -277,7 +315,9 @@ func hashPassword(password string) (string, error) {
 	memory := uint32(64 * 1024)
 	iterations := uint32(3)
 	parallelism := uint8(2)
-	key := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, 32)
+	key := withPasswordSlot(func() []byte {
+		return argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, 32)
+	})
 	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", memory, iterations, parallelism,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
@@ -300,7 +340,11 @@ func verifyPassword(encoded, password string) bool {
 	if err != nil {
 		return false
 	}
-	actual := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(expected)))
+	// Queued like hashing, and for the same reason: the memory named in the
+	// stored parameters is reserved for the length of this call.
+	actual := withPasswordSlot(func() []byte {
+		return argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(expected)))
+	})
 	return subtle.ConstantTimeCompare(actual, expected) == 1
 }
 

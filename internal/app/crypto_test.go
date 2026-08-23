@@ -2,7 +2,9 @@ package app
 
 import (
 	"encoding/base64"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestDecodeEncryptionKeyRequiresExactly32Bytes(t *testing.T) {
@@ -55,5 +57,78 @@ func TestReencryptSecretReportsMissingRecoveryKey(t *testing.T) {
 	_, migrated, available, err := reencryptSecret(stored, active, nil)
 	if err != nil || migrated || available {
 		t.Fatalf("unexpected recovery result: migrated=%v available=%v err=%v", migrated, available, err)
+	}
+}
+
+// Argon2id reserves 64 MiB for the length of every hash and every verification.
+// Nobody noticed while logins arrived one at a time; 250 people signing in at
+// nine on Monday reserved sixteen gigabytes between them and the container was
+// killed on the busiest minute of the week.
+//
+// The fix is a queue, so this test is about the queue: however many callers
+// arrive at once, only a bounded number are inside argon2 together.
+func TestPasswordWorkIsBounded(t *testing.T) {
+	limit := cap(passwordWork)
+	if limit < 2 {
+		t.Fatalf("the pool holds %d slots, which cannot bound anything", limit)
+	}
+	// The ceiling is the whole point: each slot is 64 MiB the container must
+	// have, so a bound that grows with the machine would put a 64 core host
+	// back where it started.
+	if limit > 8 {
+		t.Errorf("%d slots reserve %d MiB of argon2 memory at peak", limit, limit*64)
+	}
+
+	var mu sync.Mutex
+	inside, peak := 0, 0
+	var wg sync.WaitGroup
+	for caller := 0; caller < limit*6; caller++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			withPasswordSlot(func() bool {
+				mu.Lock()
+				inside++
+				if inside > peak {
+					peak = inside
+				}
+				mu.Unlock()
+				time.Sleep(3 * time.Millisecond)
+				mu.Lock()
+				inside--
+				mu.Unlock()
+				return true
+			})
+		}()
+	}
+	wg.Wait()
+
+	if peak > limit {
+		t.Errorf("%d callers were inside argon2 at once, above the %d slot bound", peak, limit)
+	}
+	// Without this the test would also pass on a bound of one, which would make
+	// every login wait for every other login on a machine with cores to spare.
+	if peak < 2 {
+		t.Errorf("only %d ran together; the queue is serialising work it could overlap", peak)
+	}
+}
+
+// The queue must not leak slots. A verification that returns early — a bad
+// password, a malformed hash — still has to give its slot back, or the pool
+// drains and every later login blocks forever.
+func TestPasswordSlotsAreReturned(t *testing.T) {
+	hash, err := hashPassword("WeeklyVerify1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < cap(passwordWork)*3; attempt++ {
+		verifyPassword(hash, "wrong password")
+		verifyPassword("not a hash at all", "wrong password")
+	}
+	if len(passwordWork) != 0 {
+		t.Fatalf("%d slots are still held after only failures", len(passwordWork))
+	}
+	if !verifyPassword(hash, "WeeklyVerify1234") {
+		t.Error("a correct password no longer verifies after repeated failures")
 	}
 }
