@@ -117,11 +117,24 @@ export type PeriodKind = 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'
 export type RollupScope = 'SELF' | 'TEAM'
 export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
 export interface RollupItemWeek { weekStart: string; progress: number; hasIssue: boolean }
+/**
+ * What the reported progress implies about the finish, and the paces it was
+ * computed from. There is no deadline to compare against, so this never claims
+ * one: DONE, STALLED (no forward movement, so no date exists), INSUFFICIENT
+ * (too few weeks to say anything), DISTANT (over a year, where a week count
+ * would be false precision) or PROJECTED, which is a range and not a point.
+ */
+export interface CompletionForecast {
+  kind: 'DONE' | 'STALLED' | 'INSUFFICIENT' | 'PROJECTED' | 'DISTANT'
+  earliestWeeks?: number; latestWeeks?: number; earliestWeek?: string; latestWeek?: string
+  overallPerWeek: number; recentPerWeek: number; basedOnWeeks: number; note: string
+}
 export interface RollupItem {
   key: string; category: string; title: string; currentResult: string; nextPlan: string; issue: string
   managementAsk: string; progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number
   owners: string[]; weeks: RollupItemWeek[]; mergedTitles: string[]
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean; duplicatesCut: number
+  forecast: CompletionForecast
 }
 export interface RollupCategory { name: string; items: number; completed: number; averageProgress: number; share: number; issueItems: number }
 export interface RollupContributor { userId: number; displayName: string; reports: number; items: number; completed: number; issueItems: number; averageProgress: number }
@@ -133,7 +146,7 @@ export interface RollupWeekPoint {
 export interface RollupInsights {
   totalItems: number; completedItems: number; inProgressItems: number; notStartedItems: number
   completionRate: number; averageProgress: number; progressGain: number
-  continuingItems: number; oneOffItems: number; stalledItems: number; carryoverItems: number
+  continuingItems: number; oneOffItems: number; stalledItems: number; noLandingItems: number; carryoverItems: number
   issueItems: number; persistentIssues: number; askItems: number
   expectedWeeks: number; reportedWeeks: number; reportCoverage: number
   sourceReports: number; sourceItems: number; duplicatesCut: number; mergedTitles: number; dedupRate: number

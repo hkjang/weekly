@@ -5,7 +5,7 @@ import PresentationMode from '../PresentationMode'
 import { rollupSlides } from '../presentSlides'
 import { CompositionBar, ProgressTrendChart, RankBars, TaskTimeline, WeeklyStateChart } from '../charts'
 import { replaceRoute } from '../router'
-import type { PeriodKind, Rollup, RollupItem, RollupScope, SessionInfo } from '../types'
+import type { CompletionForecast, PeriodKind, Rollup, RollupItem, RollupScope, SessionInfo } from '../types'
 
 const kinds: { key: PeriodKind; name: string }[] = [
   { key: 'MONTH', name: '월간' }, { key: 'QUARTER', name: '분기' },
@@ -45,8 +45,27 @@ function periodOptions(kind: PeriodKind, today: Date): { value: string; label: s
 const severityNames: Record<string, string> = { RISK: '위험', WATCH: '주의', GOOD: '양호', INFO: '참고' }
 const filters = [
   { key: 'ALL', name: '전체' }, { key: 'RISK', name: '이슈 지속' }, { key: 'STALLED', name: '정체' },
+  { key: 'NO_LANDING', name: '완료 시점 불명' },
   { key: 'CARRYOVER', name: '이월' }, { key: 'DONE', name: '완료' },
 ] as const
+
+/**
+ * Work that is moving and still does not land.
+ *
+ * 정체 already covers progress that stopped. This is the other case: a point a
+ * week, every week, which reads as healthy on any status board while the
+ * numbers say it needs a year. Nothing is thresholded here — these are the
+ * items whose own forecast declined to name a finishing week.
+ */
+function noLanding(item: RollupItem): boolean {
+  if (item.completed || item.stalled) return false
+  return item.forecast.kind === 'DISTANT' ||
+    (item.forecast.kind === 'PROJECTED' && !item.forecast.latestWeeks)
+}
+
+function paceNote(forecast: CompletionForecast): string {
+  return `전체 ${forecast.overallPerWeek}%/주 · 최근 ${forecast.recentPerWeek}%/주 · ${forecast.basedOnWeeks}개 주차 기준`
+}
 type FilterKey = typeof filters[number]['key']
 
 export default function RollupPage({ session, route, notify }: {
@@ -104,6 +123,7 @@ export default function RollupPage({ session, route, notify }: {
     switch (filter) {
       case 'RISK': return item.atRisk
       case 'STALLED': return item.stalled
+      case 'NO_LANDING': return noLanding(item)
       case 'CARRYOVER': return item.carryover
       case 'DONE': return item.completed
       default: return true
@@ -239,6 +259,12 @@ export default function RollupPage({ session, route, notify }: {
                   ? <span className="state-chip risk">이슈 {item.issueWeeks}주</span>
                   : item.issueWeeks >= 2 && <span className="state-chip past">이슈 이력 {item.issueWeeks}주</span>}
                 {item.stalled && <span className="state-chip stalled">정체</span>}
+                {noLanding(item) && <span className="state-chip stalled">완료 시점 불명</span>}
+                {item.forecast.kind === 'PROJECTED' && item.forecast.latestWeeks
+                  ? <span className="state-chip past">{item.forecast.earliestWeeks === item.forecast.latestWeeks
+                      ? `${item.forecast.earliestWeeks}주 뒤 예상`
+                      : `${item.forecast.earliestWeeks}~${item.forecast.latestWeeks}주 뒤 예상`}</span>
+                  : null}
                 {item.carryover && !item.atRisk && !item.stalled && <span className="state-chip carry">이월</span>}
               </div></td>
               <td>{item.owners.join(', ') || '-'}</td>
@@ -263,6 +289,20 @@ export default function RollupPage({ session, route, notify }: {
             <div><small>이슈 발생</small><strong>{detail.issueWeeks}개 주차</strong></div>
             <div><small>중복 제거</small><strong>{detail.duplicatesCut}건</strong></div>
           </div>
+          {/* The estimate never appears without the numbers behind it. A week
+              count on its own is a score, and a score nobody can check is one
+              nobody should act on. */}
+          {detail.forecast.kind !== 'DONE' && <div className="forecast-block">
+            <div><small>완료 시점 추정</small><strong>{
+              detail.forecast.kind === 'PROJECTED' && detail.forecast.latestWeeks
+                ? (detail.forecast.earliestWeeks === detail.forecast.latestWeeks
+                    ? `${detail.forecast.earliestWeek} 주 무렵`
+                    : `${detail.forecast.earliestWeek} ~ ${detail.forecast.latestWeek}`)
+                : '계산되지 않습니다'
+            }</strong></div>
+            <p>{detail.forecast.note}</p>
+            {detail.forecast.basedOnWeeks > 0 && <code>{paceNote(detail.forecast)}</code>}
+          </div>}
           {detail.mergedTitles.length > 1 && <div className="rollup-merged">
             <strong>병합된 주간보고 업무명</strong>
             <ul>{detail.mergedTitles.map(title => <li key={title}>{title}</li>)}</ul>

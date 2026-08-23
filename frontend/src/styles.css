@@ -174,3 +174,10 @@
 .capture-missing strong{color:#b91c1c;font-size:12px}.capture-missing span{color:#9f1239;font-size:10px;line-height:1.5}
 .capture-warning{margin:10px 0 0;padding:10px 12px;border:1px solid #fecdd3;background:#fef2f2;border-radius:9px;color:#9f1239;font-size:12px;line-height:1.6}
 .capture-warning code{background:#ffffffaa;border-radius:4px;padding:1px 5px}
+/* The completion estimate, shown with the paces it came from. Deliberately quiet: it is arithmetic on reported progress, not a commitment, and styling it like a deadline would make it read as one. */
+.forecast-block{margin-top:14px;padding:12px 14px;border-radius:10px;background:#f8fafc;border:1px solid var(--line)}
+.forecast-block>div{display:flex;align-items:baseline;gap:10px}
+.forecast-block small{color:var(--muted);font-size:12px}
+.forecast-block strong{font-size:15px}
+.forecast-block p{margin:6px 0 0;color:#334155;font-size:13px;line-height:1.6}
+.forecast-block code{display:inline-block;margin-top:8px;font-size:12px;color:var(--muted)}

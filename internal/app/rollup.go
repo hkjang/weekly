@@ -103,6 +103,9 @@ type rollupItem struct {
 	AtRisk        bool             `json:"atRisk"`
 	Carryover     bool             `json:"carryover"`
 	DuplicatesCut int              `json:"duplicatesCut"`
+	// Forecast is arithmetic on Weeks, not a judgement. It carries the paces it
+	// was computed from so a reader can dismiss it.
+	Forecast completionForecast `json:"forecast"`
 }
 
 type rollupCategory struct {
@@ -142,6 +145,7 @@ type rollupInsights struct {
 	ContinuingItems  int     `json:"continuingItems"`
 	OneOffItems      int     `json:"oneOffItems"`
 	StalledItems     int     `json:"stalledItems"`
+	NoLandingItems   int     `json:"noLandingItems"`
 	CarryoverItems   int     `json:"carryoverItems"`
 	IssueItems       int     `json:"issueItems"`
 	PersistentIssues int     `json:"persistentIssues"`
@@ -604,6 +608,7 @@ func aggregateRollupItems(entries []sourceEntry, cfg rollupConfig) []rollupItem 
 		// risk register that the reporting line acts on.
 		item.AtRisk = item.IssueWeeks >= cfg.PersistentIssueWeeks && !item.Completed
 		item.Carryover = !item.Completed && strings.TrimSpace(nextPlan) != ""
+		item.Forecast = forecastCompletion(acc.weeks, item.Progress)
 		result = append(result, item)
 	}
 	// Surface the work that needs a decision first: risk, then stalled, then the
@@ -774,6 +779,9 @@ func buildRollup(period periodRange, scope, scopeLabel string, entries []sourceE
 		}
 		if item.Stalled {
 			insights.StalledItems++
+		}
+		if noLandingDate(item) {
+			insights.NoLandingItems++
 		}
 		if item.Carryover {
 			insights.CarryoverItems++
@@ -979,6 +987,17 @@ func buildHighlights(insights rollupInsights, items []rollupItem, cfg rollupConf
 			Title:  fmt.Sprintf("%d주 이상 진척이 멈춘 업무 %d건", cfg.StallWeeks, insights.StalledItems),
 			Detail: fmt.Sprintf("%s. 진척도가 연속으로 변하지 않아 일정 재계획 또는 리소스 재배치 검토가 필요합니다.", strings.Join(names, ", "))})
 	}
+	// Work that is moving and still does not land. The stalled rule above only
+	// catches progress that stopped, so a task creeping up a point a week reads
+	// as healthy on every status board while its own numbers say it needs a
+	// year. Only the cases where the arithmetic itself declined to name a
+	// finishing week are listed, so there is no threshold invented here.
+	if insights.NoLandingItems > 0 {
+		names := topTitles(items, noLandingDate, 3)
+		result = append(result, rollupHighlight{Severity: "WATCH", Category: "RISK",
+			Title:  fmt.Sprintf("진행 중이지만 끝나는 시점이 보이지 않는 업무 %d건", insights.NoLandingItems),
+			Detail: fmt.Sprintf("%s. 진척은 늘고 있으나 보고된 속도로는 완료 시점을 계산할 수 없습니다. 각 업무의 주차별 속도를 함께 확인하십시오.", strings.Join(names, ", "))})
+	}
 	if insights.AskItems > 0 {
 		names := topTitles(items, func(item rollupItem) bool { return strings.TrimSpace(item.ManagementAsk) != "" }, 3)
 		result = append(result, rollupHighlight{Severity: "RISK", Category: "RISK",
@@ -1040,4 +1059,19 @@ func buildSummary(period periodRange, scopeLabel string, insights rollupInsights
 
 func round1(value float64) float64 {
 	return math.Round(value*10) / 10
+}
+
+// noLandingDate is work still in flight whose own reported pace does not yield
+// a finishing week: either the projection ran past a year, or the overall and
+// recent paces disagree so completely that one of them says never.
+//
+// Stalled work is deliberately excluded. It is already reported, by a rule that
+// says something more specific, and naming the same task twice under two
+// headings is how a risk list stops being read.
+func noLandingDate(item rollupItem) bool {
+	if item.Completed || item.Stalled {
+		return false
+	}
+	return item.Forecast.Kind == forecastDistant ||
+		(item.Forecast.Kind == forecastProjected && item.Forecast.LatestWeeks == 0)
 }
