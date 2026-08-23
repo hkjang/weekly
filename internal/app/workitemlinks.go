@@ -445,3 +445,92 @@ func (a *App) crossOrgBlocked(ctx context.Context, scope workScope) ([]meetingEn
 	}
 	return entries, rows.Err()
 }
+
+// blockedNote describes what a task is waiting for, for the screens that
+// explain why work stopped.
+type blockedNote struct {
+	// Title and Organization name the blocker; CrossOrg says whether it belongs
+	// to a different organisation, which is what changes who has to act.
+	Title        string
+	Organization string
+	Owner        string
+	CrossOrg     bool
+	// More counts the other unfinished blockers beyond the one named.
+	More int
+}
+
+// blockedNotes maps a task to what it is still waiting on.
+//
+// Read for whole screens at once rather than per task, and unscoped on purpose:
+// the caller already holds the set of tasks it may show, and the blocker's
+// title is what makes the explanation useful.
+func (a *App) blockedNotes(ctx context.Context, ids []int64) (map[int64]blockedNote, error) {
+	notes := map[int64]blockedNote{}
+	if len(ids) == 0 {
+		return notes, nil
+	}
+	rows, err := a.db.Query(ctx, `
+		WITH latest AS (
+			SELECT DISTINCT ON (i.work_item_id) i.work_item_id, i.progress
+			FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+			WHERE i.work_item_id IS NOT NULL
+			ORDER BY i.work_item_id, r.week_start DESC, i.id DESC
+		)
+		SELECT l.blocked_id, b.title, coalesce(bo.name,''), coalesce(bu.display_name,''),
+			coalesce(bu.organization_id,0) <> coalesce(wu.organization_id,0)
+		FROM work_item_links l
+		JOIN work_items b ON b.id = l.blocker_id
+		JOIN work_items w ON w.id = l.blocked_id
+		LEFT JOIN users bu ON bu.id = b.user_id
+		LEFT JOIN organizations bo ON bo.id = bu.organization_id
+		LEFT JOIN users wu ON wu.id = w.user_id
+		LEFT JOIN latest bl ON bl.work_item_id = b.id
+		WHERE l.blocked_id = ANY($1) AND coalesce(bl.progress,0) < 100
+		ORDER BY l.blocked_id, l.id`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var blockedID int64
+		var note blockedNote
+		if err := rows.Scan(&blockedID, &note.Title, &note.Organization, &note.Owner, &note.CrossOrg); err != nil {
+			return nil, err
+		}
+		// The first row per task is the one named; the rest are counted. Naming
+		// every blocker would turn one line of explanation into a list nobody
+		// reads inside a summary.
+		if existing, seen := notes[blockedID]; seen {
+			existing.More++
+			// A cross-organisation blocker outranks an internal one: it is the
+			// one that decides whether this is a conversation or a meeting.
+			if note.CrossOrg && !existing.CrossOrg {
+				more := existing.More
+				note.More = more
+				notes[blockedID] = note
+			} else {
+				notes[blockedID] = existing
+			}
+			continue
+		}
+		notes[blockedID] = note
+	}
+	return notes, rows.Err()
+}
+
+// sentence renders the note the way a summary should read it. Built by
+// composition rather than by trimming a finished sentence, which produced
+// "…끝나기 외 2건을 더 기다리고" — grammatical debris nobody would write.
+func (n blockedNote) sentence() string {
+	subject := "'" + n.Title + "'"
+	if n.Organization != "" {
+		subject = n.Organization + "의 " + subject
+	}
+	if n.Owner != "" {
+		subject += " (" + n.Owner + ")"
+	}
+	if n.More > 0 {
+		return fmt.Sprintf("%s 외 %d건이 끝나기를 기다리고 있습니다.", subject, n.More)
+	}
+	return subject + "이(가) 끝나기를 기다리고 있습니다."
+}

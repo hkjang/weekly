@@ -167,7 +167,7 @@ export interface MeetingView {
 }
 
 export type DigestKind = 'DECISION' | 'RISK' | 'DUPLICATE' | 'PROGRESS'
-export type DigestGroundKind = 'DECISION' | 'ISSUE' | 'STALLED' | 'SILENT' | 'DUPLICATE' | 'DONE'
+export type DigestGroundKind = 'DECISION' | 'ISSUE' | 'STALLED' | 'BLOCKED' | 'SILENT' | 'DUPLICATE' | 'DONE'
 export interface DigestGround { kind: DigestGroundKind; text: string; points: number }
 export interface DigestEntry {
   kind: DigestKind; score: number; title: string; workItemId: number

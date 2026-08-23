@@ -27,7 +27,12 @@ function DigestCard({ entry, maximum, navigate }: {
   const kind = kindLabel[entry.kind]
   return <li className={`digest-entry ${kind.tone}`}>
     <div className="digest-head">
-      <span className="digest-kind">{kind.name}</span>
+      {/* The headline, not the kind. The server picks one of 결정 대기 · 장기
+          이슈 · 진척 정체 · 타 조직 대기 · 중복 투자 의심 · 주요 업무 완료 for
+          every entry, and this screen was showing 위험 for four of them — so a
+          reader had to read the grounds to find out which kind of risk it was.
+          The colour still comes from the coarse kind. */}
+      <span className="digest-kind">{entry.headline || kind.name}</span>
       <strong>{entry.title}</strong>
       <span className="muted-chip">{entry.displayName}{entry.organizationName ? ` · ${entry.organizationName}` : ''}</span>
       <span className="digest-score" title="선정 점수">{entry.score}</span>

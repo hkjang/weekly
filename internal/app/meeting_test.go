@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -85,7 +86,7 @@ func TestDigestIncludesCompletedLongRunningWork(t *testing.T) {
 	done := workItem(1, "인증 체계 전환", 10, org(1), []workItemWeek{
 		week("2026-07-06", 20, "a", "", "", ""), week("2026-07-13", 40, "b", "", "", ""),
 		week("2026-07-20", 70, "c", "", "", ""), week("2026-07-27", 100, "완료", "", "", "")})
-	entries := buildDigest([]workItemView{done}, nil, defaultRollupConfig())
+	entries := buildDigest([]workItemView{done}, nil, nil, defaultRollupConfig())
 	if len(entries) != 1 || entries[0].Kind != "PROGRESS" {
 		t.Fatalf("digest entries = %+v", entries)
 	}
@@ -102,7 +103,7 @@ func TestDigestIsCappedAndOrderedByScore(t *testing.T) {
 			week("2026-08-03", 10, "a", "", "이슈", "결정 요청"),
 			week("2026-08-10", 10, "a", "", "이슈", "결정 요청")}))
 	}
-	entries := buildDigest(items, nil, defaultRollupConfig())
+	entries := buildDigest(items, nil, nil, defaultRollupConfig())
 	if len(entries) > digestMaximumEntries {
 		t.Fatalf("digest returned %d entries, want at most %d", len(entries), digestMaximumEntries)
 	}
@@ -154,7 +155,7 @@ func TestDigestDoesNotReportCompletedWorkAsRisk(t *testing.T) {
 		week("2026-07-13", 30, "b", "", "예외 케이스 미정의", ""),
 		week("2026-07-20", 40, "c", "", "예외 케이스 미정의", ""),
 		week("2026-07-27", 100, "적용 완료", "", "", "")})
-	entries := buildDigest([]workItemView{item}, nil, defaultRollupConfig())
+	entries := buildDigest([]workItemView{item}, nil, nil, defaultRollupConfig())
 	if len(entries) != 1 {
 		t.Fatalf("digest entries = %+v", entries)
 	}
@@ -176,7 +177,7 @@ func TestDigestExcludesRoutineWorkFromCompletions(t *testing.T) {
 		week("2026-07-13", 100, "배포 지원", "", "", ""),
 		week("2026-07-20", 100, "배포 지원", "", "", ""),
 		week("2026-07-27", 100, "배포 지원", "", "", "")})
-	if entries := buildDigest([]workItemView{routine}, nil, defaultRollupConfig()); len(entries) != 0 {
+	if entries := buildDigest([]workItemView{routine}, nil, nil, defaultRollupConfig()); len(entries) != 0 {
 		t.Errorf("weekly maintenance is not an executive headline: %+v", entries)
 	}
 }
@@ -200,7 +201,7 @@ func TestDigestScoreEqualsTheSumOfItsGrounds(t *testing.T) {
 			week("2026-06-15", 70, "리포트 작성", "", "", ""),
 			week("2026-06-22", 100, "적용 완료", "", "", "")}),
 	}
-	entries := buildDigest(items, map[int64]workLink{1: link}, defaultRollupConfig())
+	entries := buildDigest(items, map[int64]workLink{1: link}, nil, defaultRollupConfig())
 	if len(entries) == 0 {
 		t.Fatal("the fixture is meant to produce entries")
 	}
@@ -221,5 +222,60 @@ func TestDigestScoreEqualsTheSumOfItsGrounds(t *testing.T) {
 		if sum != entry.Score {
 			t.Errorf("%q scores %d but its grounds add up to %d: %+v", entry.Title, entry.Score, sum, entry.Grounds)
 		}
+	}
+}
+
+// A stall somebody explained is not the same item of business as one nobody
+// did. The score is identical — the work is equally stopped — but an executive
+// reading 진척 정체 goes and asks the owner, while 타 조직 대기 makes them
+// connect two teams. Reading the same would send them to the wrong person.
+func TestBlockedStallReadsDifferentlyFromAnUnexplainedOne(t *testing.T) {
+	stalled := func(id int64) workItemView {
+		return workItem(id, "전표 검증 자동화", 10, org(1), []workItemWeek{
+			week("2026-06-01", 40, "진행", "이어서", "", ""),
+			week("2026-06-08", 40, "진행", "이어서", "", ""),
+			week("2026-06-15", 40, "진행", "이어서", "", ""),
+			week("2026-06-22", 40, "진행", "이어서", "", ""),
+		})
+	}
+	note := blockedNote{Title: "인증 연동", Organization: "본부 7", Owner: "담당자 7", CrossOrg: true}
+
+	plain := buildDigest([]workItemView{stalled(1)}, nil, nil, defaultRollupConfig())
+	explained := buildDigest([]workItemView{stalled(1)}, nil, map[int64]blockedNote{1: note}, defaultRollupConfig())
+	if len(plain) != 1 || len(explained) != 1 {
+		t.Fatalf("the fixture is meant to produce one entry each: %d and %d", len(plain), len(explained))
+	}
+	if plain[0].Score != explained[0].Score {
+		t.Errorf("a declared cause must not change the score: %d vs %d", plain[0].Score, explained[0].Score)
+	}
+	if plain[0].Headline != "진척 정체" {
+		t.Errorf("unexplained stall headline = %q", plain[0].Headline)
+	}
+	if explained[0].Headline != "타 조직 대기" {
+		t.Errorf("blocked stall headline = %q, want 타 조직 대기", explained[0].Headline)
+	}
+	kinds := func(entry digestEntry) []string {
+		out := []string{}
+		for _, ground := range entry.Grounds {
+			out = append(out, ground.Kind)
+		}
+		return out
+	}
+	if !slices.Contains(kinds(plain[0]), "STALLED") {
+		t.Errorf("unexplained stall grounds = %v", kinds(plain[0]))
+	}
+	if !slices.Contains(kinds(explained[0]), "BLOCKED") {
+		t.Errorf("blocked stall grounds = %v", kinds(explained[0]))
+	}
+	// The blocker has to be named, or the reader still has to go and ask.
+	if !strings.Contains(explained[0].Grounds[0].Text, "인증 연동") ||
+		!strings.Contains(explained[0].Grounds[0].Text, "본부 7") {
+		t.Errorf("the ground does not name what it is waiting for: %q", explained[0].Grounds[0].Text)
+	}
+	// An internal blocker is a conversation, not a meeting, and says so.
+	inside := buildDigest([]workItemView{stalled(1)}, nil,
+		map[int64]blockedNote{1: {Title: "설계 확정", Owner: "담당자 2"}}, defaultRollupConfig())
+	if inside[0].Headline != "선행 업무 대기" {
+		t.Errorf("same-organisation blocker headline = %q, want 선행 업무 대기", inside[0].Headline)
 	}
 }

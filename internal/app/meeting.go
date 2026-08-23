@@ -237,8 +237,11 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 // what it is — a sum of named parts — and keeps the claim falsifiable, which is
 // the whole reason this digest is arithmetic and not a model output.
 type digestGround struct {
-	// Kind is DECISION, ISSUE, STALLED, SILENT, DUPLICATE or DONE. The screen
-	// colours by it, so the same reason is the same colour in every entry.
+	// Kind is DECISION, ISSUE, STALLED, BLOCKED, SILENT, DUPLICATE or DONE. The
+	// screen colours by it, so the same reason is the same colour in every
+	// entry. BLOCKED is a stall whose cause somebody declared; it scores the
+	// same as STALLED because the work is equally stopped, and reads
+	// differently because the action is not.
 	Kind   string `json:"kind"`
 	Text   string `json:"text"`
 	Points int    `json:"points"`
@@ -270,7 +273,7 @@ type digestView struct {
 // and every contribution is listed back to the reader as grounds. An executive
 // who cannot see why an item was selected has no way to disagree with it, and
 // an unfalsifiable summary is worse than none.
-func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, cfg rollupConfig) []digestEntry {
+func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, blocked map[int64]blockedNote, cfg rollupConfig) []digestEntry {
 	entries := []digestEntry{}
 	for _, item := range items {
 		score := 0
@@ -298,9 +301,25 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, cfg r
 			}
 		}
 		if item.Stalled && !item.Completed {
-			add(10*item.StalledWeeks, "STALLED", fmt.Sprintf("진척이 %d주째 멈춰 있습니다.", item.StalledWeeks))
-			if kind == "" {
-				kind, headline = "RISK", "진척 정체"
+			// A stall with a declared cause is a different item of business. An
+			// executive reading 진척 정체 goes and asks the owner; reading
+			// 타 조직 대기 they connect two teams instead. Same stopped work,
+			// different action, so it must not read the same.
+			if note, waiting := blocked[item.ID]; waiting {
+				add(10*item.StalledWeeks, "BLOCKED",
+					fmt.Sprintf("진척이 %d주째 멈춰 있고, %s", item.StalledWeeks, note.sentence()))
+				if kind == "" {
+					if note.CrossOrg {
+						kind, headline = "RISK", "타 조직 대기"
+					} else {
+						kind, headline = "RISK", "선행 업무 대기"
+					}
+				}
+			} else {
+				add(10*item.StalledWeeks, "STALLED", fmt.Sprintf("진척이 %d주째 멈춰 있습니다.", item.StalledWeeks))
+				if kind == "" {
+					kind, headline = "RISK", "진척 정체"
+				}
 			}
 		}
 		if item.SilentWeeks > 0 && !item.Completed {
@@ -373,7 +392,17 @@ func (a *App) executiveDigest(w http.ResponseWriter, r *http.Request) {
 	// the digest scores each task, so a task whose link fell outside a cap
 	// would quietly drop out of the top ten.
 	graph := linkWorkItems(items, insightLinkLimit)
+	ids := make([]int64, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	blocked, err := a.blockedNotes(r.Context(), ids)
+	if err != nil {
+		a.logger.Error("digest dependencies", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "경영 요약을 만들 수 없습니다.")
+		return
+	}
 	view := digestView{Weeks: weeks, Since: since, Scope: scopeTeam, Considered: len(items),
-		Entries: buildDigest(items, graph.DuplicateByItem, a.rollupConfig(r.Context()))}
+		Entries: buildDigest(items, graph.DuplicateByItem, blocked, a.rollupConfig(r.Context()))}
 	writeData(w, http.StatusOK, view)
 }

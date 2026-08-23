@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.41.0
+  version: 0.42.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -906,8 +906,14 @@ paths:
         사실의 합이며 각 항목은 선정 근거(grounds)를 함께 반환한다.
 
         **grounds는 문자열 배열이 아니라 객체 배열이다.** 각 원소는 kind(DECISION,
-        ISSUE, STALLED, SILENT, DUPLICATE, DONE), text, points를 갖고, points의
-        합은 score와 같다. 이전에는 총점과 문장만 있어서 어느 근거가 점수를 얼마나
+        ISSUE, STALLED, BLOCKED, SILENT, DUPLICATE, DONE), text, points를 갖고,
+        points의 합은 score와 같다.
+
+        `BLOCKED`는 **원인이 등록된 정체**다. 점수는 `STALLED`와 같다 — 일이 멈춘
+        정도는 같기 때문이다. 다른 것은 읽는 사람이 할 일이다: `진척 정체`를 보면
+        담당자에게 묻고, `타 조직 대기`를 보면 두 조직을 연결한다. 같은 멈춤에 다른
+        조치이므로 같게 읽혀서는 안 된다. headline도 `타 조직 대기` 또는
+        `선행 업무 대기`로 갈린다. 이전에는 총점과 문장만 있어서 어느 근거가 점수를 얼마나
         올렸는지 알 수 없었고, 항목 사이의 순위를 근거로 따질 수 없었다.
 
         완료 업무의 과거 이슈 이력은 위험으로 집계하지 않으며, 진척 변화 없이 매주 100%로

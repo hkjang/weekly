@@ -539,10 +539,13 @@ export function CollaborationMatrix({ edges, limit = 20 }: {
 // score, and a share is not a state.
 const groundColors: Record<string, string> = {
   DECISION: seriesColors[0], ISSUE: seriesColors[1], STALLED: seriesColors[2],
+  // A declared block shares the stall's colour: the same work is stopped, and
+  // the two belong beside each other in a bar read left to right.
+  BLOCKED: seriesColors[2],
   SILENT: seriesColors[3], DUPLICATE: seriesColors[4], DONE: seriesColors[5],
 }
 export const groundLabels: Record<string, string> = {
-  DECISION: '결정 대기', ISSUE: '이슈 지속', STALLED: '진척 정체',
+  DECISION: '결정 대기', ISSUE: '이슈 지속', STALLED: '진척 정체', BLOCKED: '선행 대기',
   SILENT: '보고 누락', DUPLICATE: '중복 의심', DONE: '완료',
 }
 export function groundColor(kind: string) { return groundColors[kind] ?? seriesColors[5] }
