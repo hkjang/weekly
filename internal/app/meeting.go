@@ -322,6 +322,35 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 				}
 			}
 		}
+		// A deadline that has arrived, or one the reported pace does not reach.
+		//
+		// This is the only ground here that is partly a projection, and the two
+		// halves are scored differently on purpose. OVERDUE is observed — the
+		// date passed and the work is not finished — so it escalates with how
+		// long it has been true. AT_RISK is arithmetic on a pace, so it gets a
+		// flat figure: letting an estimate's size drive the ranking would put
+		// a projection above the observations it sits beside.
+		//
+		// SPLIT is deliberately absent. "one pace makes it and the other does
+		// not" is a real finding on the tracking screen, where the reader can
+		// look at both. In a briefing it is a maybe, and a briefing full of
+		// maybes stops being read.
+		switch item.DueOutlook.Kind {
+		case dueOutlookOverdue:
+			late := -item.DueOutlook.WeeksLeft
+			if late < 0 {
+				late = 0
+			}
+			add(30+5*late, "DEADLINE", fmt.Sprintf("마감일 %s이(가) 지났고 진척은 %d%%입니다.", item.DueOutlook.DueDate, item.Progress))
+			if kind == "" {
+				kind, headline = "RISK", "기한 초과"
+			}
+		case dueOutlookAtRisk:
+			add(25, "DEADLINE", fmt.Sprintf("마감일은 %s입니다. %s", item.DueOutlook.DueDate, item.DueOutlook.Note))
+			if kind == "" {
+				kind, headline = "RISK", "기한 초과 예상"
+			}
+		}
 		if item.SilentWeeks > 0 && !item.Completed {
 			add(5*item.SilentWeeks, "SILENT", fmt.Sprintf("%d주간 보고가 누락됐습니다.", item.SilentWeeks))
 		}

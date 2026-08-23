@@ -275,6 +275,13 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 	}
 	item.Weeks = merged
 
+	// The counters below are all `++` over the weeks, so they are cleared here
+	// rather than trusted to be zero. Everything in this function is derived
+	// from the snapshots and nothing carries over from a previous call; without
+	// this, running it twice on the same view doubles the issue and stall
+	// counts and turns a task that moved every week into a stalled one.
+	item.IssueWeeks, item.RepeatedPlan, item.StalledWeeks = 0, 0, 0
+
 	first, last := merged[0], merged[len(merged)-1]
 	item.FirstWeek, item.LastWeek = first.WeekStart, last.WeekStart
 	item.ReportedWeeks = len(merged)

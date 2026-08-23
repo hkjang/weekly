@@ -279,3 +279,73 @@ func TestBlockedStallReadsDifferentlyFromAnUnexplainedOne(t *testing.T) {
 		t.Errorf("same-organisation blocker headline = %q, want 선행 업무 대기", inside[0].Headline)
 	}
 }
+
+// The case the digest could not see before. This work moves every single week,
+// so the stall rule is silent; it has no issue, so that rule is silent too; it
+// is nobody's decision request. Its own numbers say it misses a date somebody
+// agreed to, and until there was a deadline to compare against, it scored zero
+// and never reached a briefing.
+func TestDigestReportsWorkThatWillMissItsDeadlineWhileLookingHealthy(t *testing.T) {
+	weeks := []workItemWeek{}
+	for index, progress := range []int{2, 4, 6, 8, 10, 12} {
+		weeks = append(weeks, workItemWeek{WeekStart: shiftISOWeek("2026-07-06", index), Progress: progress})
+	}
+	item := workItemView{ID: 1, Title: "레거시 배치 이관", DisplayName: "담당", Weeks: weeks}
+	summarizeWorkItem(&item, defaultRollupConfig())
+	if item.Stalled || item.AtRisk || item.SilentWeeks > 0 {
+		t.Fatalf("the point of this case is that nothing else reports it: %+v", item)
+	}
+	if got := buildDigest([]workItemView{item}, nil, nil, defaultRollupConfig()); len(got) != 0 {
+		t.Fatalf("without a deadline there is nothing to be late for, got %+v", got)
+	}
+
+	item.DueDate = "2026-09-21"
+	summarizeWorkItem(&item, defaultRollupConfig())
+	if item.DueOutlook.Kind != dueOutlookAtRisk {
+		t.Fatalf("outlook=%s want=%s (%s)", item.DueOutlook.Kind, dueOutlookAtRisk, item.DueOutlook.Note)
+	}
+	entries := buildDigest([]workItemView{item}, nil, nil, defaultRollupConfig())
+	if len(entries) != 1 {
+		t.Fatalf("entries=%d want=1", len(entries))
+	}
+	if entries[0].Headline != "기한 초과 예상" {
+		t.Errorf("headline=%q want=기한 초과 예상", entries[0].Headline)
+	}
+	grounds := []string{}
+	for _, ground := range entries[0].Grounds {
+		grounds = append(grounds, ground.Kind)
+		if ground.Kind == "DEADLINE" && !strings.Contains(ground.Text, "%/주") {
+			t.Errorf("the projection does not carry the pace it came from: %q", ground.Text)
+		}
+	}
+	if len(grounds) != 1 || grounds[0] != "DEADLINE" {
+		t.Errorf("grounds=%v want=[DEADLINE] — nothing else has anything to say about this work", grounds)
+	}
+}
+
+// An estimate must not outrank what was actually seen. A deadline the pace is
+// projected to miss scores a flat figure, while a deadline that has already
+// passed escalates with how long it has been true.
+func TestAProjectedDeadlineScoresBelowOneThatHasAlreadyPassed(t *testing.T) {
+	build := func(due string, progress ...int) digestEntry {
+		weeks := []workItemWeek{}
+		for index, value := range progress {
+			weeks = append(weeks, workItemWeek{WeekStart: shiftISOWeek("2026-07-06", index), Progress: value})
+		}
+		item := workItemView{ID: 1, Title: "업무", DueDate: due, Weeks: weeks}
+		summarizeWorkItem(&item, defaultRollupConfig())
+		entries := buildDigest([]workItemView{item}, nil, nil, defaultRollupConfig())
+		if len(entries) != 1 {
+			t.Fatalf("due %s: entries=%d want=1 (%s)", due, len(entries), item.DueOutlook.Kind)
+		}
+		return entries[0]
+	}
+	projected := build("2026-09-21", 2, 4, 6, 8, 10, 12)
+	passed := build("2026-07-27", 2, 4, 6, 8, 10, 12)
+	if passed.Score <= projected.Score {
+		t.Errorf("a passed deadline (%d) must outrank a projected one (%d)", passed.Score, projected.Score)
+	}
+	if passed.Headline != "기한 초과" {
+		t.Errorf("headline=%q want=기한 초과", passed.Headline)
+	}
+}
