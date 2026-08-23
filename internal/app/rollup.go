@@ -96,7 +96,7 @@ type rollupItem struct {
 	WeekCount     int              `json:"weekCount"`
 	IssueWeeks    int              `json:"issueWeeks"`
 	Owners        []string         `json:"owners"`
-	Weeks         []rollupItemWeek `json:"weeks"`
+	Weeks         []rollupItemWeek `json:"weeks,omitempty"`
 	MergedTitles  []string         `json:"mergedTitles"`
 	Completed     bool             `json:"completed"`
 	Stalled       bool             `json:"stalled"`
@@ -182,7 +182,10 @@ type rollupView struct {
 	DecisionTotal int            `json:"decisionTotal"`
 	OpenDecisions int            `json:"openDecisions"`
 	DecisionLimit int            `json:"decisionLimit"`
-	GeneratedAt   time.Time      `json:"generatedAt"`
+	// TimelineItems is how many of Items carry their weekly series. The rest
+	// are table rows and arrive without it.
+	TimelineItems int       `json:"timelineItems"`
+	GeneratedAt   time.Time `json:"generatedAt"`
 }
 
 // resolvePeriod turns a kind plus a user supplied period token into an inclusive

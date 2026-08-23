@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.53.0
+  version: 0.54.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -850,6 +850,11 @@ paths:
         최대 50건이며 `decisionTotal`로 전체 건수를, `openDecisions`로 후속 조치가 남은
         수를, `decisionLimit`으로 상한을 함께 반환한다. 업무별 전체 이력은
         `/work-items/{id}/decisions`에 있다.
+
+        `items`는 전부 반환하지만 주차별 계열(`weeks`)은 앞의 `timelineItems`건만 싣는다.
+        타임라인이 그리는 것이 그만큼이고 아래 표는 그것을 읽지 않기 때문이다. 연간 조직
+        전체 응답 885KB 중 522KB가 어떤 차트도 그리지 않을 업무의 주차별 본문이었다.
+        CSV·PPTX 내보내기는 별도 경로이고 전체 뷰에서 만들므로 영향이 없다.
       parameters:
         - { name: kind, in: query, schema: { type: string, enum: [MONTH, QUARTER, HALF, YEAR], default: MONTH } }
         - { name: period, in: query, description: "2026-08, 2026-Q3, 2026-H2, 2026. 생략하면 현재 기간", schema: { type: string } }

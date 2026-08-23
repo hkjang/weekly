@@ -158,7 +158,13 @@ export interface CompletionForecast {
 export interface RollupItem {
   key: string; category: string; title: string; currentResult: string; nextPlan: string; issue: string
   managementAsk: string; progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number
-  owners: string[]; weeks: RollupItemWeek[]; mergedTitles: string[]
+  owners: string[]
+  /**
+   * Only the leading `timelineItems` rows carry this. The rest are table rows
+   * and the chart never plots them, so their weekly text is not sent.
+   */
+  weeks?: RollupItemWeek[]
+  mergedTitles: string[]
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean; duplicatesCut: number
   forecast: CompletionForecast
 }

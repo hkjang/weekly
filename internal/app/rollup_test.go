@@ -1,6 +1,8 @@
 package app
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -454,5 +456,45 @@ func TestAggregateDoesNotGuessWithinOneOwner(t *testing.T) {
 	}, defaultRollupConfig())
 	if len(items) != 2 {
 		t.Fatalf("one owner's two tasks were guessed into one: got %d items, want 2", len(items))
+	}
+}
+
+// The weekly series travels only for the rows a chart can draw. On a year-wide
+// organisation view it was 522 KB of an 885 KB response, all of it per-week
+// text for tasks the timeline never plots — the table below reads none of it.
+func TestRollupSendsTheWeeklySeriesOnlyForTheRowsThatAreDrawn(t *testing.T) {
+	items := make([]rollupItem, rollupTimelineItems+5)
+	for index := range items {
+		items[index] = rollupItem{
+			Key: fmt.Sprintf("k%d", index), Title: fmt.Sprintf("업무 %d", index),
+			Weeks: []rollupItemWeek{{WeekStart: "2026-06-01", Progress: 10}, {WeekStart: "2026-06-08", Progress: 20}},
+		}
+	}
+	view := rollupView{Items: items, TimelineItems: rollupTimelineItems}
+	for index := range view.Items {
+		if index >= rollupTimelineItems {
+			view.Items[index].Weeks = nil
+		}
+	}
+	body, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carrying := 0
+	for _, item := range view.Items {
+		if len(item.Weeks) > 0 {
+			carrying++
+		}
+	}
+	if carrying != rollupTimelineItems {
+		t.Errorf("%d rows carry a series, want %d", carrying, rollupTimelineItems)
+	}
+	if len(view.Items) != rollupTimelineItems+5 {
+		t.Errorf("rows were dropped, not trimmed: %d", len(view.Items))
+	}
+	// The count has to travel too: a screen that guessed how many rows carry
+	// data would plot empty rows the moment the two disagreed.
+	if !strings.Contains(string(body), fmt.Sprintf(`"timelineItems":%d`, rollupTimelineItems)) {
+		t.Error("the response does not say how many rows carry a series")
 	}
 }

@@ -70,8 +70,25 @@ func (a *App) periodRollup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "기간 보고를 집계할 수 없습니다.")
 		return
 	}
+	// Only the leading items carry their weekly series. The timeline draws that
+	// many rows and the table below reads none of it, so on a year-wide
+	// organisation view 522 KB of an 885 KB response was per-week text for
+	// tasks no chart would plot. The exports are separate endpoints and build
+	// from the full view, so nothing they print is affected.
+	view.TimelineItems = rollupTimelineItems
+	for index := range view.Items {
+		if index >= rollupTimelineItems {
+			view.Items[index].Weeks = nil
+		}
+	}
 	writeData(w, http.StatusOK, view)
 }
+
+// rollupTimelineItems is how many items arrive with their weekly series, and
+// therefore how many the timeline can draw. The server decides it rather than
+// the screen, because the screen cannot know which rows have the data until it
+// has already downloaded all of it.
+const rollupTimelineItems = 20
 
 // loadRollup reads every weekly report overlapping the period inside the
 // caller's permission scope and folds it into a single de-duplicated view.

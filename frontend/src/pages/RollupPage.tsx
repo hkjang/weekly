@@ -119,6 +119,12 @@ export default function RollupPage({ session, route, notify }: {
 
   const query = `kind=${kind}&period=${encodeURIComponent(period)}&scope=${scope}`
   const insights = rollup?.insights
+  // Rows that arrived with a weekly series. Slicing by a number the screen
+  // picked would silently plot empty rows the moment the two disagreed.
+  const timelineTasks = useMemo(
+    () => (rollup?.items ?? []).filter(item => item.weeks?.length)
+      .map(item => ({ ...item, weeks: item.weeks ?? [] })),
+    [rollup])
   const visibleItems = (rollup?.items ?? []).filter(item => {
     switch (filter) {
       case 'RISK': return item.atRisk
@@ -222,8 +228,12 @@ export default function RollupPage({ session, route, notify }: {
         </Card>}
 
         <Card title="업무 타임라인" action={<span className="muted-chip">중복 제거 후 {rollup.items.length}건</span>} className="chart-card">
-          <TaskTimeline weeks={rollup.weeks} tasks={rollup.items.slice(0, 18)} />
-          {rollup.items.length > 18 && <p className="muted">진척이 필요한 상위 18건만 표시합니다. 전체 {rollup.items.length}건은 아래 표와 CSV에서 확인하십시오.</p>}
+          {/* The rows that carry a weekly series are the rows that can be
+              drawn. The server decides how many, because the screen cannot
+              know which have the data without downloading all of it first. */}
+          <TaskTimeline weeks={rollup.weeks} tasks={timelineTasks} />
+          {rollup.items.length > timelineTasks.length && <p className="muted">
+            진척이 필요한 상위 {timelineTasks.length}건만 표시합니다. 전체 {rollup.items.length}건은 아래 표와 CSV에서 확인하십시오.</p>}
         </Card>
 
         <div className="chart-duo">
