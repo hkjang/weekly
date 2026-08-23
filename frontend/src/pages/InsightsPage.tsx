@@ -20,6 +20,7 @@ const tabs = [
   { key: 'SIMILAR', name: '유사 업무', hint: '참고하거나 협업할 수 있는 다른 담당자의 업무입니다.' },
   { key: 'COLLAB', name: '협업 지도', hint: '어떤 조직이 어떤 주제로 연결돼 있는지 보여줍니다. 소통 이력이 아니라 업무 주제의 연결입니다.' },
   { key: 'RECURRING', name: '반복 업무', hint: '완료를 향해 움직이지 않고 일정한 주기로 계속 보고되는 운영성 업무입니다.' },
+  { key: 'BOTTLENECK', name: '병목', hint: '여러 업무가 하나의 선행 업무를 기다리고 있습니다. 추측이 아니라 담당자가 직접 등록한 관계입니다.' },
 ] as const
 type TabKey = typeof tabs[number]['key']
 
@@ -54,7 +55,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ weeks, since: '', workItems: 0, similar: [], similarTotal: 0, duplicates: [], duplicateTotal: 0, collaboration: [], recurring: [] })
+        setView({ weeks, since: '', workItems: 0, similar: [], similarTotal: 0, duplicates: [], duplicateTotal: 0, collaboration: [], recurring: [], bottlenecks: [] })
         notify(errorText(error, '업무 인사이트를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
@@ -73,7 +74,8 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
         onClick={() => setTab(entry.key)}>{entry.name}
         {view && <small>{entry.key === 'DUPLICATE' ? view.duplicateTotal
           : entry.key === 'SIMILAR' ? view.similarTotal
-          : entry.key === 'COLLAB' ? view.collaboration.length : view.recurring.length}</small>}
+          : entry.key === 'COLLAB' ? view.collaboration.length
+          : entry.key === 'BOTTLENECK' ? view.bottlenecks.length : view.recurring.length}</small>}
       </button>)}
     </div>
 
@@ -108,6 +110,23 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
             </tr>)}</tbody>
           </table></div>}
         </>)}
+
+      {tab === 'BOTTLENECK' && (view.bottlenecks.length === 0
+        ? <Empty>여러 업무를 막고 있는 선행 업무가 없습니다. 다른 업무를 기다리고 있다면 업무 추적에서 선행 관계를 등록하세요.</Empty>
+        : <ul className="bottleneck-list">{view.bottlenecks.map(item => <li key={item.workItemId} className="bottleneck">
+            <div className="bottleneck-head">
+              <strong>{item.title}</strong>
+              <span className="state-chip stalled">{item.blocked}건 대기</span>
+              {item.crossOrganization > 0 && <span className="state-chip risk">타 조직 {item.crossOrganization}건</span>}
+            </div>
+            <div className="decision-facts">
+              <span>{item.displayName}{item.organizationName ? ` · ${item.organizationName}` : ''}</span>
+              <span>진척 {item.progress}%</span>
+              <span>{item.lastWeek ? `최근 ${item.lastWeek}` : '보고 없음'}</span>
+            </div>
+            <p className="bottleneck-waiting">기다리는 업무: {item.waiting.join(' · ')}
+              {item.blocked > item.waiting.length ? ` 외 ${item.blocked - item.waiting.length}건` : ''}</p>
+          </li>)}</ul>)}
 
       {tab === 'RECURRING' && (view.recurring.length === 0
         ? <Empty>반복 운영 업무로 분류된 항목이 없습니다.</Empty>

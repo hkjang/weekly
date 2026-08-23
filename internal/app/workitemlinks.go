@@ -291,3 +291,157 @@ func (a *App) deleteWorkItemLink(w http.ResponseWriter, r *http.Request) {
 	a.audit(r, p, "work_item.unlink", "work_item_link", strconv.FormatInt(id, 10), nil)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// A blocker holding several tasks up.
+//
+// The roadmap asks for this in one sentence: "현재 N개 업무가 하나의 선행 항목
+// 때문에 정체". One task waiting on another is a fact for the two people
+// involved; five waiting on one is a fact for the organisation, and it is
+// invisible until the edges are counted from the blocker's end.
+type bottleneck struct {
+	WorkItemID       int64  `json:"workItemId"`
+	Title            string `json:"title"`
+	DisplayName      string `json:"displayName"`
+	OrganizationName string `json:"organizationName"`
+	Progress         int    `json:"progress"`
+	LastWeek         string `json:"lastWeek"`
+	// Blocked is how many unfinished tasks wait on this one, and CrossOrg how
+	// many of those sit in a different organisation. The second number is what
+	// makes it a meeting item rather than a conversation.
+	Blocked  int      `json:"blocked"`
+	CrossOrg int      `json:"crossOrganization"`
+	Waiting  []string `json:"waiting"`
+}
+
+// bottleneckLimit caps the list. A blocker holding up two tasks is ordinary;
+// this screen is for the handful holding up several.
+const (
+	bottleneckLimit    = 20
+	bottleneckMinimum  = 2
+	bottleneckExamples = 5
+)
+
+// bottlenecks counts, per blocker, the unfinished work waiting on it.
+//
+// Scoped by the **waiting** side, not the blocker. Scoping by the blocker means
+// a team leader sees only bottlenecks their own organisation owns — and hides
+// the one thing they most need, which is another organisation's task holding
+// four of theirs up. The question this screen answers is "what is holding up
+// work I can see", so the work being held up is what the scope applies to.
+//
+// The blocker's own title and owner therefore appear even when that person is
+// outside the caller's scope. That is not new exposure: the caller's own people
+// declared these edges, and the insight screens already name other
+// organisations' work.
+//
+// Finished blockers are excluded — a completed task blocks nothing, whatever
+// the edge still says — and so are finished waiters, for the same reason from
+// the other end.
+func (a *App) bottlenecks(ctx context.Context, scope workScope) ([]bottleneck, error) {
+	// workScope.where names the aliases w and u. Here w is the *blocked* task
+	// and u its owner, so the predicate filters the waiting side. Renaming
+	// either alias would leave this compiling and silently unfiltered.
+	where, args := scope.where(1)
+	rows, err := a.db.Query(ctx, `
+		WITH latest AS (
+			SELECT DISTINCT ON (i.work_item_id) i.work_item_id, i.progress, r.week_start
+			FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+			WHERE i.work_item_id IS NOT NULL
+			ORDER BY i.work_item_id, r.week_start DESC, i.id DESC
+		)
+		SELECT b.id, b.title, coalesce(bu.display_name,''), coalesce(bo.name,''),
+			coalesce(bl.progress,0), coalesce(bl.week_start::text,''),
+			count(*),
+			count(*) FILTER (WHERE coalesce(bu.organization_id,0) <> coalesce(u.organization_id,0)),
+			array_agg(w.title ORDER BY w.id)
+		FROM work_item_links l
+		JOIN work_items b ON b.id = l.blocker_id
+		JOIN work_items w ON w.id = l.blocked_id
+		LEFT JOIN users bu ON bu.id = b.user_id
+		LEFT JOIN organizations bo ON bo.id = bu.organization_id
+		LEFT JOIN users u ON u.id = w.user_id
+		LEFT JOIN latest bl ON bl.work_item_id = b.id
+		LEFT JOIN latest wl ON wl.work_item_id = w.id
+		WHERE coalesce(bl.progress,0) < 100 AND coalesce(wl.progress,0) < 100`+where+`
+		GROUP BY b.id, b.title, bu.display_name, bo.name, bl.progress, bl.week_start
+		HAVING count(*) >= `+strconv.Itoa(bottleneckMinimum)+`
+		ORDER BY 7 DESC, 8 DESC, b.id
+		LIMIT `+strconv.Itoa(bottleneckLimit), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []bottleneck{}
+	for rows.Next() {
+		var item bottleneck
+		var waiting []string
+		if err := rows.Scan(&item.WorkItemID, &item.Title, &item.DisplayName, &item.OrganizationName,
+			&item.Progress, &item.LastWeek, &item.Blocked, &item.CrossOrg, &waiting); err != nil {
+			return nil, err
+		}
+		if len(waiting) > bottleneckExamples {
+			waiting = waiting[:bottleneckExamples]
+		}
+		item.Waiting = waiting
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+// crossOrgBlocked lists this scope's unfinished tasks that are waiting on work
+// owned by a different organisation.
+//
+// This is the meeting item the roadmap reserved for this stage. A dependency
+// inside one team gets settled by the two people involved; one that crosses an
+// organisation boundary needs somebody in the room who can talk to both, which
+// is what the meeting is.
+func (a *App) crossOrgBlocked(ctx context.Context, scope workScope) ([]meetingEntry, error) {
+	where, args := scope.where(1)
+	rows, err := a.db.Query(ctx, `
+		WITH latest AS (
+			SELECT DISTINCT ON (i.work_item_id) i.work_item_id, i.progress
+			FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+			WHERE i.work_item_id IS NOT NULL
+			ORDER BY i.work_item_id, r.week_start DESC, i.id DESC
+		)
+		SELECT w.id, w.title, coalesce(w.category,''), coalesce(u.display_name,''), coalesce(o.name,''),
+			coalesce(mine.progress,0),
+			blocker.title, coalesce(bu.display_name,''), coalesce(bo.name,''),
+			coalesce(l.note,'')
+		FROM work_item_links l
+		JOIN work_items w ON w.id = l.blocked_id
+		JOIN work_items blocker ON blocker.id = l.blocker_id
+		LEFT JOIN users u ON u.id = w.user_id
+		LEFT JOIN organizations o ON o.id = u.organization_id
+		LEFT JOIN users bu ON bu.id = blocker.user_id
+		LEFT JOIN organizations bo ON bo.id = bu.organization_id
+		LEFT JOIN latest mine ON mine.work_item_id = w.id
+		LEFT JOIN latest theirs ON theirs.work_item_id = blocker.id
+		WHERE coalesce(mine.progress,0) < 100
+		  AND coalesce(theirs.progress,0) < 100
+		  AND coalesce(bu.organization_id,0) <> coalesce(u.organization_id,0)`+where+`
+		ORDER BY w.id, blocker.id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := []meetingEntry{}
+	for rows.Next() {
+		var id int64
+		var title, category, owner, org, blockerTitle, blockerOwner, blockerOrg, note string
+		var progress int
+		if err := rows.Scan(&id, &title, &category, &owner, &org, &progress,
+			&blockerTitle, &blockerOwner, &blockerOrg, &note); err != nil {
+			return nil, err
+		}
+		detail := fmt.Sprintf("%s의 '%s'(%s)이(가) 끝나야 진행됩니다.", blockerOrg, blockerTitle, blockerOwner)
+		if blockerOrg == "" {
+			detail = fmt.Sprintf("'%s'(%s)이(가) 끝나야 진행됩니다.", blockerTitle, blockerOwner)
+		}
+		entries = append(entries, meetingEntry{
+			WorkItemID: id, Title: title, Category: category, DisplayName: owner,
+			OrganizationName: org, Progress: progress, Detail: detail, Note: note,
+		})
+	}
+	return entries, rows.Err()
+}

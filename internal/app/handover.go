@@ -339,6 +339,9 @@ type workGraphView struct {
 	DuplicateTotal int                 `json:"duplicateTotal"`
 	Collaboration  []collaborationEdge `json:"collaboration"`
 	Recurring      []recurringWork     `json:"recurring"`
+	// Blockers holding several unfinished tasks up. Counted from the blocker's
+	// end, which is the only end where the pattern is visible.
+	Bottlenecks []bottleneck `json:"bottlenecks"`
 }
 
 func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
@@ -355,7 +358,8 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 		weeks = 104
 	}
 	since := time.Now().In(a.serviceLocation(r.Context())).AddDate(0, 0, -7*weeks).Format("2006-01-02")
-	items, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, false), since)
+	scope := scopeForPrincipal(p, false)
+	items, err := a.loadWorkItems(r.Context(), scope, since)
 	if err != nil {
 		a.logger.Error("work graph", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 인사이트를 만들 수 없습니다.")
@@ -366,11 +370,21 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 		a.logger.Info("work graph truncated", "workItems", len(items),
 			"similar", graph.SimilarTotal, "duplicates", graph.DuplicateTotal, "limit", insightLinkLimit)
 	}
+	// Declared dependencies, not inferred ones: everything else on this screen
+	// is a candidate a person still has to confirm, and this is the one section
+	// somebody already asserted.
+	blockers, err := a.bottlenecks(r.Context(), scope)
+	if err != nil {
+		a.logger.Error("bottlenecks", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 인사이트를 만들 수 없습니다.")
+		return
+	}
 	writeData(w, http.StatusOK, workGraphView{
 		Weeks: weeks, Since: since, WorkItems: len(items),
 		Similar: graph.Similar, SimilarTotal: graph.SimilarTotal,
 		Duplicates: graph.Duplicates, DuplicateTotal: graph.DuplicateTotal,
 		Collaboration: graph.Collaboration, Recurring: recurringWorkItems(items),
+		Bottlenecks: blockers,
 	})
 }
 

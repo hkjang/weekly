@@ -196,6 +196,30 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view := buildMeeting(items, week, a.rollupConfig(r.Context()))
+	// A dependency inside one team is settled by the two people in it. One that
+	// crosses an organisation needs somebody in the room who can talk to both,
+	// which is what the meeting is for — so it goes on the agenda rather than
+	// staying on the work item screen where only its two ends look.
+	blocked, err := a.crossOrgBlocked(r.Context(), scopeForPrincipal(p, scope == scopeSelf))
+	if err != nil {
+		a.logger.Error("meeting dependencies", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "회의 자료를 만들 수 없습니다.")
+		return
+	}
+	if len(blocked) > 0 {
+		// Placed after 지속 이슈 and before 변경점: it is something the room has
+		// to act on, not something it only has to hear.
+		section := meetingSection{Key: "DEPENDENCY", Title: "타 조직 대기",
+			Purpose: "다른 조직의 업무가 끝나야 진행되는 업무입니다. 이 자리에서 담당자를 연결하십시오.", Entries: blocked}
+		at := len(view.Sections)
+		for index, existing := range view.Sections {
+			if existing.Key == "CHANGE" {
+				at = index
+				break
+			}
+		}
+		view.Sections = append(view.Sections[:at], append([]meetingSection{section}, view.Sections[at:]...)...)
+	}
 	view.Scope = scope
 	writeData(w, http.StatusOK, view)
 }

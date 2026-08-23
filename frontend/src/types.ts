@@ -195,7 +195,7 @@ export interface RecurringWork extends WorkRef {
 export interface WorkGraphView {
   weeks: number; since: string; workItems: number
   similar: WorkLink[]; similarTotal: number; duplicates: WorkLink[]; duplicateTotal: number
-  collaboration: CollaborationEdge[]; recurring: RecurringWork[]
+  collaboration: CollaborationEdge[]; recurring: RecurringWork[]; bottlenecks: Bottleneck[]
 }
 
 export interface WorkSearchHit extends WorkRef {
@@ -206,6 +206,10 @@ export interface WorkSearchResponse { query: string; terms: string[]; semantic: 
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
 export interface ImportJobListView { items: ImportJob[]; total: number; limit: number; offset: number }
+export interface Bottleneck {
+  workItemId: number; title: string; displayName: string; organizationName: string
+  progress: number; lastWeek: string; blocked: number; crossOrganization: number; waiting: string[]
+}
 export interface WorkItemLink {
   id: number; note: string; ready: boolean
   workItemId: number; title: string; displayName: string; organizationName: string
