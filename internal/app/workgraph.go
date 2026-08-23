@@ -278,8 +278,49 @@ func linkWorkItems(items []workItemView, limit int) workLinkResult {
 	// whole organisation pairs from the map while presenting it as complete.
 	collaboration := newCollaboration()
 	duplicateByItem = map[int64]workLink{}
+
+	// Only pairs that share a distinctive word are compared.
+	//
+	// A pair with nothing meaningful in common is rejected a few lines below
+	// whatever its token similarity is, so it was never a candidate — but the
+	// similarity was computed first, for every pair. At 2,100 tasks that is 2.2
+	// million comparisons to reach the same answer, and it measured at 1.09s of
+	// a 1.17s executive digest: 93% of the request spent proving pairs wrong.
+	//
+	// An inverted index over the distinctive words produces exactly the pairs
+	// that can survive. The set of links is unchanged; only the work to find
+	// them is. The comparison itself is still quadratic in the worst case — a
+	// word every title shares would rebuild the full set — and that is the
+	// right trade, because narrowing it further would start losing links.
+	byToken := map[string][]int{}
+	for index := range items {
+		for token := range distinctive[index] {
+			byToken[token] = append(byToken[token], index)
+		}
+	}
+	// Stamped rather than allocated per row: a map per left index would trade
+	// the comparisons saved for garbage collection.
+	stamp := make([]int, len(items))
+	for index := range stamp {
+		stamp[index] = -1
+	}
+	candidates := make([]int, 0, 64)
+
 	for left := 0; left < len(items); left++ {
-		for right := left + 1; right < len(items); right++ {
+		candidates = candidates[:0]
+		for token := range distinctive[left] {
+			for _, right := range byToken[token] {
+				if right > left && stamp[right] != left {
+					stamp[right] = left
+					candidates = append(candidates, right)
+				}
+			}
+		}
+		// Sorted because the token map is walked in random order, and the
+		// ranked lists below break ties by arrival. Without this the same data
+		// would produce a different top-200 on every request.
+		sort.Ints(candidates)
+		for _, right := range candidates {
 			first, second := &items[left], &items[right]
 			if first.UserID == second.UserID {
 				continue
@@ -551,11 +592,19 @@ func (c *collaboration) edges() []collaborationEdge {
 			SharedWork: entry.work, People: len(entry.people), Topics: topics,
 		})
 	}
+	// The comparison has to be total, because the rows above came out of a map
+	// and arrive in a different order every call. Ordering by shared work and
+	// the left organisation alone left every pair of one organisation tied, so
+	// 팀 10 was shown against 팀 9 on one request and 팀 2 on the next with
+	// nothing having changed — a ranked list that reshuffles on refresh.
 	sort.SliceStable(result, func(x, y int) bool {
 		if result[x].SharedWork != result[y].SharedWork {
 			return result[x].SharedWork > result[y].SharedWork
 		}
-		return result[x].LeftOrganization < result[y].LeftOrganization
+		if result[x].LeftOrganization != result[y].LeftOrganization {
+			return result[x].LeftOrganization < result[y].LeftOrganization
+		}
+		return result[x].RightOrganization < result[y].RightOrganization
 	})
 	return result
 }

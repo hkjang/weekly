@@ -270,3 +270,45 @@ func TestTiedLinksKeepTheMostRecentPairs(t *testing.T) {
 		}
 	}
 }
+
+// A ranked list must not reshuffle on refresh. The rows come out of a map, so
+// they arrive in a different order every call; ordering them by shared work and
+// the left organisation alone left every pair of one organisation tied, and
+// 팀 10 appeared against 팀 9 on one request and 팀 2 on the next with nothing
+// having changed.
+func TestCollaborationOrderDoesNotDependOnMapIteration(t *testing.T) {
+	link := func(leftOrg, rightOrg string, leftUser, rightUser int64) workLink {
+		return workLink{
+			CrossOrg:    true,
+			SharedTerms: []string{"인증"},
+			Left:        workRef{UserID: leftUser, OrganizationName: leftOrg},
+			Right:       workRef{UserID: rightUser, OrganizationName: rightOrg},
+		}
+	}
+	// Every edge carries the same weight, so the tie-break is the only thing
+	// deciding the order.
+	links := []workLink{
+		link("본부 A", "본부 D", 1, 4),
+		link("본부 A", "본부 B", 1, 2),
+		link("본부 A", "본부 C", 1, 3),
+		link("본부 B", "본부 C", 2, 3),
+	}
+	first := collaborationEdges(links)
+	for attempt := 0; attempt < 20; attempt++ {
+		again := collaborationEdges(links)
+		if len(again) != len(first) {
+			t.Fatalf("edge count changed: %d vs %d", len(again), len(first))
+		}
+		for index := range first {
+			if again[index].LeftOrganization != first[index].LeftOrganization ||
+				again[index].RightOrganization != first[index].RightOrganization {
+				t.Fatalf("attempt %d row %d: %s·%s, first run had %s·%s", attempt, index,
+					again[index].LeftOrganization, again[index].RightOrganization,
+					first[index].LeftOrganization, first[index].RightOrganization)
+			}
+		}
+	}
+	if len(first) < 3 {
+		t.Fatalf("the fixture needs several tied rows to prove anything, got %d", len(first))
+	}
+}
