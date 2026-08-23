@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.42.0
+  version: 0.43.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -111,6 +111,15 @@ paths:
         - PLAN_REPEATED: 같은 차주 계획을 2주 이상 반복하면서 진척도도 오르지 않음
         - PLAN_WITHOUT_RESULT: 지난주 계획이 있는데 이번 주 실적이 비어 있음
         - ISSUE_PERSISTED: 같은 이슈가 rollup.persistent_issue_weeks 이상 지속
+
+        **이미 조치한 사람에게 조치하라고 반복하지 않는다.** 조치한 사람에게 같은 말을
+        되풀이하면 점검 목록 전체가 무시된다.
+
+        - 이미 상위 조직 요청으로 올린 이슈는 `회신 여부를 확인하세요`로 바뀐다.
+        - **선행 업무를 등록해 둔 업무의 `PLAN_REPEATED`는 WARN이 아니라 INFO가 되고,
+          "막힌 이유를 이슈로 적어 주세요" 대신 무엇을 기다리는지 이름을 대며 그 관계가
+          아직 유효한지 묻는다.** 계획을 반복한 사실은 여전히 볼 만하므로 소견 자체는
+          남는다.
       requestBody:
         required: true
         content:

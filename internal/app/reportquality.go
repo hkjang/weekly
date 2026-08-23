@@ -74,7 +74,12 @@ func runsBackFrom(weeks []workItemWeek, key string, field func(workItemWeek) str
 }
 
 // checkReportQuality compares one draft against the author's own history.
-func checkReportQuality(week string, items []reportItem, history []workItemView, cfg rollupConfig) qualityReport {
+// blocked carries what each task is still waiting on, so a check can tell a
+// stall the author has explained from one they have not. v0.17 set the rule
+// this follows: telling somebody to act on what they have already acted on is
+// how a whole checklist gets ignored.
+func checkReportQuality(week string, items []reportItem, history []workItemView,
+	blocked map[int64]blockedNote, cfg rollupConfig) qualityReport {
 	byKey := map[string]workItemView{}
 	for _, item := range history {
 		byKey[planMatchKey(item.Title)] = item
@@ -111,11 +116,22 @@ func checkReportQuality(week string, items []reportItem, history []workItemView,
 		// not move, is the clearest sign of a task being restated.
 		planRun := runsBackFrom(weeks, lineKey(item.NextPlan), func(week workItemWeek) string { return week.NextPlan })
 		if planRun >= repeatedPlanWeeks && item.Progress <= previous.Progress {
-			report.Findings = append(report.Findings, qualityFinding{
+			finding := qualityFinding{
 				Rule: "PLAN_REPEATED", Severity: "WARN", Title: title,
 				Message: fmt.Sprintf("같은 차주 계획을 %d주째 그대로 적었고 진척도도 오르지 않았습니다. 계획을 쪼개거나 막힌 이유를 이슈로 적어 주세요.",
 					planRun+1),
-			})
+			}
+			// This warning asks the author to record why they are stuck. Someone
+			// who declared a blocker has done exactly that, so repeating the ask
+			// is the nagging v0.17 warned about. The finding stays — a plan
+			// unchanged for weeks is still worth a look — but it becomes a note
+			// about whether the dependency still holds rather than a demand.
+			if note, waiting := blocked[known.ID]; waiting {
+				finding.Severity = "INFO"
+				finding.Message = fmt.Sprintf("같은 차주 계획을 %d주째 그대로 적었습니다. %s 그 관계가 아직 유효한지 확인하세요.",
+					planRun+1, note.sentence())
+			}
+			report.Findings = append(report.Findings, finding)
 		}
 
 		// Something was promised for this week and the result box is empty.
@@ -181,5 +197,15 @@ func (a *App) reportQuality(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "보고 품질을 점검할 수 없습니다.")
 		return
 	}
-	writeData(w, http.StatusOK, checkReportQuality(week, input.Items, history, a.rollupConfig(r.Context())))
+	ids := make([]int64, 0, len(history))
+	for _, item := range history {
+		ids = append(ids, item.ID)
+	}
+	blocked, err := a.blockedNotes(r.Context(), ids)
+	if err != nil {
+		a.logger.Error("report quality dependencies", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "보고 품질을 점검할 수 없습니다.")
+		return
+	}
+	writeData(w, http.StatusOK, checkReportQuality(week, input.Items, history, blocked, a.rollupConfig(r.Context())))
 }

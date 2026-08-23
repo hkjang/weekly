@@ -87,7 +87,7 @@ func TestCheckReportQuality(t *testing.T) {
 		if item.history != nil {
 			history = append(history, qualityHistory("인증 연동", item.history...))
 		}
-		report := checkReportQuality(now, []reportItem{item.draft}, history, cfg)
+		report := checkReportQuality(now, []reportItem{item.draft}, history, nil, cfg)
 		got := rules(report)
 		if strings.Join(got, ",") != strings.Join(item.want, ",") {
 			t.Errorf("%s: got=%v want=%v", item.name, got, item.want)
@@ -100,7 +100,7 @@ func TestCheckReportQualityMatchesTitlesByTheSameRuleAsCarryOver(t *testing.T) {
 	report := checkReportQuality("2026-08-17",
 		[]reportItem{{Title: "전표검증 자동화", CurrentResult: "진행", Progress: 20}},
 		[]workItemView{qualityHistory("전표 검증 자동화", workItemWeek{WeekStart: "2026-08-10", Progress: 60})},
-		defaultRollupConfig())
+		nil, defaultRollupConfig())
 	if got := rules(report); len(got) != 1 || got[0] != "PROGRESS_REGRESSED" {
 		t.Fatalf("got=%v want=[PROGRESS_REGRESSED]", got)
 	}
@@ -112,11 +112,52 @@ func TestCheckReportQualitySaysSoWhenAnIssueIsAlreadyEscalated(t *testing.T) {
 		workItemWeek{WeekStart: "2026-08-10", Progress: 45, Issue: "방화벽 정책 대기"})}
 	draft := reportItem{Title: "인증 연동", CurrentResult: "진행", Progress: 50,
 		Issue: "방화벽 정책 대기", ManagementAsk: "보안팀 정책 예외 승인 요청"}
-	report := checkReportQuality("2026-08-17", []reportItem{draft}, history, defaultRollupConfig())
+	report := checkReportQuality("2026-08-17", []reportItem{draft}, history, nil, defaultRollupConfig())
 	if len(report.Findings) != 1 {
 		t.Fatalf("findings=%d want=1", len(report.Findings))
 	}
 	if !strings.Contains(report.Findings[0].Message, "회신 여부") {
 		t.Fatalf("an escalated issue should not be told to escalate: %q", report.Findings[0].Message)
+	}
+}
+
+// Telling somebody to record why they are stuck, when they have already
+// recorded it, is how a checklist stops being read. v0.17 set that rule for the
+// escalated issue; a declared dependency is the same situation.
+func TestRepeatedPlanStopsNaggingSomebodyWhoDeclaredTheBlocker(t *testing.T) {
+	history := qualityHistory("전표 검증 자동화",
+		workItemWeek{WeekStart: "2026-07-27", Progress: 40, NextPlan: "규칙 확장"},
+		workItemWeek{WeekStart: "2026-08-03", Progress: 40, NextPlan: "규칙 확장"},
+		workItemWeek{WeekStart: "2026-08-10", Progress: 40, NextPlan: "규칙 확장"})
+	draft := reportItem{Title: "전표 검증 자동화", CurrentResult: "대기", NextPlan: "규칙 확장", Progress: 40}
+
+	plain := checkReportQuality("2026-08-17", []reportItem{draft}, []workItemView{history}, nil, defaultRollupConfig())
+	explained := checkReportQuality("2026-08-17", []reportItem{draft}, []workItemView{history},
+		map[int64]blockedNote{history.ID: {Title: "인증 연동", Organization: "본부 7", CrossOrg: true}},
+		defaultRollupConfig())
+
+	find := func(report qualityReport) *qualityFinding {
+		for index := range report.Findings {
+			if report.Findings[index].Rule == "PLAN_REPEATED" {
+				return &report.Findings[index]
+			}
+		}
+		return nil
+	}
+	undeclared, declared := find(plain), find(explained)
+	if undeclared == nil || declared == nil {
+		t.Fatalf("both cases should still raise the finding: %v / %v", rules(plain), rules(explained))
+	}
+	if undeclared.Severity != "WARN" {
+		t.Errorf("an unexplained repeat is a warning, got %q", undeclared.Severity)
+	}
+	if declared.Severity != "INFO" {
+		t.Errorf("an explained repeat should not be a warning, got %q", declared.Severity)
+	}
+	if strings.Contains(declared.Message, "막힌 이유를 이슈로 적어") {
+		t.Errorf("still asking for what the author already recorded: %q", declared.Message)
+	}
+	if !strings.Contains(declared.Message, "인증 연동") {
+		t.Errorf("the note does not name the blocker: %q", declared.Message)
 	}
 }
