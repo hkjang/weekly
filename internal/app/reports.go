@@ -27,6 +27,10 @@ type reportItem struct {
 	ManagementAsk string `json:"managementAsk"`
 	Progress      int    `json:"progress"`
 	SortOrder     int    `json:"sortOrder"`
+	// Sources is where this line came from, when the system knows. Empty means
+	// nobody recorded an origin — typed by hand, or written before the lineage
+	// model existed — and never that the line is unsupported.
+	Sources []itemSource `json:"sources,omitempty"`
 }
 
 type reportComment struct {
@@ -107,6 +111,15 @@ func (a *App) writeReport(w http.ResponseWriter, r *http.Request, id int64) {
 		a.logger.Error("load report", "error", err)
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "보고서를 조회할 수 없습니다.")
 		return
+	}
+	sources, err := a.sourcesForReport(r.Context(), id)
+	if err != nil {
+		a.logger.Error("load report sources", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "보고서를 조회할 수 없습니다.")
+		return
+	}
+	for index := range report.Items {
+		report.Items[index].Sources = sources[report.Items[index].ID]
 	}
 	writeData(w, http.StatusOK, report)
 }

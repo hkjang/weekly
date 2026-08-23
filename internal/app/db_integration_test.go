@@ -82,7 +82,11 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 		VALUES($1,'legacy-confirm.pptx',$2,1024,'READY','2026-08-17','2026-08-23',0.95) RETURNING id`, importJobID, strings.Repeat("a", 64)).Scan(&importFileID); err != nil {
 		t.Fatal(err)
 	}
-	confirmBody := `{"files":[{"id":` + strconv.FormatInt(importFileID, 10) + `,"selected":true,"weekStart":"2026-08-17","summary":"Import 계약 검증","strategy":"CREATE","items":[{"category":"개발","title":"Import 확정","currentResult":"계약 수정 완료, 회귀 검증 완료.","nextPlan":"운영 확인","issue":"","progress":90,"confidence":0.9}]}]}`
+	// sourceSlides travels back with the confirmation so the evidence survives
+	// the edit. Before v0.44 the analysis knew which slides an item came from
+	// and the confirmation dropped them, so a finished report could never say
+	// where its lines came from.
+	confirmBody := `{"files":[{"id":` + strconv.FormatInt(importFileID, 10) + `,"selected":true,"weekStart":"2026-08-17","summary":"Import 계약 검증","strategy":"CREATE","items":[{"category":"개발","title":"Import 확정","currentResult":"계약 수정 완료, 회귀 검증 완료.","nextPlan":"운영 확인","issue":"","progress":90,"confidence":0.9,"sourceSlides":[3,4]}]}]}`
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/import/"+strconv.FormatInt(importJobID, 10)+"/confirm", strings.NewReader(confirmBody))
 	request.SetPathValue("id", strconv.FormatInt(importJobID, 10))
 	request = request.WithContext(context.WithValue(request.Context(), principalContext, &principal{ID: userID, Username: "clone-test", Role: "USER"}))
@@ -98,6 +102,23 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 	}
 	if importedStatus != "CLOSED" || importedSource != "PPTX_IMPORT" || importedResult != "• 계약 수정 완료\n• 회귀 검증 완료." {
 		t.Fatalf("unexpected imported report: status=%q source=%q result=%q", importedStatus, importedSource, importedResult)
+	}
+
+	// The evidence is on the item, not only on the report. source_type says the
+	// report came from a PPTX; this says which file and which slides this
+	// particular line rests on.
+	var sourceKind, sourceTitle, sourceDetail, sourceReference string
+	if err := db.QueryRow(ctx, `SELECT s.kind, s.title, s.detail, s.reference
+		FROM report_item_sources s JOIN report_items i ON i.id = s.report_item_id
+		JOIN weekly_reports r ON r.id = i.report_id
+		WHERE r.user_id=$1 AND r.week_start='2026-08-17'`, userID).
+		Scan(&sourceKind, &sourceTitle, &sourceDetail, &sourceReference); err != nil {
+		t.Fatalf("the imported item kept no evidence: %v", err)
+	}
+	if sourceKind != "PPTX" || sourceTitle != "legacy-confirm.pptx" ||
+		sourceDetail != "슬라이드 3, 4" || sourceReference != strconv.FormatInt(importFileID, 10) {
+		t.Fatalf("unexpected evidence: kind=%q title=%q detail=%q reference=%q",
+			sourceKind, sourceTitle, sourceDetail, sourceReference)
 	}
 
 	// The organisation subtree branch of canViewPerson, against a real tree. A

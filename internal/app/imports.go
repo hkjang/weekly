@@ -400,6 +400,11 @@ type confirmImportItem struct {
 	Issue         string  `json:"issue"`
 	Progress      int     `json:"progress"`
 	Confidence    float64 `json:"confidence,omitempty"`
+	// SourceSlides comes back from the confirmation screen so the evidence
+	// survives the edit. The analysis knew which slides an item came from and
+	// the confirmation used to drop them on the way back, which is why a
+	// finished report could never say where its lines came from.
+	SourceSlides []int `json:"sourceSlides,omitempty"`
 }
 
 type confirmImportFile struct {
@@ -450,8 +455,9 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var status string
-		if err := tx.QueryRow(r.Context(), `SELECT f.status FROM import_files f JOIN import_jobs j ON j.id=f.import_job_id
-			WHERE f.id=$1 AND f.import_job_id=$2 AND j.user_id=$3 FOR UPDATE`, file.ID, jobID, p.ID).Scan(&status); err != nil || (status != "READY" && status != "NEEDS_REVIEW") {
+		originalName := ""
+		if err := tx.QueryRow(r.Context(), `SELECT f.status, f.original_filename FROM import_files f JOIN import_jobs j ON j.id=f.import_job_id
+			WHERE f.id=$1 AND f.import_job_id=$2 AND j.user_id=$3 FOR UPDATE`, file.ID, jobID, p.ID).Scan(&status, &originalName); err != nil || (status != "READY" && status != "NEEDS_REVIEW") {
 			writeError(w, http.StatusConflict, "IMPORT_FILE_NOT_READY", "선택한 파일은 확정할 수 있는 상태가 아닙니다.")
 			return
 		}
@@ -467,8 +473,14 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 		location := a.serviceLocation(r.Context())
 		week, parseErr := time.ParseInLocation("2006-01-02", file.WeekStart, location)
 		items := make([]reportItem, 0, len(file.Items))
+		// Evidence is collected against the same key normalizeImportedItems
+		// merges on, so two slides describing one task end up on one item
+		// rather than being dropped with the duplicate.
+		sources := map[string][]itemSource{}
 		for index, item := range file.Items {
 			items = append(items, reportItem{Category: item.Category, Title: item.Title, CurrentResult: item.CurrentResult, NextPlan: item.NextPlan, Issue: item.Issue, Progress: item.Progress, SortOrder: index})
+			key := aiReportItemKey(item.Category, item.Title)
+			sources[key] = append(sources[key], importSlideSource(file.ID, originalName, item.SourceSlides))
 		}
 		items = normalizeImportedItems(items)
 		if parseErr != nil || len(items) == 0 || validateItems(items) != nil {
@@ -492,7 +504,7 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 			err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,status,summary,source_type,source_ref)
 				VALUES($1,$2,'CLOSED',$3,'PPTX_IMPORT',$4) RETURNING id`, p.ID, week, trimRunes(file.Summary, 10000), strconv.FormatInt(file.ID, 10)).Scan(&reportID)
 			if err == nil {
-				err = insertImportedItems(r.Context(), tx, reportID, p.ID, items, 0)
+				err = insertImportedItems(r.Context(), tx, reportID, p.ID, items, 0, sources)
 			}
 			if err == nil {
 				_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,to_status,comment) VALUES($1,$2,'CLOSED','PPTX 과거 보고 Import')`, reportID, p.ID)
@@ -506,10 +518,10 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 				_, err = tx.Exec(r.Context(), `DELETE FROM report_items WHERE report_id=$1`, reportID)
 			}
 			if err == nil {
-				err = insertImportedItems(r.Context(), tx, reportID, p.ID, items, 0)
+				err = insertImportedItems(r.Context(), tx, reportID, p.ID, items, 0, sources)
 			}
 		} else {
-			err = mergeImportedItems(r.Context(), tx, reportID, p.ID, items)
+			err = mergeImportedItems(r.Context(), tx, reportID, p.ID, items, sources)
 			if err == nil {
 				_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,status='CLOSED',source_type='PPTX_IMPORT',source_ref=$2,version=version+1,updated_at=now() WHERE id=$3`,
 					trimRunes(mergeText(existingSummary, file.Summary), 10000), strconv.FormatInt(file.ID, 10), reportID)
@@ -576,24 +588,62 @@ func normalizeImportedItems(items []reportItem) []reportItem {
 	return result
 }
 
-func insertImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem, offset int) error {
+// importSlideSource describes where one imported item came from: the file, and
+// the slides the analysis attributed it to.
+func importSlideSource(fileID int64, filename string, slides []int) itemSource {
+	detail := ""
+	if len(slides) > 0 {
+		parts := make([]string, 0, len(slides))
+		for _, slide := range slides {
+			parts = append(parts, strconv.Itoa(slide))
+		}
+		detail = "슬라이드 " + strings.Join(parts, ", ")
+	}
+	return itemSource{Kind: sourcePPTX, Reference: strconv.FormatInt(fileID, 10), Title: filename, Detail: detail}
+}
+
+// mergeSlideSources folds several rows for one file into one, because an item
+// merged from three slides of the same deck is one piece of evidence with three
+// slide numbers, not three separate origins.
+func mergeSlideSources(sources []itemSource) []itemSource {
+	byReference := map[string]int{}
+	merged := []itemSource{}
+	for _, source := range sources {
+		if index, seen := byReference[source.Reference]; seen {
+			merged[index].Detail = mergeUniqueLines(merged[index].Detail, source.Detail)
+			continue
+		}
+		byReference[source.Reference] = len(merged)
+		merged = append(merged, source)
+	}
+	return merged
+}
+
+func insertImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem, offset int,
+	sources map[string][]itemSource) error {
 	for index, item := range items {
 		// Imported history joins the same work item timeline as manual entry.
 		workItemID, resolveErr := resolveWorkItem(ctx, tx, ownerID, item.Title, item.Category)
 		if resolveErr != nil {
 			return resolveErr
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,progress,sort_order)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, reportID, workItemID, trimRunes(strings.TrimSpace(item.Category), 80), trimRunes(strings.TrimSpace(item.Title), 240),
-			trimRunes(strings.TrimSpace(item.CurrentResult), 20000), trimRunes(strings.TrimSpace(item.NextPlan), 20000), trimRunes(strings.TrimSpace(item.Issue), 20000), item.Progress, offset+index)
+		var itemID int64
+		err := tx.QueryRow(ctx, `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,progress,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, reportID, workItemID, trimRunes(strings.TrimSpace(item.Category), 80), trimRunes(strings.TrimSpace(item.Title), 240),
+			trimRunes(strings.TrimSpace(item.CurrentResult), 20000), trimRunes(strings.TrimSpace(item.NextPlan), 20000), trimRunes(strings.TrimSpace(item.Issue), 20000), item.Progress, offset+index).Scan(&itemID)
 		if err != nil {
+			return err
+		}
+		if err := recordItemSources(ctx, tx, itemID,
+			mergeSlideSources(sources[aiReportItemKey(item.Category, item.Title)])); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem) error {
+func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64, items []reportItem,
+	sources map[string][]itemSource) error {
 	var sortOrder int
 	_ = tx.QueryRow(ctx, `SELECT coalesce(max(sort_order),-1)+1 FROM report_items WHERE report_id=$1`, reportID).Scan(&sortOrder)
 	for _, item := range items {
@@ -604,7 +654,7 @@ func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64,
 			WHERE report_id=$1 AND lower(trim(category))=lower(trim($2)) AND lower(trim(title))=lower(trim($3)) ORDER BY id LIMIT 1`, reportID, item.Category, item.Title).
 			Scan(&id, &current, &next, &issue, &progress)
 		if errors.Is(err, pgx.ErrNoRows) {
-			if err := insertImportedItems(ctx, tx, reportID, ownerID, []reportItem{item}, sortOrder); err != nil {
+			if err := insertImportedItems(ctx, tx, reportID, ownerID, []reportItem{item}, sortOrder, sources); err != nil {
 				return err
 			}
 			sortOrder++
@@ -616,6 +666,12 @@ func mergeImportedItems(ctx context.Context, tx pgx.Tx, reportID, ownerID int64,
 		_, err = tx.Exec(ctx, `UPDATE report_items SET current_result=$1,next_plan=$2,issue=$3,progress=$4,updated_at=now() WHERE id=$5`,
 			mergeText(current, item.CurrentResult), mergeText(next, item.NextPlan), mergeText(issue, item.Issue), maximum(progress, item.Progress), id)
 		if err != nil {
+			return err
+		}
+		// Merging into an existing item adds evidence rather than replacing it:
+		// the line now rests on both the earlier source and this deck.
+		if err := recordItemSources(ctx, tx, id,
+			mergeSlideSources(sources[aiReportItemKey(item.Category, item.Title)])); err != nil {
 			return err
 		}
 	}

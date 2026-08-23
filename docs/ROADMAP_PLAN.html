@@ -381,7 +381,16 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li><strong>순환 방지</strong>: 관계 등록 시 순환 의존을 차단하고 경로를 함께 보여 줍니다.</li>
 <li>회의 모드의 <code>타 조직 Dependency</code> 안건 구획은 이 단계에서 추가합니다.</li>
 </ul>
-<h3>3.8 v0.18 — Evidence Lineage 공통 모델</h3>
+<h3>3.8 v0.44 — Evidence Lineage 1단계: 공통 모델과 PPTX 계보 (완료)</h3>
+<p><strong>근거는 있었는데, 쓸모 있어지는 순간에 버려지고 있었습니다.</strong> Confluence 후보는 <code>candidate_sources</code>에 페이지를, PPTX Import는 분석 결과에 슬라이드 번호를 들고 있었지만, 후보를 수락하거나 Import를 확정하면 <code>report_items</code> 행만 남고 둘 다 사라졌습니다. <code>report_items</code>를 참조하는 테이블이 임베딩 하나뿐이었으므로 답이 숨어 있을 곳도 없었습니다.</p>
+<ul>
+<li><strong>출처 종류마다 표를 만들지 않았습니다.</strong> <code>report_item_sources</code> 하나에 MANUAL·CONFLUENCE·PPTX·AI_TEXT·JIRA·GIT·CI·ITSM·API를 담습니다. 커넥터마다 표를 두면 "근거가 몇 건인가"가 종류마다 다른 질의가 되고, 비교할 수 있게 하는 것이 이 모델의 목적입니다.</li>
+<li><strong>확정 화면이 슬라이드 번호를 되돌려 보냅니다.</strong> 분석은 알고 있었고 확정이 버리고 있었습니다.</li>
+<li><strong>비어 있음은 근거 없음이 아닙니다.</strong> 직접 타이핑했거나 이 모델 이전에 작성됐다는 뜻입니다.</li>
+<li>통합 테스트가 실제 PostgreSQL에서 근거 행을 확인하고, <strong>기록을 빼면 실패</strong>합니다.</li>
+</ul>
+<p>남은 것: Confluence 수락 경로, 문장 단위 근거, AI 요약의 근거 수 표기.</p>
+<h3>3.8.1 남음 — Evidence Lineage 2단계</h3>
 <ul>
 <li>Confluence 후보의 <code>candidate_sources</code> 근거 모델을 모든 Source로 일반화합니다. Manual, Confluence, Jira, Git Commit, CI, ITSM, PPTX Import를 같은 provenance 테이블로 관리합니다.</li>
 <li>문장 단위로 근거 수와 출처 종류를 표시하고 AI 요약에도 근거 수를 함께 표기합니다.</li>

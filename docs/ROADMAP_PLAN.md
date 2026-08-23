@@ -376,7 +376,18 @@ v0.37은 화면만 채웠습니다. **임원이 실제로 받는 것은 화면�
 - **순환 방지**: 관계 등록 시 순환 의존을 차단하고 경로를 함께 보여 줍니다.
 - 회의 모드의 `타 조직 Dependency` 안건 구획은 이 단계에서 추가합니다.
 
-### 3.8 v0.18 — Evidence Lineage 공통 모델
+### 3.8 v0.44 — Evidence Lineage 1단계: 공통 모델과 PPTX 계보 (완료)
+
+**근거는 있었는데, 쓸모 있어지는 순간에 버려지고 있었습니다.** Confluence 후보는 `candidate_sources`에 페이지를, PPTX Import는 분석 결과에 슬라이드 번호를 들고 있었지만, 후보를 수락하거나 Import를 확정하면 `report_items` 행만 남고 둘 다 사라졌습니다. `report_items`를 참조하는 테이블이 임베딩 하나뿐이었으므로 답이 숨어 있을 곳도 없었습니다.
+
+- **출처 종류마다 표를 만들지 않았습니다.** `report_item_sources` 하나에 MANUAL·CONFLUENCE·PPTX·AI_TEXT·JIRA·GIT·CI·ITSM·API를 담습니다. 커넥터마다 표를 두면 "근거가 몇 건인가"가 종류마다 다른 질의가 되고, 비교할 수 있게 하는 것이 이 모델의 목적입니다.
+- **확정 화면이 슬라이드 번호를 되돌려 보냅니다.** 분석은 알고 있었고 확정이 버리고 있었습니다.
+- **비어 있음은 근거 없음이 아닙니다.** 직접 타이핑했거나 이 모델 이전에 작성됐다는 뜻입니다.
+- 통합 테스트가 실제 PostgreSQL에서 근거 행을 확인하고, **기록을 빼면 실패**합니다.
+
+남은 것: Confluence 수락 경로, 문장 단위 근거, AI 요약의 근거 수 표기.
+
+### 3.8.1 남음 — Evidence Lineage 2단계
 
 - Confluence 후보의 `candidate_sources` 근거 모델을 모든 Source로 일반화합니다. Manual, Confluence, Jira, Git Commit, CI, ITSM, PPTX Import를 같은 provenance 테이블로 관리합니다.
 - 문장 단위로 근거 수와 출처 종류를 표시하고 AI 요약에도 근거 수를 함께 표기합니다.

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.43.0
+  version: 0.44.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -287,6 +287,17 @@ paths:
       - { $ref: "#/components/parameters/ID" }
     get:
       summary: 보고서 상세
+      description: |
+        각 업무 항목에 `sources`가 붙는다. 그 줄이 무엇을 근거로 적혔는지이며,
+        kind(MANUAL·CONFLUENCE·PPTX·AI_TEXT·JIRA·GIT·CI·ITSM·API), reference, title,
+        url, detail, occurredAt를 담는다.
+
+        **비어 있다는 것은 근거가 없다는 뜻이 아니다.** 직접 타이핑했거나 이 모델이 생기기
+        전에 작성됐다는 뜻이며, 근거가 기록된 경로에서만 채워진다.
+
+        보고서의 `sourceType`은 보고서 전체가 어디서 왔는지를 말하고 이것은 **줄마다**
+        말한다. 이전에는 후자가 없었다 — Confluence 후보의 페이지도 PPTX 항목의 슬라이드
+        번호도 항목이 만들어지는 순간 버려졌다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
     put:
