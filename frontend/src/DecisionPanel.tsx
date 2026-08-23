@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, del, errorText, patch, post } from './api'
 import { Button, Empty, Spinner } from './components'
-import type { Decision, DecisionInput, DecisionStatus } from './types'
+import type { Decision, DecisionCandidate, DecisionInput, DecisionStatus, DecisionSuggestion } from './types'
 
 /**
  * The decisions taken about one task.
@@ -26,14 +26,20 @@ const blank = (): DecisionInput => ({
   rationale: '', followUp: '', dueDate: '', status: 'OPEN',
 })
 
-export default function DecisionPanel({ workItemId, notify }: {
+export default function DecisionPanel({ workItemId, aiEnabled, notify }: {
   workItemId: number
+  // Suggestion is offered only where it can actually run. A button that always
+  // answers "관리자가 AI Gateway를 설정해야 합니다" is a button that teaches
+  // people to stop pressing buttons.
+  aiEnabled?: boolean
   notify: (message: string, kind?: 'success' | 'error') => void
 }) {
   const [decisions, setDecisions] = useState<Decision[]>()
   const [draft, setDraft] = useState<DecisionInput>()
   const [editingId, setEditingId] = useState<number>()
   const [busy, setBusy] = useState(false)
+  const [suggestion, setSuggestion] = useState<DecisionSuggestion>()
+  const [suggesting, setSuggesting] = useState(false)
 
   const load = () => api<Decision[]>(`/api/v1/work-items/${workItemId}/decisions`)
     .then(setDecisions)
@@ -67,6 +73,31 @@ export default function DecisionPanel({ workItemId, notify }: {
   const supersede = (decision: Decision) => {
     setEditingId(undefined)
     setDraft({ ...blank(), title: decision.title, decidedBy: decision.decidedBy, supersedesId: decision.id })
+  }
+
+  // Nothing is stored by suggesting. Each candidate opens the ordinary form,
+  // filled in, for a person to correct and confirm — which is the whole point:
+  // a record whose completeness depends on a model noticing is not a record.
+  const suggest = async () => {
+    setSuggesting(true)
+    try {
+      const result = await post<DecisionSuggestion>(`/api/v1/work-items/${workItemId}/decisions/suggest`)
+      setSuggestion(result)
+      if (result.candidates.length === 0) notify('AI가 결정으로 볼 만한 내용을 찾지 못했습니다.')
+    } catch (error) {
+      notify(errorText(error, '결정 후보를 찾을 수 없습니다.'), 'error')
+    } finally { setSuggesting(false) }
+  }
+  const acceptCandidate = (candidate: DecisionCandidate) => {
+    setEditingId(undefined)
+    setDraft({
+      ...blank(),
+      title: candidate.title,
+      decidedBy: candidate.decidedBy,
+      decidedOn: candidate.decidedOn || blank().decidedOn,
+      rationale: candidate.rationale,
+      followUp: candidate.followUp,
+    })
   }
 
   const edit = (decision: Decision) => {
@@ -107,8 +138,41 @@ export default function DecisionPanel({ workItemId, notify }: {
           </div>
         </li>)}</ul>}
 
-    {decisions.length > 0 && !draft &&
-      <Button variant="secondary" onClick={() => { setEditingId(undefined); setDraft(blank()) }}>+ 결정 기록</Button>}
+    {!draft && <div className="decision-toolbar">
+      {decisions.length > 0 &&
+        <Button variant="secondary" onClick={() => { setEditingId(undefined); setDraft(blank()) }}>+ 결정 기록</Button>}
+      {aiEnabled && <Button variant="secondary" disabled={suggesting} onClick={suggest}>
+        {suggesting ? '보고 내용 확인 중…' : '보고 내용에서 결정 후보 찾기'}</Button>}
+    </div>}
+
+    {suggestion && <div className="decision-suggestions">
+      <div className="decision-suggestion-head">
+        <strong>AI가 찾은 결정 후보 {suggestion.candidates.length}건</strong>
+        <button className="link-button" onClick={() => setSuggestion(undefined)}>닫기</button>
+      </div>
+      {/* The caveat comes from the server so no screen can render the list
+          without it. A list that looks exhaustive and is not is worse than
+          no list. */}
+      <p className="muted decision-caveat">{suggestion.caveat}</p>
+      {suggestion.candidates.length === 0
+        ? <p className="muted">{suggestion.weeks}주치 보고 내용에서 결정으로 볼 만한 문장을 찾지 못했습니다. 직접 기록하세요.</p>
+        : <ul className="decision-candidates">{suggestion.candidates.map((candidate, index) => <li key={index}>
+            <div className="decision-head">
+              <strong>{candidate.title}</strong>
+              <span className="muted-chip">확신 {Math.round(candidate.confidence * 100)}%</span>
+            </div>
+            <div className="decision-facts">
+              {candidate.decidedBy ? <span><b>{candidate.decidedBy}</b> 결정</span> : <span className="muted">결정자 미상</span>}
+              {candidate.decidedOn && <span>{candidate.decidedOn}</span>}
+            </div>
+            {candidate.rationale && <p className="decision-rationale"><b>근거</b> {candidate.rationale}</p>}
+            {candidate.followUp && <p className="decision-followup"><b>후속 조치</b> {candidate.followUp}</p>}
+            {candidate.evidence && <p className="decision-evidence"><b>보고 원문</b> {candidate.evidence}</p>}
+            <div className="decision-actions">
+              <Button variant="secondary" onClick={() => acceptCandidate(candidate)}>이 내용으로 기록 시작</Button>
+            </div>
+          </li>)}</ul>}
+    </div>}
 
     {draft && <div className="decision-form">
       <h5>{editingId ? '결정 기록 수정' : draft.supersedesId ? `이전 결정 #${draft.supersedesId}을(를) 대체하는 결정` : '새 결정 기록'}</h5>

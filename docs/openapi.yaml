@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.38.0
+  version: 0.39.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -971,6 +971,30 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /work-items/{id}/decisions/suggest:
+    post:
+      summary: 보고 내용에서 결정 후보 제안, AI Gateway 필요
+      description: |
+        그 업무의 주차별 보고 본문(실적·계획·이슈·상위 조직 요청)을 읽어 결정 후보를
+        **제안만** 한다. **아무것도 저장하지 않는다.** 후보는 사람이 고쳐서 확정할
+        양식일 뿐이다.
+
+        응답의 `caveat`는 화면이 반드시 함께 보여 줘야 하는 문장이며 그래서 payload에
+        담아 보낸다. **여기 없다고 해서 결정이 없었다는 뜻이 아니다.** 로드맵이 못 박은
+        원칙이다 — 감사·기억 시스템의 신뢰도를 모델 재현율에 의존시키지 않는다.
+
+        각 후보는 confidence와 함께 근거가 된 보고 원문(`evidence`)을 담는다. 확정하는
+        사람이 모델이 아니라 기록에 대고 확인할 수 있어야 하기 때문이다. 모델이 지어낸
+        날짜는 서버가 비운다 — 없는 날짜가 그럴듯한 날짜보다 낫다.
+
+        최대 5건. AI Gateway가 꺼져 있으면 503이고, 화면은 버튼 자체를 띄우지 않는다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /decisions/open:
     get:
       summary: 본인 업무의 미해결 후속 조치

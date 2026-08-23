@@ -206,6 +206,13 @@ export interface WorkSearchResponse { query: string; terms: string[]; semantic: 
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
 export interface ImportJobListView { items: ImportJob[]; total: number; limit: number; offset: number }
+export interface DecisionCandidate {
+  title: string; decidedBy: string; decidedOn: string; rationale: string
+  followUp: string; confidence: number; evidence: string
+}
+export interface DecisionSuggestion {
+  candidates: DecisionCandidate[]; caveat: string; weeks: number; scannedCharacters: number
+}
 export interface OpenFollowUp {
   decisionId: number; workItemId: number; workTitle: string; category: string
   title: string; decidedBy: string; decidedOn: string; followUp: string

@@ -216,7 +216,7 @@ export default function WorkItemsPage({ session, notify }: {
           {/* Above the weekly record on purpose: a week says what happened, a
               decision says why it was going to. The why is what someone opening
               this dialog months later came for. */}
-          <DecisionPanel workItemId={detail.id} notify={notify} />
+          <DecisionPanel workItemId={detail.id} aiEnabled={session.aiEnabled} notify={notify} />
 
           <h4 className="timeline-heading">주차별 기록</h4>
           {/* The same record as the list below, in one strip. The list answers

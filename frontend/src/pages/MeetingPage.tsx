@@ -35,8 +35,9 @@ function shiftWeek(week: string, deltaWeeks: number): string {
  * item is on screen and the wording is still fresh, and the follow-up comes
  * back to its owner in the report editor.
  */
-function EntryRow({ entry, notify }: {
+function EntryRow({ entry, aiEnabled, notify }: {
   entry: MeetingEntry
+  aiEnabled: boolean
   notify: (message: string, kind?: 'success' | 'error') => void
 }) {
   const [recording, setRecording] = useState(false)
@@ -52,7 +53,7 @@ function EntryRow({ entry, notify }: {
     {entry.detail && <p className="meeting-detail">{entry.detail}</p>}
     {entry.note && <p className="muted">{entry.note}</p>}
     {recording && <div className="meeting-decisions">
-      <DecisionPanel workItemId={entry.workItemId} notify={notify} />
+      <DecisionPanel workItemId={entry.workItemId} aiEnabled={aiEnabled} notify={notify} />
     </div>}
   </li>
 }
@@ -109,7 +110,7 @@ export default function MeetingPage({ session, notify }: {
             action={<span className="muted-chip">{section.entries.length}건</span>}>
             <p className="muted">{section.purpose}</p>
             <ul className={`meeting-list ${sectionTone[section.key] ?? ''}`}>
-              {section.entries.map(entry => <EntryRow key={`${section.key}-${entry.workItemId}`} entry={entry} notify={notify} />)}
+              {section.entries.map(entry => <EntryRow key={`${section.key}-${entry.workItemId}`} entry={entry} aiEnabled={session.aiEnabled} notify={notify} />)}
             </ul>
           </Card>)}
     </>}
