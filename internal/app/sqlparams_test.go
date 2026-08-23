@@ -49,6 +49,15 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// written by SET and compared against the same column in the WHERE, so
 		// both uses are the status column's own type.
 		"decisions.go": "the reused status is compared against the column it is being written to",
+		// PREPARE deduces {bigint, bigint}: the reused parameter is the walk's
+		// starting work item, used as the seed id, as the seed path element and
+		// as the title lookup key. All three are the same identifier.
+		//
+		// The same PREPARE also caught a real defect here first: the seed term
+		// produced varchar(240)[] while the recursive term widened to varchar[],
+		// and PostgreSQL rejects a recursive union whose column types disagree.
+		// Both ends are cast to text now.
+		"workitemlinks.go": "the reused parameter is the same work item id in all three uses",
 	}
 	placeholder := regexp.MustCompile(`\$(\d+)`)
 	sqlLiteral := regexp.MustCompile("(?s)`([^`]*)`")

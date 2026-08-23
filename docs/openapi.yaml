@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.39.0
+  version: 0.40.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -938,6 +938,58 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "403": { $ref: "#/components/responses/Error" }
+  /work-items/{id}/links:
+    get:
+      summary: 업무의 선행·후행 관계
+      description: |
+        `blockers`는 이 업무가 기다리는 것, `blocking`은 이 업무를 기다리는 것이다.
+        **저장되는 것은 방향 있는 간선 하나뿐**이다. "A가 B를 기다린다"와 "B가 A를
+        막는다"는 같은 사실을 양끝에서 본 것이므로, 두 종류로 저장하면 둘이 어긋날 수
+        있고 스스로 모순되는 그래프는 없느니만 못하다.
+
+        각 항목은 상대 업무의 담당자·조직·최근 보고 주차·진척을 담는다. `ready`는
+        선행 업무가 100%에 도달했는지다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: 선행 업무 등록
+      description: |
+        `blockerId`가 먼저 끝나야 이 업무가 진행된다고 선언한다. **본인 업무에 대해서만**
+        등록할 수 있다 — 자기 일이 무엇을 기다리는지에 대한 진술이기 때문이다.
+
+        **상대의 동의를 받지 않는다.** 상대 조직이 동의해야 하는 의존은 아무도 기록하지
+        않는 의존이다. 대신 `note`에 사유를 남기고, 상대는 자기 화면에서 그것을 보고
+        이의를 제기하거나 관계를 삭제할 수 있다.
+
+        선행 업무는 **조회 범위 밖이어도 된다.** 다른 조직의 업무를 기다리는 것이 이
+        기능이 존재하는 이유다.
+
+        **순환이 되면 409 `DEPENDENCY_CYCLE`이며, 어떤 사슬이 순환을 만드는지 제목으로
+        함께 알려 준다.** 보이지 않는 그래프를 두고 추측하게 두지 않기 위해서다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /work-item-links/{linkId}:
+    delete:
+      summary: 선행 관계 삭제
+      description: |
+        **양쪽 담당자 모두 삭제할 수 있다.** 기다리는 쪽은 자기가 선언했으니, 막는 쪽은
+        사실이 아닌 의존이 자기 업무에 붙어 있는 것을 상대 동의 없이 떼어낼 수 있어야
+        하기 때문이다.
+      parameters:
+        - { name: linkId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204": { description: 삭제 완료 }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /work-items/{id}/decisions:
     get:
       summary: 업무의 결정 기록

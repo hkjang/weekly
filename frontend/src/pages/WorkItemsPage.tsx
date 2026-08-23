@@ -3,6 +3,7 @@ import { errorText, api, post } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
 import DecisionPanel from '../DecisionPanel'
+import DependencyPanel from '../DependencyPanel'
 import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
@@ -212,6 +213,12 @@ export default function WorkItemsPage({ session, notify }: {
           {detail.latestManagementAsk && <div className="ask-panel">
             <strong>상위 조직 요청</strong><p>{detail.latestManagementAsk}</p>
           </div>}
+          <h4 className="timeline-heading">선행·후행 업무</h4>
+          {/* Above the decisions: a task waiting on another team is the most
+              common reason work stops, and it is the fact the reader can act on
+              without reading anything else. */}
+          <DependencyPanel workItemId={detail.id} editable={canEdit(detail)} notify={notify} />
+
           <h4 className="timeline-heading">결정 기록</h4>
           {/* Above the weekly record on purpose: a week says what happened, a
               decision says why it was going to. The why is what someone opening

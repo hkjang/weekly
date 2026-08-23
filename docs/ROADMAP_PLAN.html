@@ -345,7 +345,16 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li><strong>결정 이력 조회</strong>: WorkItem 타임라인과 기간 보고에서 결정 흐름을 함께 확인합니다.</li>
 <li><strong>회의 결과 반영</strong>: 회의 모드는 v0.13에서 완료됐고, 남은 것은 결과를 되돌려 쓰는 것입니다. 회의에서 정한 Decision과 Action Item을 기록하면 다음 주 보고서 초안에 반영합니다. 결정 기록 모델을 전제하므로 이 단계에 함께 둡니다.</li>
 </ul>
-<h3>3.7 v0.17 — Dependency / Blocker Graph</h3>
+<h3>3.7 v0.40 — Dependency / Blocker Graph 1단계: 관계 모델과 순환 방지 (완료)</h3>
+<ul>
+<li><strong>간선은 하나입니다.</strong> "A가 B를 기다린다"와 "B가 A를 막는다"는 같은 사실을 양끝에서 본 것입니다. 두 종류로 저장하면 둘이 어긋날 수 있고, 스스로 모순되는 그래프는 없느니만 못합니다.</li>
+<li><strong>선언은 한쪽이 합니다.</strong> 기다리는 쪽 담당자가 자기 일이 무엇을 기다리는지 선언하고, 상대의 동의를 받지 않습니다. <strong>상대가 동의해야 하는 의존은 아무도 기록하지 않는 의존입니다.</strong> 대신 사유를 함께 남기고, 상대는 자기 화면에서 그것을 보고 이의를 제기하거나 관계를 삭제할 수 있습니다.</li>
+<li><strong>조직 경계를 넘습니다.</strong> 선행 업무는 조회 범위 밖이어도 됩니다. 다른 조직의 업무를 기다리는 것이 이 기능이 존재하는 이유입니다.</li>
+<li><strong>순환은 막고 사슬을 알려 줍니다.</strong> <code>순환 의존이 됩니다: A → B → C → (이 업무)</code>. 보이지 않는 그래프를 두고 추측하게 두지 않습니다.</li>
+<li>순환 검사 질의를 실제 PostgreSQL에 <code>PREPARE</code>하다가 결함을 잡았습니다. 재귀 CTE의 비재귀항이 <code>varchar(240)[]</code>, 재귀항이 <code>varchar[]</code>여서 PostgreSQL이 질의 자체를 거부했습니다. 양쪽을 <code>text</code>로 맞췄습니다.</li>
+</ul>
+<p>남은 것: 병목 집계와 회의 모드의 <code>타 조직 Dependency</code> 구획.</p>
+<h3>3.7.1 남음 — Dependency Graph 2단계</h3>
 <ul>
 <li><strong>관계 모델</strong>: WorkItem 간 <code>dependsOn</code>, <code>blockedBy</code>를 조직 경계를 넘어 관리합니다.</li>
 <li><strong>병목 집계</strong>: "현재 N개 업무가 하나의 선행 항목 때문에 정체" 형태로 경영 화면에 제시합니다.</li>
