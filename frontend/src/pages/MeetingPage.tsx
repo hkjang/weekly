@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api } from '../api'
 import { Card, Empty, PageHeader, Spinner } from '../components'
+import DecisionPanel from '../DecisionPanel'
 import PresentationMode from '../PresentationMode'
 import { meetingNotes, meetingSlides } from '../presentSlides'
 import type { MeetingEntry, MeetingView, SessionInfo } from '../types'
@@ -25,16 +26,34 @@ function shiftWeek(week: string, deltaWeeks: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-function EntryRow({ entry }: { entry: MeetingEntry }) {
+/**
+ * One agenda item, with the room's conclusion recorded against it.
+ *
+ * The meeting produced the agenda and then stopped. Whatever was concluded went
+ * into someone's notebook, and next Monday the person whose task it was opened
+ * a blank editor with no sign of it. The decision is written here, while the
+ * item is on screen and the wording is still fresh, and the follow-up comes
+ * back to its owner in the report editor.
+ */
+function EntryRow({ entry, notify }: {
+  entry: MeetingEntry
+  notify: (message: string, kind?: 'success' | 'error') => void
+}) {
+  const [recording, setRecording] = useState(false)
   return <li>
     <div className="meeting-entry-head">
       <strong>{entry.title}</strong>
       <span className="muted-chip">{entry.displayName}{entry.organizationName ? ` · ${entry.organizationName}` : ''}</span>
       {entry.progressDelta !== 0 && <span className={entry.progressDelta > 0 ? 'delta-up' : 'delta-down'}>
         {entry.progressDelta > 0 ? `+${entry.progressDelta}` : entry.progressDelta}%</span>}
+      <button className="link-button" onClick={() => setRecording(current => !current)}>
+        {recording ? '결정 접기' : '결정 기록'}</button>
     </div>
     {entry.detail && <p className="meeting-detail">{entry.detail}</p>}
     {entry.note && <p className="muted">{entry.note}</p>}
+    {recording && <div className="meeting-decisions">
+      <DecisionPanel workItemId={entry.workItemId} notify={notify} />
+    </div>}
   </li>
 }
 
@@ -90,7 +109,7 @@ export default function MeetingPage({ session, notify }: {
             action={<span className="muted-chip">{section.entries.length}건</span>}>
             <p className="muted">{section.purpose}</p>
             <ul className={`meeting-list ${sectionTone[section.key] ?? ''}`}>
-              {section.entries.map(entry => <EntryRow key={`${section.key}-${entry.workItemId}`} entry={entry} />)}
+              {section.entries.map(entry => <EntryRow key={`${section.key}-${entry.workItemId}`} entry={entry} notify={notify} />)}
             </ul>
           </Card>)}
     </>}

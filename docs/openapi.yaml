@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.35.0
+  version: 0.36.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -963,6 +963,23 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /decisions/open:
+    get:
+      summary: 본인 업무의 미해결 후속 조치
+      description: |
+        상태가 OPEN이고 후속 조치가 비어 있지 않은 결정을, 그 결정이 달린 업무 제목과
+        함께 반환한다. 기한이 빠른 순, 없으면 결정일 최신 순. `overdue`는 기한이 오늘을
+        지났는지다.
+
+        **본인 업무만이다.** 후속 조치는 해야 할 일이고, 남의 의무 목록은 할 일 목록이
+        아니다.
+
+        회의의 되돌려 쓰기 절반이다. 회의가 정하고 결정이 기록되지만, 이것이 없으면
+        기록은 거기서 멈춘다 — 다음 월요일에 작성자는 자기가 무엇에 합의했는지 아무 표시도
+        없는 빈 편집기를 연다. 작성 화면이 지난주 계획을 돌려주는 바로 그 자리에서 이것도
+        함께 돌려준다.
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
   /decisions/{id}:
     patch:
       summary: 결정 기록 수정

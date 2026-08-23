@@ -383,3 +383,61 @@ func overdueDecision(decisions []decisionView, today string) *decisionView {
 	}
 	return nil
 }
+
+// openFollowUp is a decision that owes something, paired with the work it is
+// about, for the person who has to do it.
+type openFollowUp struct {
+	DecisionID int64  `json:"decisionId"`
+	WorkItemID int64  `json:"workItemId"`
+	WorkTitle  string `json:"workTitle"`
+	Category   string `json:"category"`
+	Title      string `json:"title"`
+	DecidedBy  string `json:"decidedBy"`
+	DecidedOn  string `json:"decidedOn"`
+	FollowUp   string `json:"followUp"`
+	DueDate    string `json:"dueDate,omitempty"`
+	Overdue    bool   `json:"overdue"`
+}
+
+// openFollowUps is the write-back half of the meeting.
+//
+// The meeting decides and the decision is written down; without this the record
+// stops there, and next Monday the author starts from a blank editor with no
+// sign that they agreed to anything. This is what the report editor offers back
+// to them, in the same place it already offers last week's unfinished plans.
+//
+// Own work only. A follow-up is something to do, and a list of other people's
+// obligations is not a to-do list.
+func (a *App) openFollowUps(w http.ResponseWriter, r *http.Request) {
+	p := currentPrincipal(r.Context())
+	today := time.Now().In(a.serviceLocation(r.Context())).Format("2006-01-02")
+	rows, err := a.db.Query(r.Context(), `SELECT d.id,d.work_item_id,wi.title,wi.category,d.title,d.decided_by,
+			d.decided_on,d.follow_up,d.due_date
+		FROM decisions d JOIN work_items wi ON wi.id=d.work_item_id
+		WHERE wi.user_id=$1 AND d.status=$2 AND btrim(d.follow_up) <> ''
+		ORDER BY d.due_date ASC NULLS LAST, d.decided_on DESC, d.id DESC`, p.ID, decisionOpen)
+	if err != nil {
+		a.logger.Error("open follow-ups", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "후속 조치를 조회할 수 없습니다.")
+		return
+	}
+	defer rows.Close()
+	result := []openFollowUp{}
+	for rows.Next() {
+		var item openFollowUp
+		var decidedOn time.Time
+		var dueDate *time.Time
+		if err := rows.Scan(&item.DecisionID, &item.WorkItemID, &item.WorkTitle, &item.Category, &item.Title,
+			&item.DecidedBy, &decidedOn, &item.FollowUp, &dueDate); err != nil {
+			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "후속 조치를 조회할 수 없습니다.")
+			return
+		}
+		item.DecidedOn = decidedOn.Format("2006-01-02")
+		if dueDate != nil {
+			item.DueDate = dueDate.Format("2006-01-02")
+			item.Overdue = item.DueDate < today
+		}
+		result = append(result, item)
+	}
+	writeData(w, http.StatusOK, result)
+}

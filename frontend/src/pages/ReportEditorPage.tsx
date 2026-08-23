@@ -4,7 +4,7 @@ import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } fr
 import AttachmentPanel from '../AttachmentPanel'
 import ReportPresentation from '../ReportPresentation'
 import { registerUnsavedGuard } from '../unsavedGuard'
-import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, PreviousPlan, PreviousPlanItem, QualityReport, Report, ReportItem } from '../types'
+import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, OpenFollowUp, PreviousPlan, PreviousPlanItem, QualityReport, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
 
@@ -25,6 +25,10 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const [aiApplied, setAIApplied] = useState(false)
   const [candidateData, setCandidateData] = useState<ConfluenceCandidateResponse>()
   const [previous, setPrevious] = useState<PreviousPlan | null>(null)
+  // What the author agreed to and has not written down yet. Without this the
+  // record stops at the meeting: next Monday they open a blank editor with no
+  // sign that a decision put anything on their plate.
+  const [followUps, setFollowUps] = useState<OpenFollowUp[]>([])
   const [quality, setQuality] = useState<QualityReport>()
   const [pendingCandidateIDs, setPendingCandidateIDs] = useState<number[]>([])
   const [captureCount, setCaptureCount] = useState(0)
@@ -34,12 +38,13 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const savedSnapshot = useRef('')
   const loadCandidates = () => api<ConfluenceCandidateResponse>('/api/v1/reports/current/candidates').then(setCandidateData)
   const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(setPrevious).catch(() => setPrevious(null))
+  const loadFollowUps = () => api<OpenFollowUp[]>('/api/v1/decisions/open').then(setFollowUps).catch(() => setFollowUps([]))
   const load = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } savedSnapshot.current = snapshotOf(value?.summary ?? '', value?.items ?? []) }
   // Used when a save fails: the version and status have to catch up, but the
   // content on screen must not be replaced by the server's copy. Overwriting it
   // here would destroy exactly the work the failed save was trying to keep.
   const refreshMeta = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value) }
-  useEffect(() => { Promise.all([load(), loadCandidates(), loadPrevious()]) }, [])
+  useEffect(() => { Promise.all([load(), loadCandidates(), loadPrevious(), loadFollowUps()]) }, [])
   // The screen people open every week put the caret nowhere, so writing began
   // with a hunt for a field. Scrolling is suppressed: moving the page under
   // someone who came back to a finished report would be worse than no focus.
@@ -89,7 +94,18 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const previousItems = previous?.items ?? []
   const previousFor = (item: ReportItem) => previousItems.find(plan => (!!item.workItemId && plan.workItemId === item.workItemId) || (!!item.title.trim() && plan.matchKey === planKey(item.title)))
   const reportedKeys = new Set(validItems().map(item => planKey(item.title)))
+  // Only what is not already in this week's report. A follow-up the author has
+  // written up is finished business as far as this card is concerned.
+  const openFollowUps = followUps.filter(entry => !reportedKeys.has(planKey(entry.workTitle)))
+  const overdueFollowUps = openFollowUps.filter(entry => entry.overdue).length
   const unreported = previousItems.filter(plan => plan.carryOver && !reportedKeys.has(plan.matchKey))
+  // Carrying a follow-up forward writes it into 차주 계획, not 금주 실적: it is
+  // what was agreed to do, not a claim that it has been done.
+  const carryFollowUp = (entry: OpenFollowUp) => {
+    const kept = validItems()
+    setItems([...kept, { category: entry.category, title: entry.workTitle, currentResult: '',
+      nextPlan: entry.followUp, issue: '', managementAsk: '', progress: 0, sortOrder: kept.length }])
+  }
   const carryForward = (plan: PreviousPlanItem) => { const kept = validItems(); setItems([...kept, { category: plan.category, title: plan.title, currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: plan.progress, sortOrder: kept.length }]) }
   const save = async () => { const preparedItems = validItems(); if (!preparedItems.length) { notify('업무 항목을 하나 이상 입력하세요.', 'error'); return false } const acceptedCandidateIDs = Array.from(new Set(preparedItems.flatMap(item => item.candidateId ? [item.candidateId] : []))); setBusy(true); try { const payload = { summary, sourceType: acceptedCandidateIDs.length ? 'CONFLUENCE_AI' : aiApplied ? 'AI_TEXT' : 'MANUAL', items: preparedItems.map(item => ({ id: item.id, category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: item.managementAsk ?? '', progress: item.progress, sortOrder: item.sortOrder })) }; const saved = report ? await put<{ id: number }>(`/api/v1/reports/${report.id}`, { ...payload, version: report.version }) : await post<{ id: number }>('/api/v1/reports', payload); if (acceptedCandidateIDs.length) await post('/api/v1/report-candidates/accept', { ids: acceptedCandidateIDs, reportId: saved.id }); setPendingCandidateIDs([]); await Promise.all([load(), loadCandidates()]); notify('보고서를 저장했습니다.'); return true } catch (error) { await refreshMeta().catch(() => undefined); notify(errorText(error, '저장할 수 없습니다. 작성 중인 내용은 그대로 남아 있습니다.'), 'error'); return false } finally { setBusy(false) } }
   const analyzeAI = async () => { if (!aiText.trim()) { notify('AI가 분석할 주간업무 내용을 입력하세요.', 'error'); return } setAIBusy(true); try { const result = await post<AIWeeklyResult>('/api/v1/ai/reports/parse-text', { text: aiText }); setAIResult(result); notify(`${result.reportItems.length}개 업무 항목을 구조화했습니다.`) } catch (error) { notify(errorText(error, 'AI 분석을 완료할 수 없습니다.'), 'error') } finally { setAIBusy(false) } }
@@ -115,6 +131,19 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
       <ul className="quality-findings">{quality.findings.map((finding, index) => <li key={index} className={finding.severity === 'WARN' ? 'warn' : ''}>
         <div><strong>{finding.title}</strong><small>{finding.severity === 'WARN' ? '확인 필요' : '참고'}</small></div>
         <p>{finding.message}</p>
+      </li>)}</ul>
+    </Card>}
+    {openFollowUps.length > 0 && <Card title="결정에 딸린 후속 조치"
+      action={<span className="muted">{overdueFollowUps > 0 ? `기한 지남 ${overdueFollowUps}건` : `${openFollowUps.length}건`}</span>}>
+      <p className="muted">회의나 보고에서 정해져 기록된 후속 조치 중, 아직 이번 주 보고에 없는 것입니다. 이미 한 일이면 그대로 두고, 이번 주에 다룰 일이면 항목으로 추가하세요.</p>
+      <ul className="carry-over">{openFollowUps.map(entry => <li key={entry.decisionId}>
+        <div>
+          <strong>{entry.workTitle}</strong>
+          <small>{entry.decidedBy} 결정 · {entry.decidedOn}{entry.dueDate ? ` · 기한 ${entry.dueDate}` : ''}</small>
+          <p>{entry.followUp}</p>
+          {entry.overdue && <span className="state-chip stalled">기한 지남</span>}
+        </div>
+        <Button variant="secondary" onClick={() => carryFollowUp(entry)}>+ 업무 항목으로 추가</Button>
       </li>)}</ul>
     </Card>}
     {unreported.length > 0 && <Card title="지난주 계획 이어받기" action={<span className="muted">{previous?.weekStart} 보고 기준</span>}>

@@ -180,6 +180,7 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/work-items/{id}/merge", a.requireAuth(a.csrf(http.HandlerFunc(a.mergeWorkItem))))
 	a.mux.Handle("GET /api/v1/work-items/{id}/decisions", a.requireAuth(http.HandlerFunc(a.listWorkItemDecisions)))
 	a.mux.Handle("POST /api/v1/work-items/{id}/decisions", a.requireAuth(a.csrf(http.HandlerFunc(a.createWorkItemDecision))))
+	a.mux.Handle("GET /api/v1/decisions/open", a.requireAuth(http.HandlerFunc(a.openFollowUps)))
 	a.mux.Handle("PATCH /api/v1/decisions/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateDecision))))
 	a.mux.Handle("DELETE /api/v1/decisions/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteDecision))))
 	a.mux.Handle("POST /api/v1/work-items/{id}/split", a.requireAuth(a.csrf(http.HandlerFunc(a.splitWorkItem))))
