@@ -172,7 +172,13 @@ type rollupView struct {
 	Contributors []rollupContributor `json:"contributors"`
 	Trend        []rollupWeekPoint   `json:"trend"`
 	Weeks        []string            `json:"weeks"`
-	GeneratedAt  time.Time           `json:"generatedAt"`
+	// Decisions taken inside the period, for the same people the rest of this
+	// report covers. Capped, with the total beside it.
+	Decisions     []decisionView `json:"decisions"`
+	DecisionTotal int            `json:"decisionTotal"`
+	OpenDecisions int            `json:"openDecisions"`
+	DecisionLimit int            `json:"decisionLimit"`
+	GeneratedAt   time.Time      `json:"generatedAt"`
 }
 
 // resolvePeriod turns a kind plus a user supplied period token into an inclusive

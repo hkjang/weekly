@@ -176,6 +176,31 @@ export default function RollupPage({ session, route, notify }: {
           </Card>
         </div>
 
+        {rollup.decisions.length > 0 && <Card title="기간 내 결정"
+          action={<span className="muted-chip">
+            {rollup.decisionTotal}건{rollup.openDecisions > 0 ? ` · 미해결 ${rollup.openDecisions}건` : ''}</span>}>
+          <p className="muted">이 기간에 기록된 결정입니다. 무엇을 했는지 위에 있고, 왜 그렇게 하기로 했는지가 여기 있습니다.</p>
+          {rollup.decisionTotal > rollup.decisions.length && <p className="muted capped-note">
+            {rollup.decisionTotal.toLocaleString()}건 중 최근 {rollup.decisions.length}건만 보여 줍니다.
+            업무별 전체 이력은 업무 추적에서 볼 수 있습니다.</p>}
+          <ul className="decision-list">{rollup.decisions.map(decision => <li key={decision.id}
+            className={`decision ${decision.status.toLowerCase()}`}>
+            <div className="decision-head">
+              <strong>{decision.title}</strong>
+              <span className={`decision-status ${decision.status.toLowerCase()}`}>
+                {decision.status === 'OPEN' ? '후속 조치 중' : decision.status === 'DONE' ? '완료' : '대체됨'}</span>
+            </div>
+            <div className="decision-facts">
+              {decision.workTitle && <span className="muted-chip">{decision.workTitle}</span>}
+              <span><b>{decision.decidedBy}</b> 결정</span>
+              <span>{decision.decidedOn}</span>
+              {decision.dueDate && <span>후속 기한 {decision.dueDate}</span>}
+            </div>
+            {decision.rationale && <p className="decision-rationale"><b>근거</b> {decision.rationale}</p>}
+            {decision.followUp && <p className="decision-followup"><b>후속 조치</b> {decision.followUp}</p>}
+          </li>)}</ul>
+        </Card>}
+
         <Card title="업무 타임라인" action={<span className="muted-chip">중복 제거 후 {rollup.items.length}건</span>} className="chart-card">
           <TaskTimeline weeks={rollup.weeks} tasks={rollup.items.slice(0, 18)} />
           {rollup.items.length > 18 && <p className="muted">진척이 필요한 상위 18건만 표시합니다. 전체 {rollup.items.length}건은 아래 표와 CSV에서 확인하십시오.</p>}

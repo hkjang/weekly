@@ -93,6 +93,12 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 		WHERE r.week_start <= $1::date AND r.week_start + 6 >= $2::date`
 	args := []any{period.End, period.Start}
 	scopeLabel := p.DisplayName
+	// The same people clause, kept once and reused by the decision query. Two
+	// clauses would eventually disagree, and a period report that aggregates one
+	// set of people while listing another's decisions is worse than one with no
+	// decisions at all. Placeholders start at $1 for that query, which fills its
+	// own date range first.
+	ownerWhere, ownerArgs := "", []any{}
 	if scope == scopeTeam {
 		switch {
 		case p.Role == "ADMIN":
@@ -101,6 +107,9 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 			args = append(args, *p.OrganizationID)
 			query += fmt.Sprintf(` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d
 				UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`, len(args))
+			ownerWhere = ` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$3
+				UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`
+			ownerArgs = []any{*p.OrganizationID}
 			scopeLabel = a.organizationName(ctx, *p.OrganizationID)
 		default:
 			return buildRollup(period, scope, "소속 조직 없음", nil, nil, expected, a.rollupConfig(ctx)), nil
@@ -108,6 +117,8 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 	} else {
 		args = append(args, p.ID)
 		query += fmt.Sprintf(" AND r.user_id=$%d", len(args))
+		ownerWhere = " AND wi.user_id=$3"
+		ownerArgs = []any{p.ID}
 	}
 	query += " ORDER BY r.week_start,u.display_name"
 
@@ -168,6 +179,17 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 	}
 
 	view := buildRollup(period, scope, scopeLabel, entries, reports, expected, a.rollupConfig(ctx))
+	// What was decided in this period, not only what was done. A quarterly
+	// report that lists the work and omits the decisions leaves the reader
+	// unable to ask why any of it went the way it did.
+	decisions, decisionTotal, openDecisions, err := a.decisionsInPeriod(ctx, period.Start, period.End, ownerWhere, ownerArgs)
+	if err != nil {
+		return rollupView{}, err
+	}
+	view.Decisions = decisions
+	view.DecisionTotal = decisionTotal
+	view.OpenDecisions = openDecisions
+	view.DecisionLimit = rollupDecisionLimit
 	view.GeneratedAt = time.Now().In(a.serviceLocation(ctx))
 	return view, nil
 }

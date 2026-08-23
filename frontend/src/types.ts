@@ -136,7 +136,9 @@ export interface Rollup {
   scope: RollupScope; scopeLabel: string; summary: string
   insights: RollupInsights; highlights: RollupHighlight[]; items: RollupItem[]
   categories: RollupCategory[]; contributors: RollupContributor[]; trend: RollupWeekPoint[]
-  weeks: string[]; generatedAt: string
+  weeks: string[]
+  decisions: Decision[]; decisionTotal: number; openDecisions: number; decisionLimit: number
+  generatedAt: string
 }
 
 export interface ConfluenceSyncStatus {
@@ -211,7 +213,7 @@ export interface OpenFollowUp {
 }
 export type DecisionStatus = 'OPEN' | 'DONE' | 'SUPERSEDED'
 export interface Decision {
-  id: number; workItemId: number; title: string; decidedBy: string; decidedOn: string
+  id: number; workItemId: number; workTitle?: string; title: string; decidedBy: string; decidedOn: string
   rationale: string; followUp: string; dueDate?: string; status: DecisionStatus
   supersedesId?: number; recordedByName: string; createdAt: string; updatedAt: string
 }

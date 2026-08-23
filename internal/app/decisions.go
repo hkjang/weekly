@@ -46,9 +46,13 @@ type decisionView struct {
 	// RecordedByName is who wrote it down, which is not always who decided.
 	// Both are shown, because a log that cannot distinguish them is wrong in
 	// precisely the cases that make it worth keeping.
-	RecordedByName string    `json:"recordedByName"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	RecordedByName string `json:"recordedByName"`
+	// WorkTitle is filled only where the decision is shown away from its task —
+	// a period report lists decisions across many tasks, and a decision without
+	// the work it is about is unreadable there.
+	WorkTitle string    `json:"workTitle,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // workItemViewer resolves a work item's owner and asks whether this principal
@@ -440,4 +444,60 @@ func (a *App) openFollowUps(w http.ResponseWriter, r *http.Request) {
 		result = append(result, item)
 	}
 	writeData(w, http.StatusOK, result)
+}
+
+// rollupDecisionLimit caps what a period report carries. A quarter across a
+// whole organisation can hold more decisions than anyone reads in a briefing,
+// and the total goes with the page so the screen never implies it showed
+// everything.
+const rollupDecisionLimit = 50
+
+// decisionsInPeriod reads the decisions taken inside a date range for the
+// people a rollup covers, most recent first.
+//
+// Scoping is by the owner of the work, matching how the rollup itself is
+// scoped. The where clause and its arguments are handed in by the caller so the
+// two cannot drift: a period report that aggregated one set of people and
+// listed decisions from another would be worse than listing none.
+func (a *App) decisionsInPeriod(ctx context.Context, start, end string, ownerWhere string, ownerArgs []any) ([]decisionView, int, int, error) {
+	args := append([]any{start, end}, ownerArgs...)
+	where := `WHERE d.decided_on BETWEEN $1::date AND $2::date` + ownerWhere
+
+	var total, open int
+	if err := a.db.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE d.status='OPEN')
+		FROM decisions d JOIN work_items wi ON wi.id=d.work_item_id JOIN users u ON u.id=wi.user_id `+where,
+		args...).Scan(&total, &open); err != nil {
+		return nil, 0, 0, err
+	}
+	args = append(args, rollupDecisionLimit)
+	rows, err := a.db.Query(ctx, `SELECT d.id,d.work_item_id,d.title,d.decided_by,d.decided_on,d.rationale,
+			d.follow_up,d.due_date,d.status,d.supersedes_id,coalesce(rec.display_name,''),d.created_at,d.updated_at,wi.title
+		FROM decisions d
+		JOIN work_items wi ON wi.id=d.work_item_id
+		JOIN users u ON u.id=wi.user_id
+		LEFT JOIN users rec ON rec.id=d.recorded_by `+where+`
+		ORDER BY d.decided_on DESC, d.id DESC LIMIT $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	defer rows.Close()
+	result := []decisionView{}
+	for rows.Next() {
+		var item decisionView
+		var decidedOn time.Time
+		var dueDate *time.Time
+		var workTitle string
+		if err := rows.Scan(&item.ID, &item.WorkItemID, &item.Title, &item.DecidedBy, &decidedOn, &item.Rationale,
+			&item.FollowUp, &dueDate, &item.Status, &item.SupersedesID, &item.RecordedByName,
+			&item.CreatedAt, &item.UpdatedAt, &workTitle); err != nil {
+			return nil, 0, 0, err
+		}
+		item.DecidedOn = decidedOn.Format("2006-01-02")
+		if dueDate != nil {
+			item.DueDate = dueDate.Format("2006-01-02")
+		}
+		item.WorkTitle = workTitle
+		result = append(result, item)
+	}
+	return result, total, open, rows.Err()
 }
