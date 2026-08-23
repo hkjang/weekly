@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -133,6 +134,32 @@ func trackOf(item workItemView) []handoverWeek {
 	return track
 }
 
+// canViewPerson reports whether this principal may open that person's work.
+//
+// It answers the same question /team/members answers in bulk, and the two are
+// deliberately the same shape: a picker that offers someone the handover screen
+// would then refuse is a picker that lies.
+func (a *App) canViewPerson(ctx context.Context, p *principal, target int64) (bool, error) {
+	if p == nil {
+		return false, nil
+	}
+	if p.ID == target || p.Role == "ADMIN" {
+		return true, nil
+	}
+	if p.Role != "TEAM_LEADER" && p.Role != "ORG_MANAGER" {
+		return false, nil
+	}
+	if p.OrganizationID == nil {
+		return false, nil
+	}
+	var visible bool
+	err := a.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users u WHERE u.id=$1
+		AND u.organization_id IN (WITH RECURSIVE orgs AS
+			(SELECT id FROM organizations WHERE id=$2 UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id)
+			SELECT id FROM orgs))`, target, *p.OrganizationID).Scan(&visible)
+	return visible, err
+}
+
 // cautionFor states the one thing most likely to surprise the new owner.
 func cautionFor(item workItemView) string {
 	switch {
@@ -164,9 +191,25 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 	}
 	// Reading someone else's work follows the same rule as reading their
 	// reports: only a leader of their organization, or an administrator.
-	if target != p.ID && p.Role == "USER" {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "다른 담당자의 인수인계 자료는 팀장 이상만 조회할 수 있습니다.")
-		return
+	//
+	// Checking the role was not enough. loadWorkItems scopes the work, so no
+	// task ever leaked, but the handler then filled in the name from the users
+	// table for whatever id it was handed — so any leader could walk the id
+	// range and read display names right across the company. Worse for the
+	// people who are allowed to be here: an out-of-scope person came back as a
+	// perfectly ordinary empty handover, indistinguishable from someone who
+	// genuinely has no open work.
+	if target != p.ID {
+		visible, err := a.canViewPerson(r.Context(), p, target)
+		if err != nil {
+			a.logger.Error("handover scope", "error", err, "trace", traceIDFromContext(r.Context()))
+			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "인수인계 자료를 만들 수 없습니다.")
+			return
+		}
+		if !visible {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "조회 권한 범위 밖의 담당자입니다.")
+			return
+		}
 	}
 	scope := scopeForPrincipal(p, false)
 	if target == p.ID {

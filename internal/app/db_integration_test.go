@@ -100,6 +100,54 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 		t.Fatalf("unexpected imported report: status=%q source=%q result=%q", importedStatus, importedSource, importedResult)
 	}
 
+	// The organisation subtree branch of canViewPerson, against a real tree. A
+	// leader may open the people under them and nobody else, and this must agree
+	// exactly with what /team/members offers — a picker that lists someone the
+	// handover screen then refuses is a picker that lies.
+	var leadOrg, otherOrg int64
+	if err := db.QueryRow(ctx, `INSERT INTO organizations(name,code) VALUES('스코프 본부','SCOPE-LEAD')
+		ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name RETURNING id`).Scan(&leadOrg); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `INSERT INTO organizations(name,code) VALUES('남의 본부','SCOPE-OTHER')
+		ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name RETURNING id`).Scan(&otherOrg); err != nil {
+		t.Fatal(err)
+	}
+	var childOrg int64
+	if err := db.QueryRow(ctx, `INSERT INTO organizations(name,code,parent_id) VALUES('스코프 하위팀','SCOPE-CHILD',$1)
+		ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id RETURNING id`, leadOrg).Scan(&childOrg); err != nil {
+		t.Fatal(err)
+	}
+	person := func(username string, org int64) int64 {
+		var id int64
+		if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role,organization_id) VALUES($1,$1,'USER',$2)
+			ON CONFLICT (username) DO UPDATE SET organization_id=EXCLUDED.organization_id RETURNING id`, username, org).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	sameTeam := person("scope-same", leadOrg)
+	belowTeam := person("scope-below", childOrg)
+	elsewhere := person("scope-other", otherOrg)
+	leader := &principal{ID: userID, Username: "clone-test", Role: "TEAM_LEADER", OrganizationID: &leadOrg}
+	for _, visibility := range []struct {
+		target int64
+		want   bool
+		note   string
+	}{
+		{sameTeam, true, "같은 조직"},
+		{belowTeam, true, "하위 조직"},
+		{elsewhere, false, "다른 조직"},
+	} {
+		got, err := application.canViewPerson(ctx, leader, visibility.target)
+		if err != nil {
+			t.Fatalf("canViewPerson(%s): %v", visibility.note, err)
+		}
+		if got != visibility.want {
+			t.Fatalf("canViewPerson(%s) = %v, want %v", visibility.note, got, visibility.want)
+		}
+	}
+
 	// A report with no work items must not be submittable. The editor has always
 	// refused to save one, but that rule lived in the browser: POST
 	// /api/v1/reports with an empty body created one and it went through
