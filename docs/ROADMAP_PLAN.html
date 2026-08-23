@@ -397,7 +397,15 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>식별자는 클라이언트가 보내므로 <strong>본인 초안인지 서버가 확인</strong>합니다.</li>
 <li>통합 테스트가 실제 PostgreSQL에서 <code>CONFLUENCE · 설계 검토 회의록 · v7 · 작성 후 수정</code>을 확인하고, 복사를 빼면 실패합니다.</li>
 </ul>
-<h3>3.8.2 남음 — Evidence Lineage 3단계: 문장 단위와 AI 요약 근거 수</h3>
+<h3>3.8.2 v0.46 — 역방향 계보 (완료), 문장 단위는 보류</h3>
+<p><strong>문장 단위 근거를 만들려다 전제가 없다는 것을 확인하고 멈췄습니다.</strong> AI는 내용을 원자 단위 줄 배열(<code>currentResults</code>, <code>nextPlans</code>, <code>issues</code>)로 나누지만 <code>sourceSlides</code>는 <strong>항목 단위</strong>입니다. 문장마다 근거를 표시하려면 그 귀속을 모델에게 새로 요구해야 하고, 여기서는 그 귀속의 품질을 측정할 방법이 없습니다. <strong>측정할 수 없는 기능을 로드맵 항목을 지우기 위해 만드는 것은 이 프로젝트가 지켜 온 방식이 아닙니다.</strong> 보류하고 사유를 남깁니다.</p>
+<p>대신 계보 모델이 이미 가능하게 만든 것을 만들었습니다.</p>
+<ul>
+<li><strong>역방향 계보</strong>: <code>이 페이지가 어느 보고에 근거로 쓰였나</code>. 정방향은 보고서를 읽는 사람에게 답하고, 역방향은 <strong>페이지·덱·커밋의 주인</strong>에게 답합니다 — 무엇이 자기 것 위에 세워졌는지 가장 늦게 알고, 바꾸기 전에 가장 알아야 하는 사람입니다. v0.44에서 이 질문을 위한 색인을 만들어 놓고 물어볼 방법이 없었습니다.</li>
+<li>보고서 상세의 근거 칩을 누르면 같은 근거를 쓴 다른 보고가 펼쳐집니다. <strong>조회 범위 안의 인용만</strong> 나열합니다.</li>
+<li>범위 술어에 별칭을 대려고 <code>work_items</code>를 조인했다가, <code>work_item_id</code>가 NULL이면 그 사람의 <strong>모든 업무와 조인돼 건수가 부풀려지는</strong> 것을 발견하고 보고서 자체를 별칭으로 바꿨습니다.</li>
+</ul>
+<h3>3.8.3 남음 — 문장 단위 근거와 AI 요약 근거 수</h3>
 <ul>
 <li>Confluence 후보의 <code>candidate_sources</code> 근거 모델을 모든 Source로 일반화합니다. Manual, Confluence, Jira, Git Commit, CI, ITSM, PPTX Import를 같은 provenance 테이블로 관리합니다.</li>
 <li>문장 단위로 근거 수와 출처 종류를 표시하고 AI 요약에도 근거 수를 함께 표기합니다.</li>

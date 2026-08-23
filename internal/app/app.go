@@ -181,6 +181,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/work-items/{id}/decisions", a.requireAuth(http.HandlerFunc(a.listWorkItemDecisions)))
 	a.mux.Handle("POST /api/v1/work-items/{id}/decisions", a.requireAuth(a.csrf(http.HandlerFunc(a.createWorkItemDecision))))
 	a.mux.Handle("POST /api/v1/work-items/{id}/decisions/suggest", a.requireAuth(a.csrf(http.HandlerFunc(a.suggestDecisions))))
+	a.mux.Handle("GET /api/v1/evidence/uses", a.requireAuth(http.HandlerFunc(a.evidenceUses)))
 	a.mux.Handle("GET /api/v1/work-items/{id}/links", a.requireAuth(http.HandlerFunc(a.listWorkItemLinks)))
 	a.mux.Handle("POST /api/v1/work-items/{id}/links", a.requireAuth(a.csrf(http.HandlerFunc(a.createWorkItemLink))))
 	a.mux.Handle("DELETE /api/v1/work-item-links/{linkId}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteWorkItemLink))))

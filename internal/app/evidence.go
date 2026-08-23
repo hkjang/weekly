@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -130,4 +131,107 @@ func (a *App) sourcesForSavedItem(ctx context.Context, tx pgx.Tx, item reportIte
 		return nil, nil
 	}
 	return a.candidateSources(ctx, tx, *item.CandidateID, ownerID)
+}
+
+// evidenceUse is one report line that rests on a given source.
+type evidenceUse struct {
+	ReportID         int64  `json:"reportId"`
+	ReportItemID     int64  `json:"reportItemId"`
+	WeekStart        string `json:"weekStart"`
+	Title            string `json:"title"`
+	Category         string `json:"category"`
+	DisplayName      string `json:"displayName"`
+	OrganizationName string `json:"organizationName"`
+	Detail           string `json:"detail,omitempty"`
+}
+
+type evidenceUseView struct {
+	Kind      string        `json:"kind"`
+	Reference string        `json:"reference"`
+	Title     string        `json:"title,omitempty"`
+	Uses      []evidenceUse `json:"uses"`
+	Total     int           `json:"total"`
+	Limit     int           `json:"limit"`
+}
+
+const evidenceUseLimit = 50
+
+// evidenceUses answers the question the lineage model was built to make
+// askable, from the other end: 이 페이지가 어느 보고에 근거로 쓰였나.
+//
+// Forward lineage tells a reader of one report where its lines came from.
+// This tells the owner of a page, a deck or a commit what was built on it —
+// which is who finds out last, and who most needs to know before changing it.
+//
+// Scoped like everything else: a source may be cited by work the caller cannot
+// read, and the count says how many of those there are without naming them.
+func (a *App) evidenceUses(w http.ResponseWriter, r *http.Request) {
+	kind := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("kind")))
+	reference := strings.TrimSpace(r.URL.Query().Get("reference"))
+	if kind == "" || reference == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_EVIDENCE", "출처 종류와 식별자를 함께 지정하세요.")
+		return
+	}
+	p := currentPrincipal(r.Context())
+	limit := clampQueryInt(r, "limit", evidenceUseLimit, 1, evidenceUseLimit)
+
+	// The scope predicate names w and u. The report itself is aliased as w
+	// because it carries user_id, and its author as u.
+	//
+	// An earlier version joined work_items to supply the alias, with
+	// `w.id = coalesce(i.work_item_id, w.id)` to tolerate items that have no
+	// work item. That degenerates to w.id = w.id and joins every one of that
+	// person's tasks, multiplying each citation into as many rows as they have
+	// work — a count that would have read as dozens of uses for one.
+	scope := scopeForPrincipal(p, false)
+	where, args := scope.where(3)
+	args = append([]any{kind, reference}, args...)
+
+	total := 0
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*)
+		FROM report_item_sources s
+		JOIN report_items i ON i.id = s.report_item_id
+		JOIN weekly_reports w ON w.id = i.report_id
+		JOIN users u ON u.id = w.user_id
+		WHERE s.kind = $1 AND s.reference = $2`+where, args...).Scan(&total); err != nil {
+		a.logger.Error("evidence uses count", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "근거 사용처를 조회할 수 없습니다.")
+		return
+	}
+	args = append(args, limit)
+	rows, err := a.db.Query(r.Context(), `SELECT w.id, i.id, w.week_start::text, i.title, i.category,
+			coalesce(u.display_name,''), coalesce(o.name,''), s.detail, s.title
+		FROM report_item_sources s
+		JOIN report_items i ON i.id = s.report_item_id
+		JOIN weekly_reports w ON w.id = i.report_id
+		JOIN users u ON u.id = w.user_id
+		LEFT JOIN organizations o ON o.id = u.organization_id
+		WHERE s.kind = $1 AND s.reference = $2`+where+`
+		ORDER BY w.week_start DESC, i.id
+		LIMIT $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		a.logger.Error("evidence uses", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "근거 사용처를 조회할 수 없습니다.")
+		return
+	}
+	defer rows.Close()
+	view := evidenceUseView{Kind: kind, Reference: reference, Uses: []evidenceUse{}, Total: total, Limit: limit}
+	for rows.Next() {
+		var use evidenceUse
+		var sourceTitle string
+		if err := rows.Scan(&use.ReportID, &use.ReportItemID, &use.WeekStart, &use.Title, &use.Category,
+			&use.DisplayName, &use.OrganizationName, &use.Detail, &sourceTitle); err != nil {
+			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "근거 사용처를 조회할 수 없습니다.")
+			return
+		}
+		if view.Title == "" {
+			view.Title = sourceTitle
+		}
+		view.Uses = append(view.Uses, use)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "근거 사용처를 조회할 수 없습니다.")
+		return
+	}
+	writeData(w, http.StatusOK, view)
 }

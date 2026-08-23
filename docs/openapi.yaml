@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.45.0
+  version: 0.46.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -982,6 +982,27 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "403": { $ref: "#/components/responses/Error" }
+  /evidence/uses:
+    get:
+      summary: 이 근거를 쓴 보고
+      description: |
+        정방향 계보는 한 보고서를 읽는 사람에게 그 줄이 어디서 왔는지 알려 준다. 이것은
+        반대 방향이다 — 페이지·덱·커밋의 주인이 **무엇이 그 위에 세워졌는지** 알아내는
+        길이며, 그 사람은 대개 가장 늦게 알고, 바꾸기 전에 가장 알아야 하는 사람이다.
+
+        `kind`와 `reference`를 함께 지정한다. 둘 중 하나가 없으면 400이다.
+
+        **조회 범위 안의 인용만 나열한다.** 범위 밖 보고가 같은 근거를 쓰고 있어도
+        이름은 나오지 않는다. `total`도 같은 범위 안의 수다.
+
+        최대 50건.
+      parameters:
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [MANUAL, CONFLUENCE, PPTX, AI_TEXT, JIRA, GIT, CI, ITSM, API] } }
+        - { name: reference, in: query, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 50 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
   /work-items/{id}/links:
     get:
       summary: 업무의 선행·후행 관계

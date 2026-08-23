@@ -7,6 +7,11 @@ export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: 
 export interface Providers { local: boolean; oidc: boolean; name: string; notice: string; build: BuildInfo }
 export type ItemSourceKind = 'MANUAL' | 'CONFLUENCE' | 'PPTX' | 'AI_TEXT' | 'JIRA' | 'GIT' | 'CI' | 'ITSM' | 'API'
 export interface ItemSource { kind: ItemSourceKind; reference?: string; title?: string; url?: string; detail?: string; occurredAt?: string }
+export interface EvidenceUse {
+  reportId: number; reportItemId: number; weekStart: string; title: string
+  category: string; displayName: string; organizationName: string; detail?: string
+}
+export interface EvidenceUseView { kind: string; reference: string; title?: string; uses: EvidenceUse[]; total: number; limit: number }
 export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number; sources?: ItemSource[] }
 export interface PreviousPlanItem { workItemId?: number; category: string; title: string; matchKey: string; nextPlan: string; issue: string; progress: number; carryOver: boolean }
 export interface PreviousPlan { reportId: number; weekStart: string; status: ReportStatus; items: PreviousPlanItem[] }
