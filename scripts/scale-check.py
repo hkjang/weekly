@@ -172,7 +172,7 @@ def main() -> int:
         print(f"로그인 실패 {status}: {body[:200].decode('utf-8', 'replace')}", file=sys.stderr)
         return 2
 
-    findings = []
+    findings, complete = [], []
     print(f"{'상태':>4} {'크기':>12} {'지연':>9}  경로")
     for template in PATHS:
         path = template.format(year=args.year)
@@ -191,13 +191,32 @@ def main() -> int:
         if worst > args.max_ms:
             notes.append(f"{worst:.0f}ms > 상한 {args.max_ms}ms")
         for name in lists_without_a_total(body):
-            notes.append(f"목록 {name}({len(json.loads(body).get('data', {}).get(name, [])) if isinstance(json.loads(body).get('data'), dict) else '?'}건) 옆에 전체 건수가 없어 완전한 목록인지 알 수 없음")
+            # No count beside the list. That is only a defect if the endpoint is
+            # in fact returning a page, so ask it for one row and see. An
+            # endpoint that ignores the parameter and returns the same bytes is
+            # returning everything, which is complete and honest even without a
+            # count; one that comes back shorter is paging without saying so,
+            # and a reader has no way to know they are missing people.
+            probe_status, probe_body, _ = call("GET", path + ("&" if "?" in path else "?") + "limit=1")
+            if probe_status == 200 and normalise(probe_body) != normalise(body):
+                findings_note = f"목록 {name} 이(가) limit 에 반응하는데 전체 건수를 말하지 않음 — 잘린 목록이 전부처럼 보임"
+                notes.append(findings_note)
+            else:
+                complete.append(f"{path} · {name} (상한 없이 전량 반환)")
         mark = "  <== " + " · ".join(notes) if notes else ""
         print(f"{status:>4} {len(body):>11,}B {worst:>7.0f}ms  {path}{mark}")
         if notes:
             findings.append((path, notes))
 
     print()
+    if complete:
+        # Reported, not counted against the run. Returning everything is a
+        # scaling question for whoever owns the screen, not a broken promise to
+        # the reader.
+        print(f"상한 없이 전량 반환 {len(complete)}건 (잘리지는 않음)")
+        for line in complete:
+            print(f"  {line}")
+        print()
     if not findings:
         print(f"확인 {len(PATHS)}개 경로, 지적 사항 없음")
         return 0

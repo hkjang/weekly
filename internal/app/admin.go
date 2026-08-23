@@ -290,8 +290,74 @@ type userView struct {
 	CreatedAt      time.Time  `json:"createdAt"`
 }
 
+// userListView carries a page of accounts with the size of the set it came
+// from, so the screen can never present part of a directory as all of it.
+type userListView struct {
+	Items  []userView `json:"items"`
+	Total  int        `json:"total"`
+	Limit  int        `json:"limit"`
+	Offset int        `json:"offset"`
+	Query  string     `json:"query,omitempty"`
+	Roles  []string   `json:"roles,omitempty"`
+}
+
+const (
+	userPageDefault = 100
+	userPageMaximum = 500
+)
+
+// adminUsers lists accounts, searchable and paged.
+//
+// It used to return every row. On a 300 person deployment that was 63 KB and
+// a table nobody could navigate; at ten thousand it is megabytes, and the only
+// way to reach one account was the browser's own find-in-page over whatever
+// had rendered. So the cap arrives together with a search — a capped list with
+// no way to look something up is worse than an unbounded one, because the
+// account you need is simply gone.
+//
+// The search matches login, display name and email, because an administrator
+// arrives with whichever of the three they were given.
 func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id,username,display_name,coalesce(email,''),role,organization_id,manager_id,active,key_version,last_login_at,created_at FROM users ORDER BY display_name`)
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := clampQueryInt(r, "limit", userPageDefault, 1, userPageMaximum)
+	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
+
+	// A role filter, because one caller is not browsing the directory at all:
+	// the 검토 책임자 picker needs the handful of people who can review, and
+	// building it from whichever page of the table happened to load would
+	// silently drop reviewers as the organisation grew.
+	roles := []string{}
+	for _, role := range strings.Split(r.URL.Query().Get("role"), ",") {
+		role = strings.ToUpper(strings.TrimSpace(role))
+		if validRole(role) {
+			roles = append(roles, role)
+		}
+	}
+
+	where, args := "", []any{}
+	conditions := []string{}
+	if query != "" {
+		args = append(args, "%"+strings.ToLower(query)+"%")
+		conditions = append(conditions, fmt.Sprintf(
+			`(lower(username) LIKE $%d OR lower(display_name) LIKE $%d OR lower(coalesce(email,'')) LIKE $%d)`,
+			len(args), len(args), len(args)))
+	}
+	if len(roles) > 0 {
+		args = append(args, roles)
+		conditions = append(conditions, fmt.Sprintf(`role = ANY($%d)`, len(args)))
+	}
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
+	}
+	var total int
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users`+where, args...).Scan(&total); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
+		return
+	}
+	args = append(args, limit, offset)
+	statement := `SELECT id,username,display_name,coalesce(email,''),role,organization_id,manager_id,active,key_version,last_login_at,created_at
+		FROM users` + where + fmt.Sprintf(` ORDER BY display_name, id LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+	rows, err := a.db.Query(r.Context(), statement, args...)
 	if err != nil {
 		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
 		return
@@ -306,7 +372,11 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, user)
 	}
-	writeData(w, 200, result)
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
+		return
+	}
+	writeData(w, 200, userListView{Items: result, Total: total, Limit: limit, Offset: offset, Query: query, Roles: roles})
 }
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{2,120}$`)
