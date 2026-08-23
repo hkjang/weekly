@@ -386,6 +386,16 @@ func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, owner
 			item.Issue, item.ManagementAsk, item.Progress, index).Scan(&inserted); err != nil {
 			return err
 		}
+		// Only on insert. An edit to a line already saved does not change where
+		// it came from, and re-recording on every save would multiply one
+		// Confluence page into a source per keystroke.
+		sources, sourceErr := a.sourcesForSavedItem(ctx, tx, item, ownerID)
+		if sourceErr == nil {
+			sourceErr = recordItemSources(ctx, tx, inserted, sources)
+		}
+		if sourceErr != nil {
+			return sourceErr
+		}
 		kept[inserted] = true
 	}
 

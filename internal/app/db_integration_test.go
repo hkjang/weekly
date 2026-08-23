@@ -121,6 +121,54 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 			sourceKind, sourceTitle, sourceDetail, sourceReference)
 	}
 
+	// A Confluence draft's pages must reach the line it becomes. The candidate
+	// carried them in candidate_sources and accepting it never copied them
+	// across, so the finished report could not say which page a sentence rested
+	// on. The copy happens at save time, because that is when the item exists.
+	var pageDBID int64
+	if err := db.QueryRow(ctx, `INSERT INTO confluence_pages(page_id,space_key,title,title_hash,page_url,page_version,updated_at_source)
+		VALUES('PAGE-EV','TEAM','설계 검토 회의록',md5('설계 검토 회의록')||md5('salt'),'https://wiki.example/PAGE-EV',7, now())
+		ON CONFLICT (page_id) DO UPDATE SET title=EXCLUDED.title RETURNING id`).Scan(&pageDBID); err != nil {
+		t.Fatal(err)
+	}
+	var candidateID int64
+	if err := db.QueryRow(ctx, `INSERT INTO report_candidates(user_id,week_start,normalized_title,category,current_result,confidence,rule_score,status)
+		VALUES($1,'2026-08-24','설계 검토','개발','초안 검토 완료',0.8,10,'DETECTED') RETURNING id`, userID).Scan(&candidateID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO candidate_sources(candidate_id,confluence_page_id,page_version,activity_type,source_updated_at)
+		VALUES($1,$2,7,'CREATED_AND_MODIFIED', now()) ON CONFLICT DO NOTHING`, candidateID, pageDBID); err != nil {
+		t.Fatal(err)
+	}
+	var evidenceReport int64
+	if err := db.QueryRow(ctx, `INSERT INTO weekly_reports(user_id,week_start,summary) VALUES($1,'2026-08-24','근거 계보 검증') RETURNING id`,
+		userID).Scan(&evidenceReport); err != nil {
+		t.Fatal(err)
+	}
+	evidenceTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.persistReportItems(ctx, evidenceTx, evidenceReport, userID,
+		[]reportItem{{Category: "개발", Title: "설계 검토", CurrentResult: "초안 검토 완료", CandidateID: &candidateID}}); err != nil {
+		evidenceTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := evidenceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var evKind, evTitle, evDetail, evReference, evURL string
+	if err := db.QueryRow(ctx, `SELECT s.kind, s.title, s.detail, s.reference, s.url
+		FROM report_item_sources s JOIN report_items i ON i.id = s.report_item_id
+		WHERE i.report_id = $1`, evidenceReport).Scan(&evKind, &evTitle, &evDetail, &evReference, &evURL); err != nil {
+		t.Fatalf("the accepted candidate left no evidence on the item: %v", err)
+	}
+	if evKind != "CONFLUENCE" || evTitle != "설계 검토 회의록" || evReference != "PAGE-EV" ||
+		evDetail != "v7 · 작성 후 수정" || evURL != "https://wiki.example/PAGE-EV" {
+		t.Fatalf("unexpected Confluence evidence: kind=%q title=%q detail=%q reference=%q url=%q",
+			evKind, evTitle, evDetail, evReference, evURL)
+	}
+
 	// The organisation subtree branch of canViewPerson, against a real tree. A
 	// leader may open the people under them and nobody else, and this must agree
 	// exactly with what /team/members offers — a picker that lists someone the

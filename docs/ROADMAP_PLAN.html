@@ -390,7 +390,14 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>통합 테스트가 실제 PostgreSQL에서 근거 행을 확인하고, <strong>기록을 빼면 실패</strong>합니다.</li>
 </ul>
 <p>남은 것: Confluence 수락 경로, 문장 단위 근거, AI 요약의 근거 수 표기.</p>
-<h3>3.8.1 남음 — Evidence Lineage 2단계</h3>
+<h3>3.8.1 v0.45 — Confluence 계보 (완료)</h3>
+<ul>
+<li><strong>수락 처리가 항목을 만들지 않고 있었습니다.</strong> <code>acceptConfluenceCandidates</code>는 후보에 표시만 하고, 실제 항목은 편집기 저장이 만듭니다. 그리고 편집기가 실어 보내던 <code>candidateId</code>를 <strong>서버가 무시</strong>하고 있었습니다 — 그래서 근거를 옮길 지점 자체가 없었습니다.</li>
+<li>서버가 <code>candidateId</code>를 받아 저장 시점에 그 초안의 페이지·버전·활동 종류를 계보 모델로 복사합니다. <strong>저장할 때만</strong> 하고 수정할 때는 하지 않습니다 — 이미 저장된 줄을 고친다고 출처가 바뀌지는 않고, 매번 기록하면 한 페이지가 타이핑 횟수만큼 늘어납니다.</li>
+<li>식별자는 클라이언트가 보내므로 <strong>본인 초안인지 서버가 확인</strong>합니다.</li>
+<li>통합 테스트가 실제 PostgreSQL에서 <code>CONFLUENCE · 설계 검토 회의록 · v7 · 작성 후 수정</code>을 확인하고, 복사를 빼면 실패합니다.</li>
+</ul>
+<h3>3.8.2 남음 — Evidence Lineage 3단계: 문장 단위와 AI 요약 근거 수</h3>
 <ul>
 <li>Confluence 후보의 <code>candidate_sources</code> 근거 모델을 모든 Source로 일반화합니다. Manual, Confluence, Jira, Git Commit, CI, ITSM, PPTX Import를 같은 provenance 테이블로 관리합니다.</li>
 <li>문장 단위로 근거 수와 출처 종류를 표시하고 AI 요약에도 근거 수를 함께 표기합니다.</li>

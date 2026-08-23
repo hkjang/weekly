@@ -14,8 +14,13 @@ import (
 )
 
 type reportItem struct {
-	ID            int64  `json:"id,omitempty"`
-	WorkItemID    *int64 `json:"workItemId,omitempty"`
+	ID         int64  `json:"id,omitempty"`
+	WorkItemID *int64 `json:"workItemId,omitempty"`
+	// CandidateID is the Confluence draft this line was written from, sent by
+	// the editor and previously ignored here. It is not stored on the item —
+	// it is the handle used to copy that draft's pages into the lineage model,
+	// which is where the evidence has to live once the candidate is accepted.
+	CandidateID   *int64 `json:"candidateId,omitempty"`
 	Category      string `json:"category"`
 	Title         string `json:"title"`
 	CurrentResult string `json:"currentResult"`
@@ -246,11 +251,21 @@ func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "DATABASE_ERROR", "업무 식별자를 만들 수 없습니다.")
 			return
 		}
-		if _, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-			id, workItemID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk, item.Progress, index); err != nil {
+		var itemID int64
+		if err = tx.QueryRow(r.Context(), `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+			id, workItemID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk, item.Progress, index).Scan(&itemID); err != nil {
 			a.logger.Error("insert report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(r.Context()))
 			writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
+			return
+		}
+		sources, sourceErr := a.sourcesForSavedItem(r.Context(), tx, item, p.ID)
+		if sourceErr == nil {
+			sourceErr = recordItemSources(r.Context(), tx, itemID, sources)
+		}
+		if sourceErr != nil {
+			a.logger.Error("record item sources", "error", sourceErr, "reportId", id, "trace", traceIDFromContext(r.Context()))
+			writeError(w, 500, "DATABASE_ERROR", "보고서 항목의 근거를 저장할 수 없습니다.")
 			return
 		}
 	}
