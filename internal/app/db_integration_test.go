@@ -100,6 +100,38 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 		t.Fatalf("unexpected imported report: status=%q source=%q result=%q", importedStatus, importedSource, importedResult)
 	}
 
+	// A report with no work items must not be submittable. The editor has always
+	// refused to save one, but that rule lived in the browser: POST
+	// /api/v1/reports with an empty body created one and it went through
+	// submission, review and approval like any other. An empty submission is the
+	// one that tells a leader the week is finished.
+	var emptyID int64
+	if err := db.QueryRow(ctx, `INSERT INTO weekly_reports(user_id,week_start,summary,status) VALUES($1,'2026-09-07','','DRAFT') RETURNING id`, userID).Scan(&emptyID); err != nil {
+		t.Fatal(err)
+	}
+	submit := func(reportID int64) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/reports/"+strconv.FormatInt(reportID, 10)+"/submit", nil)
+		request.SetPathValue("id", strconv.FormatInt(reportID, 10))
+		request = request.WithContext(context.WithValue(request.Context(), principalContext, &principal{ID: userID, Username: "clone-test", Role: "USER"}))
+		recorder := httptest.NewRecorder()
+		application.submitReport(recorder, request)
+		return recorder
+	}
+	if response := submit(emptyID); response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "EMPTY_REPORT") {
+		t.Fatalf("submitting an empty report: status=%d body=%s", response.Code, response.Body.String())
+	}
+	var stillDraft string
+	if err := db.QueryRow(ctx, `SELECT status FROM weekly_reports WHERE id=$1`, emptyID).Scan(&stillDraft); err != nil || stillDraft != "DRAFT" {
+		t.Fatalf("a refused submission must not move the report: status=%q err=%v", stillDraft, err)
+	}
+	// One item is enough to make it a report.
+	if _, err := db.Exec(ctx, `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress) VALUES($1,'개발','제출 검증','진행','계속','',30)`, emptyID); err != nil {
+		t.Fatal(err)
+	}
+	if response := submit(emptyID); response.Code != http.StatusOK {
+		t.Fatalf("submitting a report with one item: status=%d body=%s", response.Code, response.Body.String())
+	}
+
 	if _, err := db.Exec(ctx, `UPDATE app_settings SET value=CASE key WHEN 'ai.enabled' THEN 'true' WHEN 'ai.endpoint' THEN 'http://127.0.0.1/unused' WHEN 'ai.model' THEN 'test-model' ELSE value END
 		WHERE key IN ('ai.enabled','ai.endpoint','ai.model'); UPDATE app_settings SET value='' WHERE key='ai.api_key'`); err != nil {
 		t.Fatal(err)

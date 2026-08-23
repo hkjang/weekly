@@ -565,6 +565,21 @@ func (a *App) submitReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "INVALID_STATUS", "현재 상태에서는 제출할 수 없습니다.")
 		return
 	}
+	// The editor has always refused to save a report with no work items, but the
+	// rule lived only in the browser: POST /api/v1/reports with an empty body
+	// created one, and it could then be submitted, reviewed and approved like
+	// any other. An empty submission is the one that tells a leader the week is
+	// done. A draft may be empty — that is what a draft is — so the guard sits
+	// at submission, where the claim is made.
+	var itemCount int
+	if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM report_items WHERE report_id=$1`, id).Scan(&itemCount); err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "보고서를 제출할 수 없습니다.")
+		return
+	}
+	if itemCount == 0 {
+		writeError(w, 409, "EMPTY_REPORT", "업무 항목이 없는 보고서는 제출할 수 없습니다. 항목을 하나 이상 추가한 뒤 제출하세요.")
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET status=$1,submitted_at=now(),reviewed_at=NULL,reviewed_by=NULL,updated_at=now(),version=version+1 WHERE id=$2`, target, id); err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status) VALUES($1,$2,$3,$4)`, id, p.ID, previous, target)
 	}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.30.0
+  version: 0.31.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -303,9 +303,17 @@ paths:
   /reports/{id}/submit:
     post:
       summary: 보고서 제출 또는 즉시 확정
+      description: |
+        **업무 항목이 없는 보고서는 제출할 수 없다.** 409 `EMPTY_REPORT`를 반환하고
+        상태는 그대로 둔다. 작성 중인 초안은 비어 있어도 된다 — 초안이란 그런 것이다.
+        제출은 한 주가 끝났다고 말하는 행위이므로 그 지점에서 막는다.
+
+        이 규칙은 원래 화면에만 있었다. 빈 본문으로 `POST /reports`를 부르면 항목 없는
+        보고서가 만들어졌고, 그대로 제출·검토·승인까지 갔다.
       parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
         "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
   /reports/{id}/clone:
     post:
       summary: 본인 보고서를 새 주차의 독립된 초안으로 복제
