@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { errorText, api, post } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
+import DecisionPanel from '../DecisionPanel'
 import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
@@ -211,6 +212,12 @@ export default function WorkItemsPage({ session, notify }: {
           {detail.latestManagementAsk && <div className="ask-panel">
             <strong>상위 조직 요청</strong><p>{detail.latestManagementAsk}</p>
           </div>}
+          <h4 className="timeline-heading">결정 기록</h4>
+          {/* Above the weekly record on purpose: a week says what happened, a
+              decision says why it was going to. The why is what someone opening
+              this dialog months later came for. */}
+          <DecisionPanel workItemId={detail.id} notify={notify} />
+
           <h4 className="timeline-heading">주차별 기록</h4>
           {/* The same record as the list below, in one strip. The list answers
               "what happened in week N"; the strip answers "which week should I

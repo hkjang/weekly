@@ -204,6 +204,16 @@ export interface WorkSearchResponse { query: string; terms: string[]; semantic: 
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
 export interface ImportJobListView { items: ImportJob[]; total: number; limit: number; offset: number }
+export type DecisionStatus = 'OPEN' | 'DONE' | 'SUPERSEDED'
+export interface Decision {
+  id: number; workItemId: number; title: string; decidedBy: string; decidedOn: string
+  rationale: string; followUp: string; dueDate?: string; status: DecisionStatus
+  supersedesId?: number; recordedByName: string; createdAt: string; updatedAt: string
+}
+export interface DecisionInput {
+  title: string; decidedBy: string; decidedOn: string; rationale: string
+  followUp: string; dueDate: string; status: DecisionStatus; supersedesId?: number
+}
 export interface ReportListView { items: ReportListItem[]; total: number; limit: number; offset: number }
 export interface TeamMember { id: number; displayName: string; organizationName: string; active: boolean; lastWeek: string }
 export interface HandoverWeek { week: string; progress: number; issue?: boolean }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.33.0
+  version: 0.34.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -930,6 +930,59 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "403": { $ref: "#/components/responses/Error" }
+  /work-items/{id}/decisions:
+    get:
+      summary: 업무의 결정 기록
+      description: |
+        결정 일자 내림차순. 각 항목은 title, decidedBy, decidedOn, rationale, followUp,
+        dueDate, status(OPEN·DONE·SUPERSEDED), supersedesId, recordedByName을 담는다.
+
+        **decidedBy와 recordedByName은 다르다.** 팀장이 임원 결정을 대신 적는 경우가
+        흔하므로 둘을 합치면 이 기록이 가장 필요한 상황에서 틀린 값을 갖게 된다.
+
+        조회 범위는 업무 주인을 볼 수 있는지로 정한다. 인수인계와 같은 규칙이다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: 결정 기록
+      description: |
+        title과 decidedBy는 필수다. 없으면 "무언가 정해졌다"는 사실만 남고 읽는 사람이
+        아무것도 할 수 없다. decidedOn은 `YYYY-MM-DD`이며 dueDate는 그보다 빠를 수 없다.
+
+        supersedesId를 주면 **같은 업무의** 결정만 가리킬 수 있고, 그 결정은
+        SUPERSEDED로 바뀐다. 지우지 않는다 — 뒤집힌 결정은 없던 결정보다 정보가 많다.
+
+        기록은 업무를 **볼 수 있는 사람**이면 할 수 있다. 업무 병합·분리와 다른 규칙인데,
+        병합은 남의 보고 이력을 고쳐 쓰는 일이고 기록은 덧붙이는 일이기 때문이다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "201": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /decisions/{id}:
+    patch:
+      summary: 결정 기록 수정
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: 결정 기록 삭제, 기록한 사람과 관리자만
+      description: |
+        잘못 적은 기록을 지우기 위한 것이지, 남기고 싶지 않은 기록을 지우기 위한 것이
+        아니다. 다른 사람이 조용히 고칠 수 있는 기록은 기록이 아니므로, 볼 수 있는 사람
+        전부가 아니라 **기록한 사람과 관리자만** 지울 수 있다.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "204": { description: 삭제 완료 }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /handover:
     get:
       summary: 담당자 인수인계 자료

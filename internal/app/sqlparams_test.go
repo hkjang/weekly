@@ -45,6 +45,10 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// the reused parameter is the query vector in the projection and the
 		// HAVING clause, cast to vector in both.
 		"worksearch.go": "the reused query embedding is cast to vector in every use",
+		// PREPARE deduces {text, bigint}: the reused parameter is the new status,
+		// written by SET and compared against the same column in the WHERE, so
+		// both uses are the status column's own type.
+		"decisions.go": "the reused status is compared against the column it is being written to",
 	}
 	placeholder := regexp.MustCompile(`\$(\d+)`)
 	sqlLiteral := regexp.MustCompile("(?s)`([^`]*)`")
