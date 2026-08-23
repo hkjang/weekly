@@ -110,30 +110,51 @@ func (a *App) requireAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "로그인이 필요합니다.")
 			return
 		}
-		if p.AuthType == "api_key" && !apiKeyRequestAllowed(p, r) {
-			writeError(w, http.StatusForbidden, "API_KEY_SCOPE_DENIED", "이 API 키로 요청한 작업을 수행할 수 없습니다.")
-			return
+		if p.AuthType == "api_key" {
+			if allowed, reason := apiKeyRequestAllowed(p, r); !allowed {
+				writeError(w, http.StatusForbidden, "API_KEY_SCOPE_DENIED", reason)
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContext, p)))
 	})
 }
 
-func apiKeyRequestAllowed(p *principal, r *http.Request) bool {
+// apiKeyRequestAllowed decides what a personal API key may do, and says why
+// when the answer is no.
+//
+// The policy is deny by default and read only: no scope opens a write, and only
+// the paths named here are reachable at all. A key also never exceeds its
+// owner — the role check runs afterwards either way — so a key held by an
+// ordinary user cannot read the team, whatever scopes it carries.
+//
+// The reason matters as much as the verdict. One message for every refusal
+// meant a caller denied because no scope covers /api/v1/work-items read
+// "이 API 키로 요청한 작업을 수행할 수 없습니다", tried adding each of the three
+// scopes in turn, and got the same answer every time. Nothing told them the
+// endpoint is closed to keys entirely.
+func apiKeyRequestAllowed(p *principal, r *http.Request) (bool, string) {
+	needs := func(scope string) (bool, string) {
+		if contains(p.Scopes, scope) {
+			return true, ""
+		}
+		return false, "이 API 키에 " + scope + " 범위가 없습니다. 키를 다시 발급하면서 이 범위를 포함하세요."
+	}
 	if r.URL.Path == "/mcp" {
-		return contains(p.Scopes, "mcp:read")
+		return needs("mcp:read")
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		return false
+		return false, "개인 API 키는 조회 전용입니다. 저장·수정·삭제는 로그인 세션으로만 할 수 있습니다."
 	}
 	switch {
 	case r.URL.Path == "/api/v1/me" || r.URL.Path == "/api/v1/version":
-		return true
+		return true, ""
 	case strings.HasPrefix(r.URL.Path, "/api/v1/reports") || strings.HasPrefix(r.URL.Path, "/api/v1/team/reports") || strings.HasPrefix(r.URL.Path, "/api/v1/rollups") || strings.HasPrefix(r.URL.Path, "/api/v1/search"):
-		return contains(p.Scopes, "reports:read")
+		return needs("reports:read")
 	case strings.HasPrefix(r.URL.Path, "/api/v1/analytics"):
-		return contains(p.Scopes, "analytics:read")
+		return needs("analytics:read")
 	default:
-		return false
+		return false, "개인 API 키로는 이 경로를 사용할 수 없습니다. 키가 열 수 있는 것은 보고서·기간 보고·검색·분석 조회와 MCP뿐이며, 그 밖의 화면은 로그인 세션으로만 볼 수 있습니다."
 	}
 }
 

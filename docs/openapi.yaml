@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.32.0
+  version: 0.33.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -546,8 +546,31 @@ paths:
         "200": { $ref: "#/components/responses/Success" }
     post:
       summary: 개인 API 키 발급
+      description: |
+        `Authorization: Bearer wky_...`로 쓰는 개인 키를 발급한다. 발급 직후 한 번만
+        전체 토큰을 반환한다.
+
+        **키는 조회 전용이며 기본 거부다.** 어떤 범위로도 저장·수정·삭제를 할 수 없고,
+        아래에 적힌 경로 밖은 열리지 않는다. 키는 **주인을 넘어서지 못한다** — 역할 검사가
+        그대로 뒤에 이어지므로, 일반 사용자의 키에 analytics:read를 넣어도 팀 분석은
+        볼 수 없다.
+
+        | 범위 | 열리는 것 |
+        |---|---|
+        | (범위 무관) | `GET /me`, `GET /version` |
+        | `reports:read` | `GET /reports…`, `GET /team/reports…`, `GET /rollups…`, `GET /search` |
+        | `analytics:read` | `GET /analytics…` |
+        | `mcp:read` | `POST /mcp` |
+
+        그 밖의 경로(업무 추적, 인수인계, 회의 모드, 경영 요약, 업무 인사이트,
+        담당자 목록, 관리자 화면)는 **어떤 범위로도 열리지 않는다.** 거부 응답은
+        범위가 없어서인지 경로 자체가 닫혀 있어서인지를 구분해 말한다.
+
+        `POST /keys/rotate`는 키 버전을 올려 **기존 키를 즉시 무효화한다.** 조회 질의가
+        키 버전을 대조하므로 폐기 표시와 무관하게 다음 요청부터 401이 된다.
       responses:
         "201": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
   /keys/rotate:
     post:
       summary: 개인 키 버전 회전 및 전부 폐기

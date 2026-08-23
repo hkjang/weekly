@@ -66,7 +66,7 @@
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
 ```bash
-gzip -dc weekly-v0.32.0.tar.gz | docker load
+gzip -dc weekly-v0.33.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -434,7 +434,18 @@ REST API 기본 경로는 `/api/v1`이며 응답 규격은 다음과 같습니�
 {"success":true,"data":{},"traceId":"9f2c8d11a83d6720"}
 ```
 
-개인 설정에서 발급한 `wky_...` 키를 MCP 클라이언트의 Bearer 토큰으로 사용합니다.
+개인 설정에서 발급한 `wky_...` 키를 `Authorization: Bearer`로 사용합니다.
+
+**개인 키는 조회 전용이며 기본 거부입니다.** 어떤 범위로도 저장·수정·삭제를 할 수 없고, 아래 경로 밖은 열리지 않습니다. 키는 주인의 권한을 넘어서지 못합니다 — 일반 사용자의 키에 `analytics:read`를 넣어도 팀 분석은 볼 수 없습니다.
+
+| 범위 | 열리는 것 |
+|---|---|
+| (범위 무관) | `GET /api/v1/me`, `GET /api/v1/version` |
+| `reports:read` | `GET /api/v1/reports…`, `/team/reports…`, `/rollups…`, `/search` |
+| `analytics:read` | `GET /api/v1/analytics…` |
+| `mcp:read` | `POST /mcp` |
+
+업무 추적·인수인계·회의 모드·경영 요약·업무 인사이트·담당자 목록·관리자 화면은 **어떤 범위로도 열리지 않습니다.** 키 회전은 기존 키를 즉시 무효화합니다.
 
 ```text
 URL: https://weekly.example.internal/mcp
