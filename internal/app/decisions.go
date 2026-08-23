@@ -333,3 +333,53 @@ func (a *App) deleteDecision(w http.ResponseWriter, r *http.Request) {
 	a.audit(r, p, "decision.delete", "decision", strconv.FormatInt(id, 10), nil)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// decisionsForWorkItems reads several tasks' decisions in one query.
+//
+// The handover needs them per task, and asking per task would be a query for
+// every item on the screen — the shape v0.25 spent a release removing from the
+// insight endpoints. Grouped here instead, and returned keyed by task so the
+// caller does not have to re-sort.
+func (a *App) decisionsForWorkItems(ctx context.Context, ids []int64) (map[int64][]decisionView, error) {
+	grouped := map[int64][]decisionView{}
+	if len(ids) == 0 {
+		return grouped, nil
+	}
+	rows, err := a.db.Query(ctx, `SELECT d.id,d.work_item_id,d.title,d.decided_by,d.decided_on,d.rationale,
+			d.follow_up,d.due_date,d.status,d.supersedes_id,coalesce(u.display_name,''),d.created_at,d.updated_at
+		FROM decisions d LEFT JOIN users u ON u.id=d.recorded_by
+		WHERE d.work_item_id = ANY($1) ORDER BY d.work_item_id, d.decided_on DESC, d.id DESC`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item decisionView
+		var decidedOn time.Time
+		var dueDate *time.Time
+		if err := rows.Scan(&item.ID, &item.WorkItemID, &item.Title, &item.DecidedBy, &decidedOn, &item.Rationale,
+			&item.FollowUp, &dueDate, &item.Status, &item.SupersedesID, &item.RecordedByName,
+			&item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.DecidedOn = decidedOn.Format("2006-01-02")
+		if dueDate != nil {
+			item.DueDate = dueDate.Format("2006-01-02")
+		}
+		grouped[item.WorkItemID] = append(grouped[item.WorkItemID], item)
+	}
+	return grouped, rows.Err()
+}
+
+// overdueDecision returns the first outstanding decision whose follow-up date
+// has passed, which is the thing a new owner most needs told: somebody agreed
+// to do something by a date, and the date is gone.
+func overdueDecision(decisions []decisionView, today string) *decisionView {
+	for index := range decisions {
+		entry := &decisions[index]
+		if entry.Status == decisionOpen && entry.DueDate != "" && entry.DueDate < today {
+			return entry
+		}
+	}
+	return nil
+}

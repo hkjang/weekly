@@ -223,6 +223,7 @@ export interface HandoverItem {
   progress: number; completed: boolean; stalled: boolean
   openIssue: string; openAsk: string; nextPlan: string
   issueHistory: HandoverIssue[]; milestones: string[]; relatedWork: WorkRef[]; caution: string
-  track: HandoverWeek[]
+  track: HandoverWeek[]; decisions: Decision[]
 }
-export interface HandoverView { userId: number; displayName: string; active: number; completed: number; items: HandoverItem[] }
+export interface HandoverView { userId: number; displayName: string; active: number; completed: number
+  openDecisions: number; overdueDecisions: number; items: HandoverItem[] }

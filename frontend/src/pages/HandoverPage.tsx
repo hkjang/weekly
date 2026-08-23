@@ -39,7 +39,7 @@ export default function HandoverPage({ session, notify }: {
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ userId, displayName: '', active: 0, completed: 0, items: [] })
+        setView({ userId, displayName: '', active: 0, completed: 0, openDecisions: 0, overdueDecisions: 0, items: [] })
         notify(errorText(error, '인수인계 자료를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
@@ -65,6 +65,8 @@ export default function HandoverPage({ session, notify }: {
           <span><strong>{view.displayName}</strong></span>
           <span>진행 중 <strong>{view.active}</strong>건</span>
           <span>완료 <strong>{view.completed}</strong>건</span>
+          {view.openDecisions > 0 && <span>미해결 결정 <strong>{view.openDecisions}</strong>건</span>}
+          {view.overdueDecisions > 0 && <span className="state-chip stalled">기한 지난 후속 조치 {view.overdueDecisions}건</span>}
         </div>
         {view.items.map(item => <Card key={item.workItemId} title={item.title}
           action={<span className="muted-chip">{item.completed ? '완료' : `진척 ${item.progress}%`}</span>}>
@@ -80,6 +82,29 @@ export default function HandoverPage({ session, notify }: {
             {item.openAsk && <p><strong>대기 중인 요청</strong> {item.openAsk}</p>}
             {item.openIssue && <p><strong>미해결 이슈</strong> {item.openIssue}</p>}
             {item.nextPlan && <p><strong>다음 계획</strong> {item.nextPlan}</p>}
+          </div>}
+
+          {item.decisions.length > 0 && <div className="handover-block">
+            <h4>결정 기록</h4>
+            {/* Read-only here. The handover is a document to be read, not a
+                screen to work in; recording and correcting belong in 업무 추적
+                where the task itself is managed. */}
+            <ul className="decision-list">{item.decisions.map(decision => <li key={decision.id}
+              className={`decision ${decision.status.toLowerCase()}`}>
+              <div className="decision-head">
+                <strong>{decision.title}</strong>
+                <span className={`decision-status ${decision.status.toLowerCase()}`}>
+                  {decision.status === 'OPEN' ? '후속 조치 중' : decision.status === 'DONE' ? '완료' : '대체됨'}</span>
+              </div>
+              <div className="decision-facts">
+                <span><b>{decision.decidedBy}</b> 결정</span>
+                <span>{decision.decidedOn}</span>
+                {decision.dueDate && <span>후속 기한 {decision.dueDate}</span>}
+                {decision.recordedByName && <span className="muted">{decision.recordedByName} 기록</span>}
+              </div>
+              {decision.rationale && <p className="decision-rationale"><b>근거</b> {decision.rationale}</p>}
+              {decision.followUp && <p className="decision-followup"><b>후속 조치</b> {decision.followUp}</p>}
+            </li>)}</ul>
           </div>}
 
           {item.track?.length > 0 && <div className="handover-block">

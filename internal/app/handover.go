@@ -49,17 +49,25 @@ type handoverItem struct {
 	NextPlan         string          `json:"nextPlan"`
 	IssueHistory     []handoverIssue `json:"issueHistory"`
 	Track            []handoverWeek  `json:"track"`
-	Milestones       []string        `json:"milestones"`
-	RelatedWork      []workRef       `json:"relatedWork"`
-	Caution          string          `json:"caution"`
+	// Decisions is why the work went the way it did. A weekly record says what
+	// happened; this says what was agreed and by whom, which is the half a new
+	// owner cannot reconstruct from the reports.
+	Decisions   []decisionView `json:"decisions"`
+	Milestones  []string       `json:"milestones"`
+	RelatedWork []workRef      `json:"relatedWork"`
+	Caution     string         `json:"caution"`
 }
 
 type handoverView struct {
-	UserID      int64          `json:"userId"`
-	DisplayName string         `json:"displayName"`
-	Active      int            `json:"active"`
-	Completed   int            `json:"completed"`
-	Items       []handoverItem `json:"items"`
+	UserID      int64  `json:"userId"`
+	DisplayName string `json:"displayName"`
+	Active      int    `json:"active"`
+	Completed   int    `json:"completed"`
+	// OpenDecisions counts follow-ups nobody has closed. It belongs in the
+	// header because it is the number the receiving owner inherits.
+	OpenDecisions int            `json:"openDecisions"`
+	Overdue       int            `json:"overdueDecisions"`
+	Items         []handoverItem `json:"items"`
 }
 
 // milestonesOf reduces a task's weekly results to the weeks where something
@@ -226,6 +234,22 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 	// dozen tasks, not about the whole organisation.
 	related := relatedForUser(items, target, handoverRelatedPerItem)
 
+	// Every decision on this person's tasks, in one query rather than one per
+	// task on the screen.
+	owned := []int64{}
+	for _, item := range items {
+		if item.UserID == target {
+			owned = append(owned, item.ID)
+		}
+	}
+	decisions, err := a.decisionsForWorkItems(r.Context(), owned)
+	if err != nil {
+		a.logger.Error("handover decisions", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "인수인계 자료를 만들 수 없습니다.")
+		return
+	}
+	today := time.Now().In(a.serviceLocation(r.Context())).Format("2006-01-02")
+
 	view := handoverView{UserID: target, Items: []handoverItem{}}
 	for _, item := range items {
 		if item.UserID != target {
@@ -247,12 +271,29 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 			Milestones: milestonesOf(item), IssueHistory: issueHistoryOf(item),
 			Track:       trackOf(item),
 			RelatedWork: related[item.ID], Caution: cautionFor(item),
+			Decisions: decisions[item.ID],
 		}
 		if len(item.Weeks) > 0 {
 			entry.NextPlan = strings.TrimSpace(item.Weeks[len(item.Weeks)-1].NextPlan)
 		}
 		if entry.RelatedWork == nil {
 			entry.RelatedWork = []workRef{}
+		}
+		if entry.Decisions == nil {
+			entry.Decisions = []decisionView{}
+		}
+		for _, decision := range entry.Decisions {
+			if decision.Status == decisionOpen {
+				view.OpenDecisions++
+			}
+		}
+		// An agreement whose date has passed outranks everything else this
+		// screen might warn about. The other cautions describe what the record
+		// shows; this one names a commitment somebody made and did not keep.
+		if late := overdueDecision(entry.Decisions, today); late != nil {
+			view.Overdue++
+			entry.Caution = fmt.Sprintf("%s의 결정 '%s'에 딸린 후속 조치가 %s 기한을 넘겼습니다. 인수 전에 상태를 확인하세요.",
+				late.DecidedBy, late.Title, late.DueDate)
 		}
 		view.Items = append(view.Items, entry)
 	}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.34.0
+  version: 0.35.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -1003,6 +1003,15 @@ paths:
         track은 보고된 주차마다 week, progress, issue를 담는다. firstWeek와 lastWeek
         사이인데 track에 없는 주차가 **보고가 누락된 주차**이며, 화면은 그 빈칸을
         그린다. milestones는 진척이 변한 주차만 남기므로 빈 구간을 표현할 수 없다.
+
+        decisions는 그 업무의 결정 기록 전부다. 잘라 내지 않는다 — 인수인계가 존재하는
+        이유가 "아무도 기억하지 못하는 것"이고, 그 기록을 잘라 내면 화면의 존재 이유가
+        사라진다. 결정은 사람이 결정을 내리는 속도로 쌓이므로 원래 작은 목록이다.
+
+        openDecisions는 후속 조치가 남은 결정 수, overdueDecisions는 그중 기한이 지난
+        수다. 기한이 지난 후속 조치가 있으면 해당 업무의 caution이 그것으로 바뀐다.
+        다른 주의 문구는 기록이 무엇을 보여 주는지를 말하지만, 이것은 **누군가 약속하고
+        지키지 않은 것**을 지목한다.
 
         relatedWork는 업무마다 **최대 5건**이다. 이전에는 조직 전체의 모든 쌍을 비교한
         결과에서 대상자 것만 골라 담았고, 업무 15건짜리 자료에 관련 업무 3,915건이 실렸다.
