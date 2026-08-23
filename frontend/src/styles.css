@@ -189,3 +189,7 @@
 .due-row input[type=date]{padding:5px 8px;border:1px solid var(--line);border-radius:7px}
 .due-panel p{margin:8px 0 0;font-size:13px;line-height:1.6;color:#334155}
 .due-panel code{display:inline-block;margin-top:6px;font-size:12px;color:var(--muted)}
+.due-agreed{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:10px;padding:10px 12px;border-radius:9px;background:#eff6ff;border:1px solid #bfdbfe}
+.due-agreed strong{font-size:14px}
+.due-agreed small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+.due-agreed p{margin:6px 0 0;font-size:13px;color:#334155}

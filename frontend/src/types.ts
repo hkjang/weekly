@@ -63,7 +63,7 @@ export interface WorkItem {
   stalledWeeks: number; issueWeeks: number; repeatedPlan: number
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean
   latestIssue: string; latestManagementAsk: string; weeks: WorkItemWeek[]
-  forecast: CompletionForecast; dueOutlook: DueOutlook
+  forecast: CompletionForecast; dueOutlook: DueOutlook; agreedDue?: AgreedDue
 }
 
 export type ChangeKind = 'NEW' | 'RESUMED' | 'COMPLETED' | 'PROGRESSED' | 'REGRESSED' | 'STALLED' | 'SILENT' | 'STEADY' | 'ABSENT'
@@ -122,6 +122,15 @@ export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
  * travels without projectedLow/projectedHigh and the note that names the paces,
  * because a label nobody can check is one nobody should act on.
  */
+/**
+ * A deadline a meeting already agreed, recorded as a decision follow-up, on
+ * work that has no deadline of its own. Offered rather than copied: a follow-up
+ * is not always the whole task, and promoting one silently would claim
+ * something the meeting did not say.
+ */
+export interface AgreedDue {
+  dueDate: string; title: string; decidedBy: string; decidedOn: string; followUp: string; decisionId: number
+}
 export interface DueOutlook {
   kind: 'NONE' | 'FINISHED' | 'UNKNOWN' | 'ON_TRACK' | 'SPLIT' | 'AT_RISK' | 'OVERDUE'
   dueDate?: string; weeksLeft: number; projectedLow: number; projectedHigh: number; note: string

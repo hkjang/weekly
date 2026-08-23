@@ -60,6 +60,9 @@ type workItemView struct {
 	// what it implies about the deadline, when one has been set.
 	Forecast   completionForecast `json:"forecast"`
 	DueOutlook dueOutlook         `json:"dueOutlook"`
+	// AgreedDue is a deadline a meeting already agreed and recorded as a
+	// decision follow-up, offered to work that has no deadline of its own.
+	AgreedDue *agreedDue `json:"agreedDue,omitempty"`
 
 	Completed bool `json:"completed"`
 	Stalled   bool `json:"stalled"`
@@ -243,6 +246,7 @@ func (a *App) listWorkItems(w http.ResponseWriter, r *http.Request) {
 		}
 		return a.Progress < b.Progress
 	})
+	a.attachAgreedDueDates(r.Context(), result)
 	writeData(w, http.StatusOK, result)
 }
 

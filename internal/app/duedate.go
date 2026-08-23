@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -176,4 +177,93 @@ func outlookForDueDate(dueDate string, forecast completionForecast, weeks []roll
 		}
 	}
 	return result
+}
+
+// A deadline that was already agreed, sitting in the wrong column.
+//
+// Deadlines are not set by the person doing the work — they are agreed in a
+// meeting, and the product already records that: a decision carries a follow-up
+// date. So a team can meet, agree "9월 15일까지", write it down as a decision,
+// and the work item's own deadline stays empty and its outlook says there is no
+// deadline. Two dates for one piece of work, entered in different places, never
+// speaking to each other.
+//
+// This does not copy the date across. A follow-up is not always the whole task,
+// and silently promoting one to the work's deadline would claim something the
+// meeting did not say. It offers it, named and dated, for one click.
+type agreedDue struct {
+	DueDate    string `json:"dueDate"`
+	Title      string `json:"title"`
+	DecidedBy  string `json:"decidedBy"`
+	DecidedOn  string `json:"decidedOn"`
+	FollowUp   string `json:"followUp"`
+	DecisionID int64  `json:"decisionId"`
+}
+
+// agreedDueDates returns the earliest open follow-up deadline for each of the
+// given work items. Earliest rather than latest: the nearest commitment is the
+// one that constrains the work, and offering the far one would understate it.
+func (a *App) agreedDueDates(ctx context.Context, ids []int64) (map[int64]agreedDue, error) {
+	found := map[int64]agreedDue{}
+	if len(ids) == 0 {
+		return found, nil
+	}
+	rows, err := a.db.Query(ctx, `SELECT DISTINCT ON (d.work_item_id)
+			d.work_item_id, d.id, d.due_date, d.title, d.decided_by, d.decided_on, d.follow_up
+		FROM decisions d
+		WHERE d.work_item_id = ANY($1) AND d.status = $2 AND d.due_date IS NOT NULL
+		ORDER BY d.work_item_id, d.due_date ASC, d.id DESC`, ids, decisionOpen)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var workItemID int64
+		var entry agreedDue
+		var due, decided time.Time
+		if err := rows.Scan(&workItemID, &entry.DecisionID, &due, &entry.Title, &entry.DecidedBy, &decided, &entry.FollowUp); err != nil {
+			return nil, err
+		}
+		entry.DueDate = due.Format("2006-01-02")
+		entry.DecidedOn = decided.Format("2006-01-02")
+		found[workItemID] = entry
+	}
+	return found, rows.Err()
+}
+
+// attachAgreedDueDates offers a meeting's deadline to work that has none.
+//
+// Only to work that has none: a task with its own deadline has had the question
+// answered, and showing a second date beside it would turn one answer into an
+// argument.
+// workItemsWantingADeadline is the work the offer applies to: still running,
+// and with no deadline of its own.
+func workItemsWantingADeadline(items []workItemView) []int64 {
+	ids := make([]int64, 0, len(items))
+	for _, item := range items {
+		if item.DueDate == "" && !item.Completed {
+			ids = append(ids, item.ID)
+		}
+	}
+	return ids
+}
+
+func (a *App) attachAgreedDueDates(ctx context.Context, items []workItemView) {
+	ids := workItemsWantingADeadline(items)
+	if len(ids) == 0 {
+		return
+	}
+	agreed, err := a.agreedDueDates(ctx, ids)
+	if err != nil {
+		// A missing suggestion is a smaller failure than a missing list. The
+		// deadlines the caller asked for are already loaded.
+		a.logger.Warn("load agreed due dates", "error", err)
+		return
+	}
+	for index := range items {
+		if entry, ok := agreed[items[index].ID]; ok {
+			copied := entry
+			items[index].AgreedDue = &copied
+		}
+	}
 }

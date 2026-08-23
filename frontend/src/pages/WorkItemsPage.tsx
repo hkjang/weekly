@@ -87,7 +87,21 @@ function DuePanel({ item, editable, notify, onSaved }: {
           ? `${outlook.projectedLow}%`
           : `${outlook.projectedLow}~${outlook.projectedHigh}%`} · 남은 {outlook.weeksLeft}주</code>}
     </>}
-    {!item.dueDate && <p className="muted">마감일을 설정하면 지금까지 보고된 속도로 그 날짜에 몇 %에 닿는지 함께 계산합니다.</p>}
+    {/* A deadline the meeting already agreed. Offered, not applied: the
+        follow-up may be one step of the task rather than the whole of it, so
+        the person who owns the work confirms what it means. */}
+    {!item.dueDate && item.agreedDue && <div className="due-agreed">
+      <div>
+        <strong>{item.agreedDue.dueDate}</strong>
+        <small>{item.agreedDue.decidedBy} 결정 · {item.agreedDue.decidedOn}</small>
+        <p>{item.agreedDue.followUp || item.agreedDue.title}</p>
+      </div>
+      {editable && <button className="button secondary" disabled={busy}
+        onClick={() => { const next = item.agreedDue!.dueDate; setValue(next); void save(next) }}>이 날짜를 마감일로</button>}
+    </div>}
+    {!item.dueDate && <p className="muted">{item.agreedDue
+      ? '회의에서 정한 후속 기한이 있습니다. 업무 전체의 마감일과 같다면 그대로 지정하세요.'
+      : '마감일을 설정하면 지금까지 보고된 속도로 그 날짜에 몇 %에 닿는지 함께 계산합니다.'}</p>}
   </div>
 }
 

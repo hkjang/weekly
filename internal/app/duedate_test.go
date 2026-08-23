@@ -112,3 +112,20 @@ func TestOutlookDoesNotProjectPastADateThatAlreadyArrived(t *testing.T) {
 		t.Errorf("a passed deadline is observed, not projected: %q", got.Note)
 	}
 }
+
+// The offer only goes to work that has no deadline. A task whose owner already
+// answered the question does not need a second date beside the first, which
+// turns one answer into an argument. Finished work has nothing left to be late
+// for.
+func TestAgreedDueIsOnlyOfferedWhereThereIsNoDeadline(t *testing.T) {
+	got := workItemsWantingADeadline([]workItemView{
+		{ID: 1, DueDate: ""},
+		{ID: 2, DueDate: "2026-09-01"},
+		{ID: 3, DueDate: "", Completed: true},
+		{ID: 4, DueDate: "2026-09-01", Completed: true},
+		{ID: 5, DueDate: ""},
+	})
+	if len(got) != 2 || got[0] != 1 || got[1] != 5 {
+		t.Errorf("asked about %v, want [1 5]", got)
+	}
+}
