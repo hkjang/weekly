@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.46.0
+  version: 0.47.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -1398,8 +1398,20 @@ paths:
       responses:
         "201": { $ref: "#/components/responses/Success" }
   /admin/pptx-template:
+    parameters:
+      - name: organizationId
+        in: query
+        required: false
+        schema: { type: integer, format: int64 }
+        description: >-
+          템플릿을 적용할 조직. 생략하면 전사 기본 템플릿을 가리킵니다.
+          보고서는 작성자가 속한 조직의 템플릿으로 내보내며, 전용 템플릿이 없으면
+          가장 가까운 상위 조직의 템플릿을, 그것도 없으면 전사 기본을 사용합니다.
     get:
       summary: PPTX 템플릿 정보
+      description: >-
+        조직을 지정하면 그 조직에 실제로 적용되는 템플릿을 반환합니다.
+        source 가 inherited 이면 inheritedFrom 이 물려받은 조직 이름입니다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
     post:

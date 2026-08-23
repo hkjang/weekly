@@ -610,3 +610,96 @@ func TestWorkItemMergeAndSplitSurviveTheNextSave(t *testing.T) {
 		t.Fatalf("the merged-away title did not resolve to the target: got=%v want=%d", resolved, original)
 	}
 }
+
+// TestOrganizationTemplateWalksUpToTheNearestOwner is the whole point of a
+// per-organisation template: a division sets the format once and the teams
+// inside it inherit it. Making every team upload the same file is how half of
+// them end up with last year's version.
+//
+// The walk lives in SQL, so a unit test would only be checking the string. This
+// checks the answer.
+func TestOrganizationTemplateWalksUpToTheNearestOwner(t *testing.T) {
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	// Cleaned up with defer rather than t.Cleanup: cleanups run after the
+	// test function returns, which is after `defer db.Close()`, so a t.Cleanup
+	// here executes against a closed pool and silently leaves its rows behind
+	// to collide with the next run.
+	clean := func() {
+		db.Exec(context.Background(), `DELETE FROM organizations WHERE code LIKE 'tpl-%'`)
+	}
+	clean()
+	defer clean()
+
+	newOrg := func(name string, parent *int64) int64 {
+		t.Helper()
+		var id int64
+		if err := db.QueryRow(ctx, `INSERT INTO organizations(name,code,parent_id) VALUES($1,$2,$3) RETURNING id`,
+			name, name, parent).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	division := newOrg("tpl-division", nil)
+	team := newOrg("tpl-team", &division)
+	grandchild := newOrg("tpl-squad", &team)
+	outsider := newOrg("tpl-outsider", nil)
+
+	if _, err := db.Exec(ctx, `INSERT INTO pptx_templates(organization_id,original_name,file_name,size_bytes,sha256,placeholders)
+		VALUES($1,'division.pptx','division.pptx',1,'x',ARRAY['{{THIS_WEEK}}','{{NEXT_WEEK}}'])`, division); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []struct {
+		name          string
+		org           int64
+		path          string
+		source        string
+		inheritedFrom string
+	}{
+		{"the division uses its own", division, organizationPPTXPath(division), "organization", ""},
+		{"a team inherits the division's", team, organizationPPTXPath(division), "inherited", "tpl-division"},
+		{"so does a team below that", grandchild, organizationPPTXPath(division), "inherited", "tpl-division"},
+		{"an unrelated division falls back to the house one", outsider, customPPTXPath, "", ""},
+	} {
+		path, _ := application.templateForOrganization(ctx, &want.org)
+		if path != want.path {
+			t.Errorf("%s: export uses %q, want %q", want.name, path, want.path)
+		}
+		info, err := application.loadOrganizationTemplateInfo(ctx, want.org)
+		if err != nil {
+			t.Fatalf("%s: %v", want.name, err)
+		}
+		if want.source != "" && info.Source != want.source {
+			t.Errorf("%s: screen says source %q, want %q", want.name, info.Source, want.source)
+		}
+		if info.InheritedFrom != want.inheritedFrom {
+			t.Errorf("%s: screen says inherited from %q, want %q", want.name, info.InheritedFrom, want.inheritedFrom)
+		}
+	}
+
+	// What the screen shows and what the export does must not drift apart: an
+	// administrator reading "본부 A 서식" is being told which file goes out.
+	path, _ := application.templateForOrganization(ctx, &team)
+	divisionInfo, err := application.loadOrganizationTemplateInfo(ctx, division)
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamInfo, err := application.loadOrganizationTemplateInfo(ctx, team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != organizationPPTXPath(division) || teamInfo.OriginalName != divisionInfo.OriginalName {
+		t.Errorf("the team exports %q but the screen names %q", path, teamInfo.OriginalName)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +27,42 @@ var pptxCellPattern = regexp.MustCompile(`(?s)<a:tc>.*?</a:tc>`)
 var pptxTextPattern = regexp.MustCompile(`(?s)<a:t>.*?</a:t>`)
 var pptxTextBodyPattern = regexp.MustCompile(`(?s)<a:txBody>.*?</a:txBody>`)
 
-// Derived from stateDirectory at startup.
+// Derived from stateDirectory at startup. This is the house default; an
+// organisation's own template sits beside it under its identifier.
 var customPPTXPath = stateDirectory + "/templates/weekly-report.pptx"
+
+// organizationPPTXPath is where one organisation's template lives. Keeping the
+// default at its original path means an existing deployment's file is still
+// found after the upgrade without moving anything.
+func organizationPPTXPath(organizationID int64) string {
+	return filepath.Dir(customPPTXPath) + "/weekly-report-org-" + strconv.FormatInt(organizationID, 10) + ".pptx"
+}
+
+// templateForOrganization walks up the organisation tree for the nearest
+// template, then falls back to the house default.
+//
+// Walking up rather than matching exactly: a division that sets a format means
+// it for the teams inside it, and making every team upload the same file is how
+// half of them end up with last year's version.
+func (a *App) templateForOrganization(ctx context.Context, organizationID *int64) (path string, source string) {
+	if organizationID != nil {
+		var owner int64
+		err := a.db.QueryRow(ctx, `WITH RECURSIVE ancestry AS (
+				SELECT id, parent_id, 0 AS depth FROM organizations WHERE id = $1
+				UNION ALL
+				SELECT o.id, o.parent_id, ancestry.depth + 1
+				FROM organizations o JOIN ancestry ON o.id = ancestry.parent_id
+				WHERE ancestry.depth < 16
+			)
+			SELECT t.organization_id FROM pptx_templates t
+			JOIN ancestry ON ancestry.id = t.organization_id
+			ORDER BY ancestry.depth LIMIT 1`, *organizationID).Scan(&owner)
+		if err == nil {
+			return organizationPPTXPath(owner), "organization"
+		}
+	}
+	return customPPTXPath, "custom"
+}
 
 type pptxTemplateView struct {
 	Source       string     `json:"source"`
@@ -36,9 +71,26 @@ type pptxTemplateView struct {
 	SHA256       string     `json:"sha256"`
 	Placeholders []string   `json:"placeholders"`
 	UploadedAt   *time.Time `json:"uploadedAt,omitempty"`
+	// Set when the template that applies here belongs to an ancestor, naming
+	// the organisation it came from.
+	InheritedFrom string `json:"inheritedFrom,omitempty"`
 }
 
 func (a *App) pptxTemplateInfo(w http.ResponseWriter, r *http.Request) {
+	target, targetErr := a.templateTarget(r)
+	if targetErr != nil {
+		writeError(w, 400, "INVALID_ORGANIZATION", targetErr.Error())
+		return
+	}
+	if target != nil {
+		info, err := a.loadOrganizationTemplateInfo(r.Context(), *target)
+		if err != nil {
+			writeError(w, 500, "QUERY_FAILED", "PPTX 템플릿 정보를 조회할 수 없습니다.")
+			return
+		}
+		writeData(w, 200, info)
+		return
+	}
 	info, err := a.loadPPTXTemplateInfo(r.Context())
 	if err != nil {
 		writeError(w, 500, "QUERY_FAILED", "PPTX 템플릿 정보를 조회할 수 없습니다.")
@@ -47,10 +99,56 @@ func (a *App) pptxTemplateInfo(w http.ResponseWriter, r *http.Request) {
 	writeData(w, 200, info)
 }
 
+// loadOrganizationTemplateInfo describes the template that actually applies to
+// one organisation, and says where it comes from.
+//
+// It used to report only whether this organisation had uploaded something of
+// its own, and answered "inherited" with nothing else. An administrator opening
+// a sub-team then saw a blank card and no way to tell whether the reports go out
+// on the division's cover page or the house one — which is the single thing they
+// opened the screen to find out. So the walk that the export does is the walk
+// this screen shows.
+func (a *App) loadOrganizationTemplateInfo(ctx context.Context, organizationID int64) (pptxTemplateView, error) {
+	var result pptxTemplateView
+	var depth int
+	var owner string
+	err := a.db.QueryRow(ctx, `WITH RECURSIVE ancestry AS (
+			SELECT id, parent_id, name, 0 AS depth FROM organizations WHERE id = $1
+			UNION ALL
+			SELECT o.id, o.parent_id, o.name, ancestry.depth + 1
+			FROM organizations o JOIN ancestry ON o.id = ancestry.parent_id
+			WHERE ancestry.depth < 16
+		)
+		SELECT ancestry.depth, ancestry.name, t.original_name, t.size_bytes, t.sha256, t.placeholders, t.uploaded_at
+		FROM pptx_templates t JOIN ancestry ON ancestry.id = t.organization_id
+		ORDER BY ancestry.depth LIMIT 1`, organizationID).
+		Scan(&depth, &owner, &result.OriginalName, &result.SizeBytes, &result.SHA256, &result.Placeholders, &result.UploadedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Nothing up the chain, so what applies is whatever the house uses.
+		// Its own source name is kept, because "the admin uploaded this" and
+		// "nobody ever uploaded anything" are different answers to give.
+		return a.loadPPTXTemplateInfo(ctx)
+	}
+	if err != nil {
+		return result, err
+	}
+	result.Source = "organization"
+	if depth > 0 {
+		result.Source = "inherited"
+		result.InheritedFrom = owner
+	}
+	return result, nil
+}
+
 func (a *App) loadPPTXTemplateInfo(ctx context.Context) (pptxTemplateView, error) {
 	var result pptxTemplateView
 	result.Source = "custom"
-	err := a.db.QueryRow(ctx, `SELECT original_name,size_bytes,sha256,placeholders,uploaded_at FROM pptx_templates WHERE id=1`).
+	// Identified by organization_id IS NULL, not by id. The row used to be
+	// pinned to id 1 and the identifier became an ordinary sequence when
+	// per-organisation templates arrived, so a freshly uploaded default gets
+	// whatever id is next and looking for 1 finds nothing.
+	err := a.db.QueryRow(ctx, `SELECT original_name,size_bytes,sha256,placeholders,uploaded_at
+		FROM pptx_templates WHERE organization_id IS NULL`).
 		Scan(&result.OriginalName, &result.SizeBytes, &result.SHA256, &result.Placeholders, &result.UploadedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if len(a.defaultPPTX) > 0 {
@@ -97,6 +195,17 @@ func (a *App) uploadPPTXTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 422, "PPTX_PLACEHOLDERS_REQUIRED", "템플릿에는 독립된 텍스트 상자 {{THIS_WEEK}}와 {{NEXT_WEEK}}가 필요합니다.")
 		return
 	}
+	// Which organisation this template is for. Absent means the house default,
+	// which is what every existing caller sends and what it always meant.
+	target, targetErr := a.templateTarget(r)
+	if targetErr != nil {
+		writeError(w, 400, "INVALID_ORGANIZATION", targetErr.Error())
+		return
+	}
+	destination := customPPTXPath
+	if target != nil {
+		destination = organizationPPTXPath(*target)
+	}
 	if err := os.MkdirAll(filepath.Dir(customPPTXPath), 0o700); err != nil {
 		writeError(w, 500, "STORAGE_ERROR", "템플릿 저장소를 만들 수 없습니다.")
 		return
@@ -116,35 +225,92 @@ func (a *App) uploadPPTXTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "STORAGE_ERROR", "템플릿을 저장할 수 없습니다.")
 		return
 	}
-	if err := os.Rename(temporaryPath, customPPTXPath); err != nil {
+	if err := os.Rename(temporaryPath, destination); err != nil {
 		writeError(w, 500, "STORAGE_ERROR", "템플릿을 적용할 수 없습니다.")
 		return
 	}
 	sum := sha256.Sum256(body)
 	p := currentPrincipal(r.Context())
-	_, err = a.db.Exec(r.Context(), `INSERT INTO pptx_templates(id,original_name,file_name,size_bytes,sha256,placeholders,uploaded_by,uploaded_at)
-		VALUES(1,$1,$2,$3,$4,$5,$6,now()) ON CONFLICT(id) DO UPDATE SET original_name=EXCLUDED.original_name,file_name=EXCLUDED.file_name,
-		size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256,placeholders=EXCLUDED.placeholders,uploaded_by=EXCLUDED.uploaded_by,uploaded_at=now()`,
-		trimRunes(filepath.Base(header.Filename), 255), filepath.Base(customPPTXPath), len(body), fmt.Sprintf("%x", sum), placeholders, p.ID)
+	// Two upserts rather than one: the default row is identified by
+	// organization_id IS NULL, which ON CONFLICT cannot target through the
+	// ordinary unique index because NULLs never conflict with each other.
+	if target == nil {
+		_, err = a.db.Exec(r.Context(), `INSERT INTO pptx_templates(organization_id,original_name,file_name,size_bytes,sha256,placeholders,uploaded_by,uploaded_at)
+			SELECT NULL,$1,$2,$3,$4,$5,$6,now()
+			WHERE NOT EXISTS (SELECT 1 FROM pptx_templates WHERE organization_id IS NULL)`,
+			trimRunes(filepath.Base(header.Filename), 255), filepath.Base(destination), len(body), fmt.Sprintf("%x", sum), placeholders, p.ID)
+		if err == nil {
+			_, err = a.db.Exec(r.Context(), `UPDATE pptx_templates SET original_name=$1,file_name=$2,size_bytes=$3,
+				sha256=$4,placeholders=$5,uploaded_by=$6,uploaded_at=now() WHERE organization_id IS NULL`,
+				trimRunes(filepath.Base(header.Filename), 255), filepath.Base(destination), len(body), fmt.Sprintf("%x", sum), placeholders, p.ID)
+		}
+	} else {
+		_, err = a.db.Exec(r.Context(), `INSERT INTO pptx_templates(organization_id,original_name,file_name,size_bytes,sha256,placeholders,uploaded_by,uploaded_at)
+			VALUES($7,$1,$2,$3,$4,$5,$6,now())
+			ON CONFLICT(organization_id) WHERE organization_id IS NOT NULL DO UPDATE SET original_name=EXCLUDED.original_name,
+			file_name=EXCLUDED.file_name,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256,
+			placeholders=EXCLUDED.placeholders,uploaded_by=EXCLUDED.uploaded_by,uploaded_at=now()`,
+			trimRunes(filepath.Base(header.Filename), 255), filepath.Base(destination), len(body), fmt.Sprintf("%x", sum), placeholders, p.ID, *target)
+	}
 	if err != nil {
+		a.logger.Error("save pptx template", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, 500, "DATABASE_ERROR", "템플릿 메타데이터를 저장할 수 없습니다.")
 		return
 	}
-	a.audit(r, p, "pptx_template.upload", "pptx_template", "1", map[string]any{"name": header.Filename, "placeholders": placeholders})
+	scope := "default"
+	if target != nil {
+		scope = strconv.FormatInt(*target, 10)
+	}
+	a.audit(r, p, "pptx_template.upload", "pptx_template", scope, map[string]any{"name": header.Filename, "placeholders": placeholders})
 	writeData(w, 200, map[string]any{"uploaded": true, "placeholders": placeholders})
 }
 
+// templateTarget reads which organisation a template request is about. No
+// parameter means the house default — the meaning the endpoint has always had,
+// so existing callers keep working unchanged.
+func (a *App) templateTarget(r *http.Request) (*int64, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("organizationId"))
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || parsed <= 0 {
+		return nil, errors.New("조직 식별자가 올바르지 않습니다.")
+	}
+	var exists bool
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)`, parsed).Scan(&exists); err != nil || !exists {
+		return nil, errors.New("조직을 찾을 수 없습니다.")
+	}
+	return &parsed, nil
+}
+
 func (a *App) resetPPTXTemplate(w http.ResponseWriter, r *http.Request) {
-	_, err := a.db.Exec(r.Context(), `DELETE FROM pptx_templates WHERE id=1`)
+	target, targetErr := a.templateTarget(r)
+	if targetErr != nil {
+		writeError(w, 400, "INVALID_ORGANIZATION", targetErr.Error())
+		return
+	}
+	var err error
+	if target == nil {
+		_, err = a.db.Exec(r.Context(), `DELETE FROM pptx_templates WHERE organization_id IS NULL`)
+	} else {
+		_, err = a.db.Exec(r.Context(), `DELETE FROM pptx_templates WHERE organization_id=$1`, *target)
+	}
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "템플릿을 초기화할 수 없습니다.")
 		return
 	}
-	if err := os.Remove(customPPTXPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	removed := customPPTXPath
+	scope := "default"
+	if target != nil {
+		removed = organizationPPTXPath(*target)
+		scope = strconv.FormatInt(*target, 10)
+	}
+	if err := os.Remove(removed); err != nil && !errors.Is(err, os.ErrNotExist) {
 		writeError(w, 500, "STORAGE_ERROR", "템플릿 파일을 제거할 수 없습니다.")
 		return
 	}
-	a.audit(r, currentPrincipal(r.Context()), "pptx_template.reset", "pptx_template", "1", nil)
+	a.audit(r, currentPrincipal(r.Context()), "pptx_template.reset", "pptx_template", scope, nil)
 	writeData(w, 200, map[string]bool{"reset": true})
 }
 
@@ -163,7 +329,18 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "REPORT_NOT_FOUND", "보고서를 찾을 수 없습니다.")
 		return
 	}
-	template, err := os.ReadFile(customPPTXPath)
+	// The author's organisation decides the format, not the person exporting:
+	// a report belongs to the team that wrote it however it is being read.
+	authorOrg := a.userOrganizationID(r.Context(), report.UserID)
+	templatePath, _ := a.templateForOrganization(r.Context(), authorOrg)
+	template, err := os.ReadFile(templatePath)
+	if errors.Is(err, os.ErrNotExist) && templatePath != customPPTXPath {
+		// The row says an organisation has a template and the file is gone.
+		// Falling back to the house default beats refusing the export; the
+		// operator finds out from the log rather than from a broken button.
+		a.logger.Warn("organisation PPTX template file missing", "path", templatePath)
+		template, err = os.ReadFile(customPPTXPath)
+	}
 	customTemplate := err == nil
 	if errors.Is(err, os.ErrNotExist) && len(a.defaultPPTX) > 0 {
 		template = a.defaultPPTX
@@ -474,6 +651,14 @@ func escapeXML(value string) string {
 	var escaped bytes.Buffer
 	_ = xml.EscapeText(&escaped, []byte(value))
 	return escaped.String()
+}
+
+// userOrganizationID is the organisation a report's author belongs to, or nil
+// where they belong to none.
+func (a *App) userOrganizationID(ctx context.Context, userID int64) *int64 {
+	var organizationID *int64
+	_ = a.db.QueryRow(ctx, `SELECT organization_id FROM users WHERE id=$1`, userID).Scan(&organizationID)
+	return organizationID
 }
 
 func (a *App) userOrganizationName(ctx context.Context, userID int64) string {

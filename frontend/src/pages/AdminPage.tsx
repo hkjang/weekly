@@ -12,7 +12,7 @@ const weekdays = [
 ]
 
 type Tab = 'analytics' | 'settings' | 'confluence' | 'users' | 'organizations' | 'pptx' | 'audit'
-interface TemplateInfo { source: string; originalName: string; sizeBytes: number; sha256: string; placeholders: string[]; uploadedAt?: string }
+interface TemplateInfo { source: string; originalName: string; sizeBytes: number; sha256: string; placeholders: string[]; uploadedAt?: string; inheritedFrom?: string }
 
 export default function AdminPage({ notify, onSettingsChanged }: { notify: (message: string, kind?: 'success' | 'error') => void; onSettingsChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<Tab>('settings')
@@ -105,11 +105,41 @@ function OrganizationsTab({ notify }: { notify: (message: string, kind?: 'succes
   if(!items)return <Spinner/>;return <><Card title="조직 등록"><div className="inline-form"><label>조직명<input value={name} onChange={e=>setName(e.target.value)}/></label><label>코드<input value={code} onChange={e=>setCode(e.target.value.toUpperCase())}/></label><label>상위 조직<select value={parent} onChange={e=>setParent(e.target.value)}><option value="">최상위</option>{items.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label><Button onClick={create}>등록</Button></div></Card><Card title="조직 구조"><div className="org-list">{items.map(org=><div key={org.id}><span className="org-icon">▦</span><div><strong>{org.name}</strong><small>{org.code} · 구성원 {org.userCount}명</small></div><span>{org.parentId?`상위: ${items.find(o=>o.id===org.parentId)?.name??'-'}`:'최상위'}</span></div>)}</div></Card></>
 }
 
+/**
+ * The export template, per organisation.
+ *
+ * One deployment used to mean one deck. That holds until two divisions have
+ * their own report format, and then everybody exports somebody else's cover
+ * page. The selector picks who a template is for; a team that sets none uses
+ * its division's, and a division that sets none uses the house one — the same
+ * walk the export itself does, shown here so the answer is readable before
+ * anyone exports anything.
+ */
 function PPTXTab({ notify }: { notify: (message: string, kind?: 'success' | 'error') => void }) {
-  const [info,setInfo]=useState<TemplateInfo>();const [file,setFile]=useState<File>();const [busy,setBusy]=useState(false);const load=()=>api<TemplateInfo>('/api/v1/admin/pptx-template').then(setInfo);useEffect(()=>{load()},[])
-  const upload=async()=>{if(!file)return;setBusy(true);try{const body=new FormData();body.append('file',file);await api('/api/v1/admin/pptx-template',{method:'POST',body});await load();setFile(undefined);notify('PPTX 템플릿을 적용했습니다.')}catch(error){notify(error instanceof Error?error.message:'업로드할 수 없습니다.','error')}finally{setBusy(false)}}
-  const reset=async()=>{if(!confirm('사용자 템플릿을 삭제하고 기본 템플릿으로 되돌리시겠습니까?'))return;await del('/api/v1/admin/pptx-template');await load();notify('기본 PPTX 템플릿으로 초기화했습니다.')}
-  if(!info)return <Spinner/>;return <><Card title="현재 내보내기 템플릿"><div className="template-info"><span className="ppt-icon">P</span><div><strong>{info.originalName}</strong><p>{info.source==='custom'?'관리자 템플릿':'Weekly 기본 템플릿'} · {(info.sizeBytes/1024).toFixed(1)} KB {info.uploadedAt&&`· ${formatDate(info.uploadedAt)}`}</p><code>SHA-256 {info.sha256.slice(0,16)}…</code></div>{info.source==='custom'&&<Button variant="danger" onClick={reset}>기본값 복원</Button>}</div><div className="placeholder-list">{info.placeholders.map(token=><code key={token}>{token}</code>)}</div></Card><Card title="동일 규격 템플릿 등록"><p className="muted">기준 PPTX의 디자인은 그대로 유지됩니다. 바뀔 텍스트 상자를 아래 토큰으로 교체한 뒤 업로드하세요. <b>{'{{THIS_WEEK}}'}</b>와 <b>{'{{NEXT_WEEK}}'}</b>는 필수입니다.</p><div className="token-guide"><div><code>{'{{WEEK_SCHEDULE}}'}</code><span>주간 일정</span></div><div><code>{'{{THIS_WEEK}}'}</code><span>이번 주 한 일 목록</span></div><div><code>{'{{NEXT_WEEK}}'}</code><span>다음 주 할 일 목록</span></div><div><code>{'{{ISSUES}}'}</code><span>이슈 목록</span></div><div><code>{'{{AUTHOR}}'} · {'{{TEAM}}'}</code><span>작성자 · 조직</span></div></div><div className="upload-row"><input type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={e=>setFile(e.target.files?.[0])}/><Button onClick={upload} disabled={!file||busy}>{busy?'검증·적용 중…':'템플릿 적용'}</Button></div></Card></>
+  const [orgs,setOrgs]=useState<Organization[]>([])
+  const [target,setTarget]=useState('')
+  const [info,setInfo]=useState<TemplateInfo>();const [file,setFile]=useState<File>();const [busy,setBusy]=useState(false)
+  const query=target?`?organizationId=${target}`:''
+  const load=()=>api<TemplateInfo>(`/api/v1/admin/pptx-template${query}`).then(setInfo)
+  useEffect(()=>{api<Organization[]>('/api/v1/admin/organizations').then(setOrgs)},[])
+  useEffect(()=>{setInfo(undefined);setFile(undefined);load()},[target])
+  const scopeName=target?(orgs.find(o=>String(o.id)===target)?.name??'선택한 조직'):'전사 기본'
+  const upload=async()=>{if(!file)return;setBusy(true);try{const body=new FormData();body.append('file',file);await api(`/api/v1/admin/pptx-template${query}`,{method:'POST',body});await load();setFile(undefined);notify(`${scopeName} PPTX 템플릿을 적용했습니다.`)}catch(error){notify(error instanceof Error?error.message:'업로드할 수 없습니다.','error')}finally{setBusy(false)}}
+  const reset=async()=>{if(!confirm(target?`${scopeName} 전용 서식을 삭제하고 상위 조직 서식을 따르게 하시겠습니까?`:'사용자 템플릿을 삭제하고 기본 템플릿으로 되돌리시겠습니까?'))return;await del(`/api/v1/admin/pptx-template${query}`);await load();notify(target?`${scopeName} 전용 서식을 해제했습니다.`:'기본 PPTX 템플릿으로 초기화했습니다.')}
+  const ownTemplate=info!==undefined&&(target?info.source==='organization':info.source==='custom')
+  const sourceLabel=(value:TemplateInfo)=>value.source==='organization'?`${scopeName} 전용 서식`
+    :value.source==='inherited'?`${value.inheritedFrom} 서식을 그대로 사용`
+    :value.source==='custom'?(target?'전사 기본 서식을 그대로 사용':'관리자 템플릿')
+    :(target?'Weekly 기본 템플릿을 그대로 사용':'Weekly 기본 템플릿')
+  return <><Card title="적용 대상" action={<span className="muted-chip">{orgs.length}개 조직</span>}>
+      <div className="inline-form"><label>템플릿을 지정할 조직<select value={target} onChange={e=>setTarget(e.target.value)}>
+        <option value="">전사 기본 (지정하지 않은 모든 조직)</option>
+        {orgs.map(o=><option key={o.id} value={o.id}>{o.name}{o.parentId?` (상위: ${orgs.find(x=>x.id===o.parentId)?.name??'-'})`:''}</option>)}
+      </select></label></div>
+      <p className="muted">보고서는 <b>작성자가 속한 조직</b>의 서식으로 내보냅니다. 전용 서식이 없으면 상위 조직의 서식을, 그것도 없으면 전사 기본을 씁니다.</p>
+    </Card>
+    {info===undefined?<Spinner/>:<><Card title={`${scopeName} 내보내기 템플릿`}><div className="template-info"><span className="ppt-icon">P</span><div><strong>{info.originalName}</strong><p>{sourceLabel(info)} · {(info.sizeBytes/1024).toFixed(1)} KB {info.uploadedAt&&`· ${formatDate(info.uploadedAt)}`}</p><code>SHA-256 {info.sha256.slice(0,16)}…</code></div>{ownTemplate&&<Button variant="danger" onClick={reset}>{target?'전용 서식 해제':'기본값 복원'}</Button>}</div><div className="placeholder-list">{info.placeholders.map(token=><code key={token}>{token}</code>)}</div></Card><Card title={target?`${scopeName} 전용 서식 등록`:`${scopeName} 서식 등록`}><p className="muted">기준 PPTX의 디자인은 그대로 유지됩니다. 바뀔 텍스트 상자를 아래 토큰으로 교체한 뒤 업로드하세요. <b>{'{{THIS_WEEK}}'}</b>와 <b>{'{{NEXT_WEEK}}'}</b>는 필수입니다.</p><div className="token-guide"><div><code>{'{{WEEK_SCHEDULE}}'}</code><span>주간 일정</span></div><div><code>{'{{THIS_WEEK}}'}</code><span>이번 주 한 일 목록</span></div><div><code>{'{{NEXT_WEEK}}'}</code><span>다음 주 할 일 목록</span></div><div><code>{'{{ISSUES}}'}</code><span>이슈 목록</span></div><div><code>{'{{AUTHOR}}'} · {'{{TEAM}}'}</code><span>작성자 · 조직</span></div></div><div className="upload-row"><input type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={e=>setFile(e.target.files?.[0])}/><Button onClick={upload} disabled={!file||busy}>{busy?'검증·적용 중…':'템플릿 적용'}</Button></div></Card></>}
+  </>
 }
 
 type AuditPage = { items: Record<string, unknown>[]; total: number; limit: number; offset: number; retentionDays: number }
