@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -46,6 +47,11 @@ func buildRollupDeck(view rollupView) ([]byte, error) {
 	slides = append(slides, insightSlides(view)...)
 	slides = append(slides, statusTableSlides(view)...)
 	slides = append(slides, detailSlides(view)...)
+	// Decisions before risk: the period explains itself, then asks. A deck that
+	// ends on the ask is one the room can act on.
+	if decisions := decisionSlide(view); decisions != nil {
+		slides = append(slides, *decisions)
+	}
 	if risk := riskSlide(view); risk != nil {
 		slides = append(slides, *risk)
 	}
@@ -453,4 +459,100 @@ func chunkHighlights(items []rollupHighlight, size int) [][]rollupHighlight {
 		result = append(result, items[start:end])
 	}
 	return result
+}
+
+// decisionSlideRows is how many decisions fit on one slide without the table
+// becoming unreadable, matched to the risk slide beside it.
+const decisionSlideRows = 11
+
+// decisionSlide is what the period decided.
+//
+// The screen has carried this since v0.37, but the screen is not what an
+// executive receives — the deck is. A period report that lists the work and
+// omits the decisions leaves its reader unable to ask why any of it went the
+// way it did, and that gap does not close by being fixed only where the author
+// happens to be looking.
+//
+// Outstanding decisions come first. A decision already carried out is history;
+// one still owing something is the reason this slide is in a briefing.
+func decisionSlide(view rollupView) *builtSlide {
+	if len(view.Decisions) == 0 {
+		return nil
+	}
+	ordered := append([]decisionView{}, view.Decisions...)
+	sort.SliceStable(ordered, func(x, y int) bool {
+		return decisionDeckRank(ordered[x].Status) < decisionDeckRank(ordered[y].Status)
+	})
+
+	rows := [][]tableCell{}
+	for _, decision := range ordered {
+		status, color := decisionDeckStatus(decision.Status)
+		when := decision.DecidedOn
+		if decision.DueDate != "" && decision.Status == decisionOpen {
+			when += " · 기한 " + decision.DueDate
+		}
+		follow := firstLine(decision.FollowUp)
+		if follow == "" {
+			follow = firstLine(decision.Rationale)
+		}
+		rows = append(rows, []tableCell{
+			{Text: trimRunes(decision.WorkTitle, 20)},
+			{Text: trimRunes(decision.Title, 26)},
+			// One line, not two: a table cell here is a single run, and a
+			// newline inside <a:t> is not a line break in DrawingML — that
+			// would need <a:br/>. Rather than rely on how a viewer treats
+			// stray whitespace, the separator is explicit.
+			{Text: trimRunes(decision.DecidedBy, 10) + " · " + when, Color: "475569"},
+			{Text: status, Color: color, Bold: true, Align: "ctr"},
+			{Text: trimRunes(follow, 34), Color: "475569"},
+		})
+		if len(rows) == decisionSlideRows {
+			break
+		}
+	}
+	columns := []tableColumn{
+		{Width: 2300000, Title: "업무"},
+		{Width: 2700000, Title: "결정"},
+		{Width: 2100000, Title: "결정자 · 일자"},
+		{Width: 1100000, Title: "상태"},
+		{Width: 3032000, Title: "후속 조치"},
+	}
+	// Says what it is not showing, the same rule the screens follow.
+	note := "이 기간에 기록된 결정입니다. 무엇을 했는지가 아니라 왜 그렇게 하기로 했는지입니다."
+	if view.DecisionTotal > len(rows) {
+		note = fmt.Sprintf("이 기간에 기록된 결정 %d건 중 %d건입니다. 후속 조치가 남은 것부터 싣습니다.",
+			view.DecisionTotal, len(rows))
+	}
+	if view.OpenDecisions > 0 {
+		note += fmt.Sprintf(" 후속 조치가 남은 결정이 %d건입니다.", view.OpenDecisions)
+	}
+	shapes := rollupHeader(2, "기간 내 결정", "")
+	shapes += textBox(4, "Note", rollupMargin, 940000, rollupContentWidth, 260000, shapeStyle{},
+		[]textRun{{Text: note, Size: 950, Color: "64748B"}})
+	shapes += tableShape(6, "DecisionTable", rollupMargin, rollupContentTop+90000, rollupContentWidth, 400000, columns, rows)
+	shapes += rollupFooter(8, view.Label+" · "+view.ScopeLabel, "")
+	return &builtSlide{Shapes: shapes}
+}
+
+// decisionDeckRank puts what is still owed above what is settled.
+func decisionDeckRank(status string) int {
+	switch status {
+	case decisionOpen:
+		return 0
+	case decisionDone:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func decisionDeckStatus(status string) (string, string) {
+	switch status {
+	case decisionOpen:
+		return "후속 조치", "1D4ED8"
+	case decisionDone:
+		return "완료", "166534"
+	default:
+		return "대체됨", "64748B"
+	}
 }

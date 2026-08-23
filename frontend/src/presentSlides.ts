@@ -204,6 +204,40 @@ export function rollupSlides(view: Rollup): PresentSlide[] {
     })
   }
 
+  // v0.14 settled that exporting and presenting are the same content in two
+  // media, so a slide the deck carries the room has to hear too. Outstanding
+  // decisions first: one already carried out is history, one still owing
+  // something is why this is in a briefing at all.
+  if (view.decisions.length > 0) {
+    const rank = (status: string) => status === 'OPEN' ? 0 : status === 'DONE' ? 1 : 2
+    const ordered = [...view.decisions].sort((left, right) => rank(left.status) - rank(right.status))
+    slides.push({
+      kind: 'section',
+      eyebrow: view.decisionTotal > ordered.length ? `${view.decisionTotal}건 중 ${ordered.length}건` : `${ordered.length}건`,
+      title: '기간 내 결정',
+      subtitle: view.openDecisions > 0
+        ? `후속 조치가 남은 결정이 ${view.openDecisions}건입니다.`
+        : '이 기간에 기록된 결정입니다.',
+    })
+    ordered.forEach((decision, index) => slides.push({
+      kind: 'entry',
+      eyebrow: `결정 ${index + 1}/${ordered.length}${decision.workTitle ? ` · ${decision.workTitle}` : ''}`,
+      title: decision.title,
+      meta: [
+        `${decision.decidedBy} 결정`,
+        decision.decidedOn,
+        decision.dueDate ? `후속 기한 ${decision.dueDate}` : '',
+        decision.status === 'OPEN' ? '후속 조치 중' : decision.status === 'DONE' ? '완료' : '대체됨',
+      ].filter(Boolean),
+      blocks: [
+        ...block('근거', decision.rationale),
+        ...block('후속 조치', decision.followUp, 'plan'),
+      ],
+      presenterText: presenterText(['근거', decision.rationale], ['후속 조치', decision.followUp]),
+      tone: decision.status === 'SUPERSEDED' ? 'silent' : 'decision',
+    }))
+  }
+
   slides.push({
     kind: 'end', title: '보고 종료',
     subtitle: insights.askItems > 0
