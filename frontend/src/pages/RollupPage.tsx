@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { errorText, api } from '../api'
+import { errorText, api, download } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import PresentationMode from '../PresentationMode'
 import { rollupSlides } from '../presentSlides'
@@ -66,6 +66,15 @@ export default function RollupPage({ session, route, notify }: {
   const [scope, setScope] = useState<RollupScope>(route?.scope === 'TEAM' ? 'TEAM' : 'SELF')
   const [rollup, setRollup] = useState<Rollup>()
   const [presenting, setPresenting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  // Exports go through fetch so a refused one lands in the same toast as
+  // everything else, instead of replacing the app with a JSON error page.
+  const save = async (url: string, fallbackName: string) => {
+    setExporting(true)
+    try { await download(url, fallbackName) }
+    catch (error) { notify(errorText(error, '파일을 내려받을 수 없습니다.'), 'error') }
+    finally { setExporting(false) }
+  }
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterKey>('ALL')
   const [detail, setDetail] = useState<RollupItem>()
@@ -106,8 +115,10 @@ export default function RollupPage({ session, route, notify }: {
       description="주간보고를 월간·분기·반기·연간 단위로 자동 취합하고 중복 업무와 반복 기재를 제거해 보여줍니다."
       action={<div className="header-actions">
         <Button variant="secondary" disabled={!rollup?.items.length} onClick={() => setPresenting(true)}>▶ 발표 모드</Button>
-        <a className="button secondary" href={`/api/v1/rollups/export.csv?${query}`}>CSV</a>
-        <a className="button primary" href={`/api/v1/rollups/export.pptx?${query}`}>PPTX 내보내기</a>
+        <Button variant="secondary" disabled={!rollup?.items.length || exporting}
+          onClick={() => save(`/api/v1/rollups/export.csv?${query}`, '기간보고.csv')}>CSV</Button>
+        <Button disabled={!rollup?.items.length || exporting}
+          onClick={() => save(`/api/v1/rollups/export.pptx?${query}`, '기간보고.pptx')}>PPTX 내보내기</Button>
       </div>} />
 
     <div className="rollup-controls">

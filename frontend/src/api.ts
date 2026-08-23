@@ -49,3 +49,54 @@ export const post = <T>(url: string, data?: unknown) => api<T>(url, { method: 'P
 export const put = <T>(url: string, data: unknown) => api<T>(url, { method: 'PUT', body: JSON.stringify(data) })
 export const patch = <T>(url: string, data: unknown) => api<T>(url, { method: 'PATCH', body: JSON.stringify(data) })
 export const del = <T>(url: string) => api<T>(url, { method: 'DELETE' })
+
+/**
+ * Fetch a file the way every other request is fetched, then hand it to the
+ * browser to save.
+ *
+ * Exports were plain <a href> links straight at the API. That works while
+ * everything is well, and fails badly when it is not: the browser navigates
+ * away from the application and renders whatever came back. An expired session
+ * — a tab left open over lunch — showed the user
+ * `{"success":false,...,"UNAUTHORIZED"...}` as a page, with the app gone from
+ * the tab and no way back but the Back button. An empty period rollup did the
+ * same with EMPTY_ROLLUP.
+ *
+ * Going through fetch keeps the app on screen, puts the failure in the same
+ * toast as every other failure, and lets the 401 path announce a lost session
+ * exactly as it does everywhere else.
+ */
+export async function download(url: string, fallbackName: string): Promise<void> {
+  const response = await fetch(url, { credentials: 'same-origin' })
+  if (!response.ok) {
+    let payload: Envelope<unknown> | undefined
+    try { payload = await response.json() as Envelope<unknown> } catch { /* not JSON */ }
+    if (response.status === 401) reportSessionLost()
+    throw new APIError(response.status, payload?.error?.code ?? 'DOWNLOAD_FAILED',
+      payload?.error?.message ?? '파일을 내려받을 수 없습니다.', payload?.traceId)
+  }
+  const blob = await response.blob()
+  const objectURL = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectURL
+  link.download = filenameFrom(response.headers.get('Content-Disposition')) || fallbackName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Released on the next tick: revoking synchronously can cancel the save in
+  // browsers that have not finished reading the blob yet.
+  setTimeout(() => URL.revokeObjectURL(objectURL), 10_000)
+}
+
+/**
+ * The server names the file, including the Korean characters in it, so the
+ * name it chose is preferred over anything the caller guesses. RFC 5987's
+ * filename* comes first because that is the encoded one.
+ */
+function filenameFrom(disposition: string | null): string {
+  if (!disposition) return ''
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
+  if (encoded) { try { return decodeURIComponent(encoded[1]) } catch { /* fall through */ } }
+  const plain = /filename="?([^";]+)"?/i.exec(disposition)
+  return plain ? plain[1] : ''
+}

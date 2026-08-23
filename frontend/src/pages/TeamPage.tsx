@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { errorText, api, post } from '../api'
+import { errorText, api, post , download} from '../api'
 import { Modal, Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import ReportPresentation from '../ReportPresentation'
 import type { Report, ReportListItem, ReportListView } from '../types'
 
 export default function TeamPage({ workflowEnabled, currentUserId, notify }: { workflowEnabled: boolean; currentUserId: number; notify: (message: string, kind?: 'success' | 'error') => void }) {
+  // Straight at the API through an <a> meant an expired session replaced the
+  // application with a JSON error page. Fetched, the failure is a toast.
+  const saveExport = async (reportId: number) => {
+    try { await download(`/api/v1/reports/${reportId}/export.pptx`, `주간보고-${reportId}.pptx`) }
+    catch (error) { notify(errorText(error, 'PPTX를 내려받을 수 없습니다.'), 'error') }
+  }
   const [reports, setReports] = useState<ReportListItem[]>()
   const [total, setTotal] = useState(0)
   const [selected, setSelected] = useState<Report>()
@@ -36,7 +42,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
         {reports.length < total && <Button variant="secondary" disabled={busy} onClick={loadMore}>
           {busy ? '불러오는 중…' : '더 보기'}</Button>}
       </div></Card>}
-    {selected && <Modal onClose={() => { setSelected(undefined); setPresenting(false) }} label={`${selected.displayName} ${selected.weekStart} 주간보고`} className="wide"><header><div><StatusBadge status={selected.status}/> <SourceBadge source={selected.sourceType}/><h2>{selected.displayName} · {selected.weekStart}</h2></div><button onClick={() => setSelected(undefined)}>×</button></header><p>{selected.summary}</p><div className="detail-items">{selected.items.map(item => <section key={item.id}><h3>{item.title} <small>{item.progress}%</small></h3><div><b>금주 실적</b><p>{item.currentResult || '-'}</p><b>차주 계획</b><p>{item.nextPlan || '-'}</p><b>이슈</b><p>{item.issue || '-'}</p></div></section>)}</div><footer><Button variant="secondary" onClick={() => setPresenting(true)}>▶ 발표 모드</Button><a className="button secondary" href={`/api/v1/reports/${selected.id}/export.pptx`}>PPTX 다운로드</a>{workflowEnabled && selected.status === 'SUBMITTED' && selected.userId !== currentUserId && <><Button variant="danger" onClick={() => review('reject')}>반려</Button><Button onClick={() => review('approve')}>승인</Button></>}</footer></Modal>}
+    {selected && <Modal onClose={() => { setSelected(undefined); setPresenting(false) }} label={`${selected.displayName} ${selected.weekStart} 주간보고`} className="wide"><header><div><StatusBadge status={selected.status}/> <SourceBadge source={selected.sourceType}/><h2>{selected.displayName} · {selected.weekStart}</h2></div><button onClick={() => setSelected(undefined)}>×</button></header><p>{selected.summary}</p><div className="detail-items">{selected.items.map(item => <section key={item.id}><h3>{item.title} <small>{item.progress}%</small></h3><div><b>금주 실적</b><p>{item.currentResult || '-'}</p><b>차주 계획</b><p>{item.nextPlan || '-'}</p><b>이슈</b><p>{item.issue || '-'}</p></div></section>)}</div><footer><Button variant="secondary" onClick={() => setPresenting(true)}>▶ 발표 모드</Button><Button variant="secondary" onClick={() => saveExport(selected.id)}>PPTX 다운로드</Button>{workflowEnabled && selected.status === 'SUBMITTED' && selected.userId !== currentUserId && <><Button variant="danger" onClick={() => review('reject')}>반려</Button><Button onClick={() => review('approve')}>승인</Button></>}</footer></Modal>}
     {presenting && selected && <ReportPresentation label={`${selected.displayName} · ${selected.weekStart}`}
       report={selected} onClose={() => setPresenting(false)} />}
   </>
