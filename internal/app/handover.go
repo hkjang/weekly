@@ -339,6 +339,11 @@ type workGraphView struct {
 	DuplicateTotal int                 `json:"duplicateTotal"`
 	Collaboration  []collaborationEdge `json:"collaboration"`
 	Recurring      []recurringWork     `json:"recurring"`
+	// Its siblings above have carried a total since they were capped; this one
+	// did not, and grew to 900 rows and 332 KB of a 527 KB response on a 300
+	// person organisation. A list nobody counted is a list nobody can tell is
+	// complete.
+	RecurringTotal int `json:"recurringTotal"`
 	// Blockers holding several unfinished tasks up. Counted from the blocker's
 	// end, which is the only end where the pattern is visible.
 	Bottlenecks []bottleneck `json:"bottlenecks"`
@@ -379,11 +384,20 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 인사이트를 만들 수 없습니다.")
 		return
 	}
+	// Capped like the two lists beside it, and by the same figure: routine work
+	// is read to recognise a pattern, and the pattern is visible in the first
+	// screenful. The count says what is not shown.
+	recurring := recurringWorkItems(items)
+	recurringTotal := len(recurring)
+	if len(recurring) > insightLinkLimit {
+		recurring = recurring[:insightLinkLimit]
+	}
 	writeData(w, http.StatusOK, workGraphView{
 		Weeks: weeks, Since: since, WorkItems: len(items),
 		Similar: graph.Similar, SimilarTotal: graph.SimilarTotal,
 		Duplicates: graph.Duplicates, DuplicateTotal: graph.DuplicateTotal,
-		Collaboration: graph.Collaboration, Recurring: recurringWorkItems(items),
+		Collaboration: graph.Collaboration,
+		Recurring:     recurring, RecurringTotal: recurringTotal,
 		Bottlenecks: blockers,
 	})
 }

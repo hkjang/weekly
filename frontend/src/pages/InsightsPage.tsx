@@ -55,7 +55,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ weeks, since: '', workItems: 0, similar: [], similarTotal: 0, duplicates: [], duplicateTotal: 0, collaboration: [], recurring: [], bottlenecks: [] })
+        setView({ weeks, since: '', workItems: 0, similar: [], similarTotal: 0, duplicates: [], duplicateTotal: 0, collaboration: [], recurring: [], recurringTotal: 0, bottlenecks: [] })
         notify(errorText(error, '업무 인사이트를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
@@ -75,7 +75,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
         {view && <small>{entry.key === 'DUPLICATE' ? view.duplicateTotal
           : entry.key === 'SIMILAR' ? view.similarTotal
           : entry.key === 'COLLAB' ? view.collaboration.length
-          : entry.key === 'BOTTLENECK' ? view.bottlenecks.length : view.recurring.length}</small>}
+          : entry.key === 'BOTTLENECK' ? view.bottlenecks.length : view.recurringTotal}</small>}
       </button>)}
     </div>
 
@@ -130,7 +130,13 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
 
       {tab === 'RECURRING' && (view.recurring.length === 0
         ? <Empty>반복 운영 업무로 분류된 항목이 없습니다.</Empty>
-        : <div className="table-wrap"><table>
+        : <>
+        {/* The other two lists on this screen have said what they left out
+            since they were capped. This one grew to 900 rows without a count
+            beside it, so a reader had no way to know it was a list at all. */}
+        {view.recurringTotal > view.recurring.length && <p className="muted">
+          {view.recurringTotal}건 중 {view.recurring.length}건을 표시합니다.</p>}
+        <div className="table-wrap"><table>
             <thead><tr><th>업무</th><th>담당</th><th>보고</th><th>주기</th><th>진척 변화</th><th>판정 근거</th></tr></thead>
             <tbody>{view.recurring.map(item => <tr key={item.workItemId}>
               <td><strong>{item.title}</strong></td>
@@ -140,7 +146,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
               <td>{item.progressGain > 0 ? `+${item.progressGain}` : item.progressGain}%</td>
               <td className="muted">{item.reason}</td>
             </tr>)}</tbody>
-          </table></div>)}
+          </table></div></>)}
     </Card>}
   </>
 }

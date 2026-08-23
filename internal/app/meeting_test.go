@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -347,5 +348,67 @@ func TestAProjectedDeadlineScoresBelowOneThatHasAlreadyPassed(t *testing.T) {
 	}
 	if passed.Headline != "기한 초과" {
 		t.Errorf("headline=%q want=기한 초과", passed.Headline)
+	}
+}
+
+// An agenda that prints everything is not an agenda, and one that silently
+// prints part of everything is worse. On a 300 person organisation 변경점 came
+// back with 2,100 rows and nothing on screen said there were any beyond what it
+// drew.
+func TestMeetingSectionsSayHowManyTheyLeftOut(t *testing.T) {
+	items := []workItemView{}
+	for index := 0; index < meetingSectionLimit+60; index++ {
+		items = append(items, workItemView{
+			ID: int64(index + 1), Title: fmt.Sprintf("업무 %03d", index), DisplayName: "담당",
+			Weeks: []workItemWeek{
+				{WeekStart: "2026-08-10", Progress: 10, CurrentResult: "진행"},
+				{WeekStart: "2026-08-17", Progress: 10 + index%40, CurrentResult: "진행"},
+			},
+		})
+	}
+	for index := range items {
+		summarizeWorkItem(&items[index], defaultRollupConfig())
+	}
+	view := buildMeeting(items, "2026-08-17", defaultRollupConfig())
+
+	var change *meetingSection
+	for index := range view.Sections {
+		if view.Sections[index].Key == "CHANGE" {
+			change = &view.Sections[index]
+		}
+	}
+	if change == nil {
+		t.Fatal("no 변경점 section was built")
+	}
+	if len(change.Entries) > meetingSectionLimit {
+		t.Errorf("the section carries %d rows, above the %d cap", len(change.Entries), meetingSectionLimit)
+	}
+	if change.Total <= len(change.Entries) {
+		t.Fatalf("total %d does not exceed the page %d, so this proves nothing", change.Total, len(change.Entries))
+	}
+	if change.Limit != meetingSectionLimit {
+		t.Errorf("limit=%d want=%d", change.Limit, meetingSectionLimit)
+	}
+}
+
+// Cutting the tail has to cut the least important thing. Ordered by arrival the
+// survivors were whichever work items had the lowest identifiers, which is not
+// a reason to discuss something.
+func TestMeetingPutsTheWorstNewsFirst(t *testing.T) {
+	entries := []meetingEntry{
+		{Title: "조금 진행", ProgressDelta: 5},
+		{Title: "크게 진행", ProgressDelta: 40},
+		{Title: "뒤로 감", ProgressDelta: -3},
+		{Title: "변화 없음", ProgressDelta: 0, Weeks: 9},
+		{Title: "많이 뒤로 감", ProgressDelta: -20},
+	}
+	orderMeetingEntries(entries)
+	got := []string{}
+	for _, entry := range entries {
+		got = append(got, entry.Title)
+	}
+	want := []string{"많이 뒤로 감", "뒤로 감", "크게 진행", "조금 진행", "변화 없음"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("got=%v\nwant=%v", got, want)
 	}
 }

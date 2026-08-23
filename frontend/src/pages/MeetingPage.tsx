@@ -81,7 +81,9 @@ export default function MeetingPage({ session, notify }: {
     return () => { stale = true }
   }, [scope, week])
 
-  const total = useMemo(() => view?.sections.reduce((sum, section) => sum + section.entries.length, 0) ?? 0, [view])
+  // Counted from what exists, not from what arrived: the summary line above
+  // the agenda would otherwise report the cap back as the number of items.
+  const total = useMemo(() => view?.sections.reduce((sum, section) => sum + section.total, 0) ?? 0, [view])
   const active = useMemo(() => (view?.sections ?? []).filter(section => section.entries.length > 0), [view])
 
   return <>
@@ -107,8 +109,17 @@ export default function MeetingPage({ session, notify }: {
       {total === 0
         ? <Empty>이번 주에는 회의에서 다룰 변화가 없습니다. 지난주와 달라진 점, 새 이슈, 결정 요청이 모두 없습니다.</Empty>
         : active.map(section => <Card key={section.key} title={section.title}
-            action={<span className="muted-chip">{section.entries.length}건</span>}>
+            action={<span className="muted-chip">{section.total > section.entries.length
+              ? `${section.total}건 중 ${section.entries.length}건`
+              : `${section.entries.length}건`}</span>}>
             <p className="muted">{section.purpose}</p>
+            {/* An agenda that quietly prints part of everything is worse than
+                one that prints everything. If rows were left out, the heading
+                says so and says how the surviving ones were chosen. */}
+            {section.total > section.entries.length && <p className="warn-text">
+              {section.total}건 중 변화가 큰 {section.entries.length}건만 실었습니다.
+              진척이 뒤로 간 업무, 그다음 변화 폭이 큰 순서입니다. 전체는 팀 주간보고에서 확인하십시오.
+            </p>}
             <ul className={`meeting-list ${sectionTone[section.key] ?? ''}`}>
               {section.entries.map(entry => <EntryRow key={`${section.key}-${entry.workItemId}`} entry={entry} aiEnabled={session.aiEnabled} notify={notify} />)}
             </ul>

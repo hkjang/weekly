@@ -44,6 +44,62 @@ type meetingSection struct {
 	Title   string         `json:"title"`
 	Purpose string         `json:"purpose"`
 	Entries []meetingEntry `json:"entries"`
+	// Total is how many belong in this section; Entries holds at most Limit of
+	// them. An agenda that prints everything is not an agenda, and one that
+	// silently prints part of everything is worse.
+	Total int `json:"total"`
+	Limit int `json:"limit"`
+}
+
+// meetingSectionLimit is how many rows one heading can carry into a room.
+//
+// The section had no cap and no count. On a 300 person organisation the
+// 변경점 heading came back with 2,100 rows — the entire corpus, presented as
+// the list of things to discuss. Nobody reads the 2,100th row, and nothing on
+// the screen said there were any.
+const meetingSectionLimit = 40
+
+// orderMeetingEntries puts the rows a room should hear first at the top, so
+// that cutting the tail cuts the least important thing rather than the highest
+// work item id.
+//
+// Work that went backwards leads: it is the only kind of change that means
+// something has gone wrong since last week. Then the largest movements, because
+// a task that jumped 40% and one that moved 1% are not equally worth the
+// meeting's time. Title last, so the order is total and the same data does not
+// reshuffle between requests.
+func orderMeetingEntries(entries []meetingEntry) {
+	sort.SliceStable(entries, func(x, y int) bool {
+		left, right := entries[x], entries[y]
+		if (left.ProgressDelta < 0) != (right.ProgressDelta < 0) {
+			return left.ProgressDelta < 0
+		}
+		leftSize, rightSize := left.ProgressDelta, right.ProgressDelta
+		if leftSize < 0 {
+			leftSize = -leftSize
+		}
+		if rightSize < 0 {
+			rightSize = -rightSize
+		}
+		if leftSize != rightSize {
+			return leftSize > rightSize
+		}
+		if left.Weeks != right.Weeks {
+			return left.Weeks > right.Weeks
+		}
+		return left.Title < right.Title
+	})
+}
+
+// section builds one heading, ordered and capped, saying how many it left out.
+func section(key, title, purpose string, entries []meetingEntry) meetingSection {
+	orderMeetingEntries(entries)
+	total := len(entries)
+	if len(entries) > meetingSectionLimit {
+		entries = entries[:meetingSectionLimit]
+	}
+	return meetingSection{Key: key, Title: title, Purpose: purpose,
+		Entries: entries, Total: total, Limit: meetingSectionLimit}
 }
 
 type meetingView struct {
@@ -151,11 +207,11 @@ func buildMeeting(items []workItemView, week string, cfg rollupConfig) meetingVi
 	view.People = len(people)
 	view.WorkItems = counted
 	view.Sections = []meetingSection{
-		{Key: "DECISION", Title: "결정 필요", Purpose: "이 자리에서만 정할 수 있는 사항입니다.", Entries: decisions},
-		{Key: "NEW_ISSUE", Title: "신규 이슈", Purpose: "이번 주에 새로 생긴 문제입니다.", Entries: newIssues},
-		{Key: "LONG_ISSUE", Title: "지속 이슈", Purpose: "같은 방법으로는 풀리지 않는 문제입니다.", Entries: longIssues},
-		{Key: "CHANGE", Title: "변경점", Purpose: "지난주 대비 달라진 것만 담았습니다.", Entries: changes},
-		{Key: "SILENT", Title: "보고 누락", Purpose: "지난주에 있었으나 이번 주에 사라진 업무입니다.", Entries: silent},
+		section("DECISION", "결정 필요", "이 자리에서만 정할 수 있는 사항입니다.", decisions),
+		section("NEW_ISSUE", "신규 이슈", "이번 주에 새로 생긴 문제입니다.", newIssues),
+		section("LONG_ISSUE", "지속 이슈", "같은 방법으로는 풀리지 않는 문제입니다.", longIssues),
+		section("CHANGE", "변경점", "지난주 대비 달라진 것만 담았습니다.", changes),
+		section("SILENT", "보고 누락", "지난주에 있었으나 이번 주에 사라진 업무입니다.", silent),
 	}
 	return view
 }
@@ -209,8 +265,8 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 	if len(blocked) > 0 {
 		// Placed after 지속 이슈 and before 변경점: it is something the room has
 		// to act on, not something it only has to hear.
-		section := meetingSection{Key: "DEPENDENCY", Title: "타 조직 대기",
-			Purpose: "다른 조직의 업무가 끝나야 진행되는 업무입니다. 이 자리에서 담당자를 연결하십시오.", Entries: blocked}
+		waiting := section("DEPENDENCY", "타 조직 대기",
+			"다른 조직의 업무가 끝나야 진행되는 업무입니다. 이 자리에서 담당자를 연결하십시오.", blocked)
 		at := len(view.Sections)
 		for index, existing := range view.Sections {
 			if existing.Key == "CHANGE" {
@@ -218,7 +274,7 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		view.Sections = append(view.Sections[:at], append([]meetingSection{section}, view.Sections[at:]...)...)
+		view.Sections = append(view.Sections[:at], append([]meetingSection{waiting}, view.Sections[at:]...)...)
 	}
 	view.Scope = scope
 	writeData(w, http.StatusOK, view)

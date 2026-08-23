@@ -258,7 +258,10 @@ export const meetingNotes = [
 ]
 
 export function meetingSlides(view: MeetingView): PresentSlide[] {
-  const agendaCount = view.sections.reduce((sum, section) => sum + section.entries.length, 0)
+  // The cover counts what exists; the section slides count what is shown. A
+  // deck that says 40건 for a heading holding 2,100 is a deck that lies to the
+  // room it is being presented to.
+  const agendaCount = view.sections.reduce((sum, section) => sum + section.total, 0)
   const slides: PresentSlide[] = [{
     kind: 'cover',
     eyebrow: view.scope === 'TEAM' ? '조직 주간 회의' : '개인 주간 점검',
@@ -270,8 +273,15 @@ export function meetingSlides(view: MeetingView): PresentSlide[] {
   for (const section of view.sections) {
     if (!section.entries.length) continue
     slides.push({
-      kind: 'section', eyebrow: `${section.entries.length}건`,
-      title: section.title, subtitle: section.purpose, tone: section.key,
+      kind: 'section',
+      eyebrow: section.total > section.entries.length
+        ? `${section.total}건 중 ${section.entries.length}건`
+        : `${section.entries.length}건`,
+      title: section.title,
+      subtitle: section.total > section.entries.length
+        ? `${section.purpose} 변화가 큰 ${section.entries.length}건만 실었습니다.`
+        : section.purpose,
+      tone: section.key,
     })
     section.entries.forEach((entry, index) => slides.push({
       kind: 'entry',

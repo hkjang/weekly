@@ -212,7 +212,11 @@ export interface MeetingEntry {
   organizationName: string; detail: string; note: string
   progress: number; progressDelta: number; weeks: number
 }
-export interface MeetingSection { key: string; title: string; purpose: string; entries: MeetingEntry[] }
+export interface MeetingSection {
+  key: string; title: string; purpose: string; entries: MeetingEntry[]
+  /** How many belong here, against the `limit` that actually arrived. */
+  total: number; limit: number
+}
 export interface MeetingView {
   week: string; previousWeek: string; scope: RollupScope
   people: number; workItems: number; sections: MeetingSection[]
@@ -247,7 +251,7 @@ export interface RecurringWork extends WorkRef {
 export interface WorkGraphView {
   weeks: number; since: string; workItems: number
   similar: WorkLink[]; similarTotal: number; duplicates: WorkLink[]; duplicateTotal: number
-  collaboration: CollaborationEdge[]; recurring: RecurringWork[]; bottlenecks: Bottleneck[]
+  collaboration: CollaborationEdge[]; recurring: RecurringWork[]; recurringTotal: number; bottlenecks: Bottleneck[]
 }
 
 export interface WorkSearchHit extends WorkRef {
