@@ -191,10 +191,29 @@ func writeImportFile(path string, body []byte) error {
 	return os.Rename(temporaryPath, path)
 }
 
+// importPageDefault is how many past import jobs one request returns. The list
+// ended at a bare LIMIT 100 before, so a heavy user's older jobs simply stopped
+// existing as far as the screen was concerned.
+const importPageDefault = 50
+
+type importJobListView struct {
+	Items  []importJobView `json:"items"`
+	Total  int             `json:"total"`
+	Limit  int             `json:"limit"`
+	Offset int             `json:"offset"`
+}
+
 func (a *App) listImportJobs(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
+	limit := clampQueryInt(r, "limit", importPageDefault, 1, 200)
+	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
+	total := 0
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM import_jobs WHERE user_id=$1`, p.ID).Scan(&total); err != nil {
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "Import 이력을 조회할 수 없습니다.")
+		return
+	}
 	rows, err := a.db.Query(r.Context(), `SELECT id,status,total_files,processed_files,failed_files,created_at,started_at,completed_at,confirmed_at
-		FROM import_jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, p.ID)
+		FROM import_jobs WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`, p.ID, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "Import 이력을 조회할 수 없습니다.")
 		return
@@ -209,7 +228,7 @@ func (a *App) listImportJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, item)
 	}
-	writeData(w, http.StatusOK, result)
+	writeData(w, http.StatusOK, importJobListView{Items: result, Total: total, Limit: limit, Offset: offset})
 }
 
 func (a *App) getImportJob(w http.ResponseWriter, r *http.Request) {
@@ -902,6 +921,13 @@ func (a *App) cleanupImportSources(ctx context.Context) {
 		}
 	}
 	rows.Close()
+	// A full batch means there is more waiting for the next run. That is by
+	// design — the batch bounds one pass, not the work — but an operator
+	// watching disk fill up should be able to see the backlog rather than infer
+	// it from the files that did not disappear.
+	if len(expired) == 500 {
+		a.logger.Info("import retention batch full", "removed", len(expired), "retentionDays", retention)
+	}
 	for _, item := range expired {
 		if !safeImportPath(item.path, item.jobID) {
 			continue

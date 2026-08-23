@@ -128,12 +128,12 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
             <Card><span className="metric-label">기한 내 제출</span><strong className="metric-value">
               {(participation.trend[participation.trend.length - 1]?.onTimeRate ?? 0).toFixed(0)}%</strong>
               <small>{participation.deadline?.label ?? '기준 미설정'}</small></Card>
-            <Card><span className="metric-label">미제출 인원</span><strong className="metric-value">{participation.missing.length}</strong><small>기간 내 1회 이상 누락</small></Card>
+            <Card><span className="metric-label">미제출 인원</span><strong className="metric-value">{participation.missingTotal}</strong><small>기간 내 1회 이상 누락</small></Card>
           </div>
         </>}
       </Card>
 
-      {participation && participation.missing.length > 0 && <Card title="미제출 현황" action={<span className="muted-chip">누락 주차 많은 순 · 최대 25명</span>}>
+      {participation && participation.missing.length > 0 && <Card title="미제출 현황" action={<span className="muted-chip">누락 주차 많은 순 · {participation.missingTotal}명 중 {participation.missing.length}명</span>}>
         <div className="table-wrap"><table>
           <thead><tr><th>이름</th><th>아이디</th><th>조직</th><th>누락 주차</th><th>최근 제출 주차</th></tr></thead>
           <tbody>{participation.missing.map(person => <tr key={person.userId}>

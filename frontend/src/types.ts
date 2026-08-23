@@ -88,7 +88,7 @@ export interface MissingReporter { userId: number; displayName: string; username
 export interface DeadlineRule { days: number; hour: number; timezone: string; label: string }
 export interface ParticipationAnalytics {
   start: string; end: string; weeks: number; activeUsers: number
-  trend: ParticipationWeek[]; missing: MissingReporter[]; deadline: DeadlineRule
+  trend: ParticipationWeek[]; missing: MissingReporter[]; missingTotal: number; missingLimit: number; deadline: DeadlineRule
 }
 
 export interface SearchMatch { field: string; label: string; title?: string; snippet: string }
@@ -203,6 +203,7 @@ export interface WorkSearchHit extends WorkRef {
 export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; hits: WorkSearchHit[] }
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
+export interface ImportJobListView { items: ImportJob[]; total: number; limit: number; offset: number }
 export interface ReportListView { items: ReportListItem[]; total: number; limit: number; offset: number }
 export interface TeamMember { id: number; displayName: string; organizationName: string; active: boolean; lastWeek: string }
 export interface HandoverWeek { week: string; progress: number; issue?: boolean }

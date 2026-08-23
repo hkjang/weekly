@@ -412,6 +412,10 @@ type aiValidationContext struct {
 	SourceSlides map[int]bool
 }
 
+// aiWarningLimit caps how many quality warnings one draft carries. Past twenty
+// nobody reads further, but the ones past twenty still happened.
+const aiWarningLimit = 20
+
 func validateAIResult(result *aiWeeklyResult, contexts ...aiValidationContext) error {
 	validation := aiValidationContext{}
 	if len(contexts) > 0 {
@@ -493,8 +497,12 @@ func validateAIResult(result *aiWeeklyResult, contexts ...aiValidationContext) e
 	}
 	result.ReportItems = validated
 	result.Summary = trimRunes(result.Summary, 10000)
-	if len(result.Warnings) > 20 {
-		result.Warnings = result.Warnings[:20]
+	// Warnings are about the draft's own quality, so dropping some without
+	// saying so is the one thing this list must not do.
+	if len(result.Warnings) > aiWarningLimit {
+		dropped := len(result.Warnings) - aiWarningLimit
+		result.Warnings = append(result.Warnings[:aiWarningLimit:aiWarningLimit],
+			fmt.Sprintf("경고가 %d건 더 있었지만 표시하지 않았습니다. 원본을 직접 확인하세요.", dropped))
 	}
 	for index := range result.Warnings {
 		result.Warnings[index] = trimRunes(strings.TrimSpace(result.Warnings[index]), 500)

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api, post } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner, formatDate } from '../components'
-import type { AIReportItem, ImportFile, ImportJob } from '../types'
+import type { AIReportItem, ImportFile, ImportJob, ImportJobListView } from '../types'
 
 interface ImportDraft {
   id: number
@@ -14,6 +14,7 @@ interface ImportDraft {
 
 export default function ImportPage({ aiEnabled, currentWeekStart, notify }: { aiEnabled: boolean; currentWeekStart: string; notify: (message: string, kind?: 'success' | 'error') => void }) {
   const [jobs, setJobs] = useState<ImportJob[]>()
+  const [jobTotal, setJobTotal] = useState(0)
   const [selectedID, setSelectedID] = useState<number>()
   const [detail, setDetail] = useState<ImportJob>()
   const [files, setFiles] = useState<File[]>([])
@@ -22,7 +23,7 @@ export default function ImportPage({ aiEnabled, currentWeekStart, notify }: { ai
   const [dragging, setDragging] = useState(false)
   const processing = detail?.status === 'PENDING' || detail?.status === 'PROCESSING'
 
-  const loadHistory = async () => { const values = await api<ImportJob[]>('/api/v1/import/history'); setJobs(values); if (!selectedID && values.length) setSelectedID(values[0].id) }
+  const loadHistory = async () => { const page = await api<ImportJobListView>('/api/v1/import/history'); setJobs(page.items); setJobTotal(page.total); if (!selectedID && page.items.length) setSelectedID(page.items[0].id) }
   const loadDetail = async (id: number) => { const value = await api<ImportJob>(`/api/v1/import/${id}`); setDetail(value); setDrafts(previous => { const next = { ...previous }; const jobFileIDs = new Set((value.files ?? []).map(file => file.id)); for (const file of value.files ?? []) { if ((file.status === 'READY' || file.status === 'NEEDS_REVIEW') && file.result && !next[file.id]) { const weekStart = file.detectedWeekStart || file.result.weekStart; const sameWeekSelected = Object.values(next).some(draft => jobFileIDs.has(draft.id) && draft.id !== file.id && draft.weekStart === weekStart && draft.selected && draft.strategy !== 'SKIP'); next[file.id] = draftFromFile(file, sameWeekSelected) } } return next }) }
   useEffect(() => { loadHistory().catch(() => setJobs([])) }, [])
   // Dropping a file anywhere outside the drop zone would make the browser open
@@ -73,7 +74,8 @@ export default function ImportPage({ aiEnabled, currentWeekStart, notify }: { ai
 
   return <><PageHeader title="과거 PPTX 가져오기" description="기존 주간보고를 OpenXML 파서와 AI로 분석한 뒤 검토·확정하여 과거 데이터로 적재합니다."/>
     <Card title="PPTX 다중 업로드"><p className="muted">파일명만 신뢰하지 않고 슬라이드 텍스트·표 셀·날짜 범위를 먼저 추출합니다. 분석 결과는 확정 전까지 실제 보고서에 저장되지 않습니다.</p>{!aiEnabled && <div className="ai-disabled">AI Gateway가 비활성화되어 있어 새 파일을 분석할 수 없습니다. 관리자 설정 후 업로드하세요.</div>}<div className="import-upload"><label className={`file-drop ${dragging ? 'dragging' : ''} ${aiEnabled ? '' : 'disabled'}`} onDrop={onDrop} onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave}><input type="file" multiple disabled={!aiEnabled} accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={event => { acceptFiles(Array.from(event.target.files ?? [])); event.target.value = '' }}/><strong>{dragging ? (acceptsDrop ? '여기에 놓으면 파일이 추가됩니다' : '지금은 파일을 받을 수 없습니다') : files.length ? `${files.length}개 파일 선택됨` : 'PPTX 파일을 선택하거나 여기로 끌어다 놓으세요'}</strong><span>{files.length ? files.map(file => file.name).join(' · ') : '동일 SHA-256 파일은 중복으로 표시되며 다시 적재되지 않습니다.'}</span>{files.length > 0 && <button type="button" className="link-button" onClick={event => { event.preventDefault(); setFiles([]) }}>선택 해제</button>}</label><Button onClick={upload} disabled={!aiEnabled || !files.length || busy}>{busy ? '처리 중…' : '업로드·분석 시작'}</Button></div></Card>
-    <div className="import-layout"><Card title="Import 이력">{jobs === undefined ? <Spinner/> : !jobs.length ? <Empty>아직 Import 작업이 없습니다.</Empty> : <div className="import-job-list">{jobs.map(job => <button key={job.id} className={selectedID === job.id ? 'active' : ''} onClick={() => { setDetail(undefined); setSelectedID(job.id) }}><span><strong>작업 #{job.id}</strong><small>{formatDate(job.createdAt)}</small></span><span className={`import-status ${job.status.toLowerCase()}`}>{statusName(job.status)}</span><small>{job.processedFiles}/{job.totalFiles} · 실패 {job.failedFiles}</small></button>)}</div>}</Card>
+    <div className="import-layout"><Card title="Import 이력" action={jobTotal > (jobs?.length ?? 0)
+      ? <span className="muted-chip">{jobTotal}건 중 {jobs?.length ?? 0}건</span> : undefined}>{jobs === undefined ? <Spinner/> : !jobs.length ? <Empty>아직 Import 작업이 없습니다.</Empty> : <div className="import-job-list">{jobs.map(job => <button key={job.id} className={selectedID === job.id ? 'active' : ''} onClick={() => { setDetail(undefined); setSelectedID(job.id) }}><span><strong>작업 #{job.id}</strong><small>{formatDate(job.createdAt)}</small></span><span className={`import-status ${job.status.toLowerCase()}`}>{statusName(job.status)}</span><small>{job.processedFiles}/{job.totalFiles} · 실패 {job.failedFiles}</small></button>)}</div>}</Card>
       <div>{selectedID && !detail ? <Spinner/> : detail ? <><Card title={`작업 #${detail.id} · ${statusName(detail.status)}`} action={detail.failedFiles > 0 && !processing ? <Button variant="secondary" onClick={retry} disabled={busy}>실패 파일 재분석</Button> : undefined}><div className="import-progress"><div><span style={{ width: `${detail.totalFiles ? Math.round(detail.processedFiles / detail.totalFiles * 100) : 0}%` }}/></div><strong>{detail.processedFiles} / {detail.totalFiles}</strong></div>{processing && <p className="muted">백그라운드에서 슬라이드 구조를 보존해 파싱하고 AI 결과를 근거와 함께 검증하고 있습니다. 이 화면은 자동 갱신됩니다.</p>}</Card>{(detail.files ?? []).map(file => <ImportFileCard key={file.id} file={file} draft={drafts[file.id]} busy={busy} reanalyze={() => reanalyzeFile(file.id)} updateDraft={patch => updateDraft(file.id, patch)} updateItem={(index, patch) => updateItem(file.id, index, patch)}/>) }{selectedDrafts.length > 0 && <div className="import-confirm-bar"><span><strong>{selectedDrafts.length}개</strong> 파일 선택 · 저장 전 날짜, 업무 구분과 원본 슬라이드를 마지막으로 확인하세요.</span><Button onClick={confirmImport} disabled={busy}>{busy ? '저장 중…' : '선택 보고서 확정 저장'}</Button></div>}</> : <Empty>왼쪽에서 Import 작업을 선택하세요.</Empty>}</div>
     </div>
   </>

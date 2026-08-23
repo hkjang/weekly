@@ -251,6 +251,12 @@ type participationWeek struct {
 	OnTimeRate     float64 `json:"onTimeRate"`
 }
 
+// missingReporterLimit is how many of the worst offenders the screen lists.
+// A ranking is allowed to be a ranking; what it is not allowed to do is hide
+// how many people are behind. Twenty-five rows out of sixty people in arrears
+// makes the problem look like a quarter of its size.
+const missingReporterLimit = 25
+
 type missingReporter struct {
 	UserID       int64  `json:"userId"`
 	DisplayName  string `json:"displayName"`
@@ -329,7 +335,7 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 		  coalesce((SELECT max(r.week_start)::text FROM weekly_reports r WHERE r.user_id=u.id AND r.status <> 'DRAFT'), '')
 		FROM users u LEFT JOIN organizations o ON o.id=u.organization_id
 		WHERE u.active=true
-		ORDER BY 5 DESC, u.display_name LIMIT 25`, start, end)
+		ORDER BY 5 DESC, u.display_name LIMIT $3`, start, end, missingReporterLimit)
 	if err != nil {
 		a.logger.Error("missing reporters", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "미제출자를 조회할 수 없습니다.")
@@ -347,9 +353,22 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 			missing = append(missing, item)
 		}
 	}
+	missingTotal := 0
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users u WHERE u.active=true
+		AND (SELECT count(*) FROM generate_series($1::date, $2::date, interval '7 day') AS week(day)
+			WHERE NOT EXISTS (SELECT 1 FROM weekly_reports r
+				WHERE r.user_id=u.id AND r.week_start=week.day::date AND r.status <> 'DRAFT')) > 0`,
+		start, end).Scan(&missingTotal); err != nil {
+		a.logger.Error("missing reporter total", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "미제출자를 조회할 수 없습니다.")
+		return
+	}
 	writeData(w, http.StatusOK, map[string]any{
 		"start": start.Format("2006-01-02"), "end": end.Format("2006-01-02"),
 		"weeks": weeks, "activeUsers": activeUsers, "trend": trend, "missing": missing,
+		// How many are behind, beside the few the list names. The list is the
+		// worst 25; the count is everyone.
+		"missingTotal": missingTotal, "missingLimit": missingReporterLimit,
 		// Carried in the response so the screen can state the rule it is
 		// reporting against. A punctuality figure whose definition is invisible
 		// invites everyone to assume a different one.
