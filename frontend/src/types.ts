@@ -63,6 +63,7 @@ export interface WorkItem {
   stalledWeeks: number; issueWeeks: number; repeatedPlan: number
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean
   latestIssue: string; latestManagementAsk: string; weeks: WorkItemWeek[]
+  forecast: CompletionForecast; dueOutlook: DueOutlook
 }
 
 export type ChangeKind = 'NEW' | 'RESUMED' | 'COMPLETED' | 'PROGRESSED' | 'REGRESSED' | 'STALLED' | 'SILENT' | 'STEADY' | 'ABSENT'
@@ -116,6 +117,15 @@ export interface ReportAttachment {
 export type PeriodKind = 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'
 export type RollupScope = 'SELF' | 'TEAM'
 export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
+/**
+ * What the reported pace says about a deadline that was set. The verdict never
+ * travels without projectedLow/projectedHigh and the note that names the paces,
+ * because a label nobody can check is one nobody should act on.
+ */
+export interface DueOutlook {
+  kind: 'NONE' | 'FINISHED' | 'UNKNOWN' | 'ON_TRACK' | 'SPLIT' | 'AT_RISK' | 'OVERDUE'
+  dueDate?: string; weeksLeft: number; projectedLow: number; projectedHigh: number; note: string
+}
 export interface RollupItemWeek { weekStart: string; progress: number; hasIssue: boolean }
 /**
  * What the reported progress implies about the finish, and the paces it was

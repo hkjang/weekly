@@ -56,6 +56,11 @@ type workItemView struct {
 	IssueWeeks    int `json:"issueWeeks"`
 	RepeatedPlan  int `json:"repeatedPlan"`
 
+	// Forecast is what the reported pace implies about finishing; DueOutlook is
+	// what it implies about the deadline, when one has been set.
+	Forecast   completionForecast `json:"forecast"`
+	DueOutlook dueOutlook         `json:"dueOutlook"`
+
 	Completed bool `json:"completed"`
 	Stalled   bool `json:"stalled"`
 	AtRisk    bool `json:"atRisk"`
@@ -313,6 +318,15 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 	}
 	item.Stalled = !item.Completed && item.StalledWeeks >= cfg.StallWeeks
 	item.AtRisk = !item.Completed && item.IssueWeeks >= cfg.PersistentIssueWeeks
+
+	// The pace, and what it means for a deadline if one was set. Both carry the
+	// numbers they came from, so neither is a score.
+	paces := make([]rollupItemWeek, 0, len(merged))
+	for _, week := range merged {
+		paces = append(paces, rollupItemWeek{WeekStart: week.WeekStart, Progress: week.Progress})
+	}
+	item.Forecast = forecastCompletion(paces, item.Progress)
+	item.DueOutlook = outlookForDueDate(item.DueDate, item.Forecast, paces, item.Progress)
 }
 
 // persistReportItems reconciles the stored rows of a report with the submitted

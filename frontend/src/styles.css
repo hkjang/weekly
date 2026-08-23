@@ -181,3 +181,11 @@
 .forecast-block strong{font-size:15px}
 .forecast-block p{margin:6px 0 0;color:#334155;font-size:13px;line-height:1.6}
 .forecast-block code{display:inline-block;margin-top:8px;font-size:12px;color:var(--muted)}
+
+/* The deadline and what the pace says about it. The projected range and the week count sit under the sentence, never instead of it. */
+.due-panel{margin:14px 0;padding:12px 14px;border-radius:10px;background:#f8fafc;border:1px solid var(--line)}
+.due-row{display:flex;align-items:center;gap:10px}
+.due-row small{color:var(--muted);font-size:12px}
+.due-row input[type=date]{padding:5px 8px;border:1px solid var(--line);border-radius:7px}
+.due-panel p{margin:8px 0 0;font-size:13px;line-height:1.6;color:#334155}
+.due-panel code{display:inline-block;margin-top:6px;font-size:12px;color:var(--muted)}

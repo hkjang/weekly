@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.48.0
+  version: 0.49.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -708,6 +708,38 @@ paths:
                         properties:
                           workItemId: { type: integer, format: int64 }
                           movedItems: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /work-items/{id}/due-date:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+    put:
+      summary: 업무 마감일 설정 또는 해제
+      description: |
+        업무에 마감일을 지정한다. 빈 문자열을 보내면 마감일을 지운다. 잘못 넣은 날짜를
+        다른 잘못된 날짜로만 바꿀 수 있다면 없느니만 못하므로, 해제를 표현할 수 있어야 한다.
+
+        마감일이 있으면 업무 조회 응답의 dueOutlook 이 보고된 속도로 그 날짜에 몇 %에
+        닿는지를 함께 계산한다. kind 는 NONE, FINISHED, UNKNOWN, ON_TRACK, SPLIT,
+        AT_RISK, OVERDUE 이며 언제나 projectedLow·projectedHigh 와 근거 문장이 함께
+        온다. SPLIT 은 전체 평균 속도와 최근 속도가 서로 다른 답을 낸다는 뜻이고, 그
+        엇갈림 자체가 결론이므로 한쪽으로 합치지 않는다.
+
+        본인 업무 또는 관리자만 설정할 수 있다. 다른 업무로 합쳐진 업무에는 설정할 수 없다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dueDate]
+              properties:
+                dueDate:
+                  type: string
+                  description: YYYY-MM-DD, 또는 해제하려면 빈 문자열
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }

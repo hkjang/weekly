@@ -189,6 +189,7 @@ func (a *App) routes() {
 	a.mux.Handle("PATCH /api/v1/decisions/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateDecision))))
 	a.mux.Handle("DELETE /api/v1/decisions/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteDecision))))
 	a.mux.Handle("POST /api/v1/work-items/{id}/split", a.requireAuth(a.csrf(http.HandlerFunc(a.splitWorkItem))))
+	a.mux.Handle("PUT /api/v1/work-items/{id}/due-date", a.requireAuth(a.csrf(http.HandlerFunc(a.setWorkItemDueDate))))
 	a.mux.Handle("GET /api/v1/rollups", a.requireAuth(http.HandlerFunc(a.periodRollup)))
 	a.mux.Handle("GET /api/v1/rollups/export.csv", a.requireAuth(http.HandlerFunc(a.exportRollupCSV)))
 	a.mux.Handle("GET /api/v1/rollups/export.pptx", a.requireAuth(http.HandlerFunc(a.exportRollupPPTX)))

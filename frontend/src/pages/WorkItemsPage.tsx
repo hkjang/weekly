@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { errorText, api, post } from '../api'
+import { errorText, api, post, put } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
 import DecisionPanel from '../DecisionPanel'
 import DependencyPanel from '../DependencyPanel'
-import type { SessionInfo, WorkItem, WorkSearchResponse } from '../types'
+import type { DueOutlook, SessionInfo, WorkItem, WorkSearchResponse } from '../types'
 
 /**
  * Work item tracking. Each row is a task followed across every week it was
@@ -22,6 +22,74 @@ const filters = [
   { key: 'DONE', name: '완료' },
 ] as const
 type FilterKey = typeof filters[number]['key']
+
+/**
+ * The deadline, and what the reported pace says about reaching it.
+ *
+ * Until now a task had no deadline anywhere — the column existed and nothing
+ * wrote it — so the only date the product held was a decision's follow-up, and
+ * that was reported only once it had passed. Being told on the 16th that the
+ * 15th was missed is a record, not a warning.
+ *
+ * The verdict never appears without the projected progress and the paces behind
+ * it. A red chip nobody can check is one nobody should act on.
+ */
+const dueTone: Record<DueOutlook['kind'], string> = {
+  NONE: '', FINISHED: 'done', UNKNOWN: '', ON_TRACK: 'done',
+  SPLIT: 'stalled', AT_RISK: 'risk', OVERDUE: 'risk',
+}
+const dueLabel: Record<DueOutlook['kind'], string> = {
+  NONE: '', FINISHED: '기한 내 완료', UNKNOWN: '마감 추정 불가', ON_TRACK: '기한 내 예상',
+  SPLIT: '기한 불확실', AT_RISK: '기한 초과 예상', OVERDUE: '기한 초과',
+}
+
+function dueChip(item: WorkItem) {
+  const kind = item.dueOutlook?.kind
+  if (!kind || kind === 'NONE' || kind === 'UNKNOWN' || kind === 'FINISHED') return null
+  return <span className={`state-chip ${dueTone[kind]}`} title={item.dueOutlook.note}>{dueLabel[kind]}</span>
+}
+
+function DuePanel({ item, editable, notify, onSaved }: {
+  item: WorkItem
+  editable: boolean
+  notify: (message: string, kind?: 'success' | 'error') => void
+  onSaved: () => Promise<void>
+}) {
+  const [value, setValue] = useState(item.dueDate ?? '')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setValue(item.dueDate ?? '') }, [item.id, item.dueDate])
+  const save = async (next: string) => {
+    setBusy(true)
+    try {
+      await put(`/api/v1/work-items/${item.id}/due-date`, { dueDate: next })
+      await onSaved()
+      notify(next ? `마감일을 ${next}로 저장했습니다.` : '마감일을 지웠습니다.')
+    } catch (error) {
+      setValue(item.dueDate ?? '')
+      notify(errorText(error, '마감일을 저장할 수 없습니다.'), 'error')
+    } finally { setBusy(false) }
+  }
+  const outlook = item.dueOutlook
+  return <div className="due-panel">
+    <div className="due-row">
+      <small>마감일</small>
+      {editable
+        ? <input type="date" value={value} disabled={busy}
+            onChange={event => { setValue(event.target.value); void save(event.target.value) }} />
+        : <strong>{item.dueDate || '설정되지 않음'}</strong>}
+      {editable && value && <button className="link-button" disabled={busy}
+        onClick={() => { setValue(''); void save('') }}>지우기</button>}
+    </div>
+    {outlook && outlook.kind !== 'NONE' && <>
+      <p className={outlook.kind === 'AT_RISK' || outlook.kind === 'OVERDUE' ? 'warn-text' : ''}>{outlook.note}</p>
+      {outlook.kind !== 'OVERDUE' && outlook.kind !== 'FINISHED' && outlook.kind !== 'UNKNOWN' &&
+        <code>마감일 예상 진척 {outlook.projectedLow === outlook.projectedHigh
+          ? `${outlook.projectedLow}%`
+          : `${outlook.projectedLow}~${outlook.projectedHigh}%`} · 남은 {outlook.weeksLeft}주</code>}
+    </>}
+    {!item.dueDate && <p className="muted">마감일을 설정하면 지금까지 보고된 속도로 그 날짜에 몇 %에 닿는지 함께 계산합니다.</p>}
+  </div>
+}
 
 export default function WorkItemsPage({ session, notify }: {
   session: SessionInfo
@@ -86,7 +154,19 @@ export default function WorkItemsPage({ session, notify }: {
   const openDetail = (item: WorkItem) => { setDetail(item); setPicked([]); setSplitTitle(''); setMergeInto('') }
   const closeDetail = () => setDetail(undefined)
   const canEdit = (item: WorkItem) => item.userId === session.user.id || session.user.role === 'ADMIN'
-  const reload = async () => { setItems(await api<WorkItem[]>(`/api/v1/work-items?scope=${scope}`)) }
+  const reload = async () => {
+    const fresh = await api<WorkItem[]>(`/api/v1/work-items?scope=${scope}`)
+    setItems(fresh)
+    return fresh
+  }
+  // A deadline is entered to see what it means, so the answer has to arrive
+  // with the save. Patching only dueDate onto the open dialog left the outlook
+  // showing the state from before the date existed, and the panel went blank
+  // until the reader closed and reopened it.
+  const refreshDetail = async () => {
+    const fresh = await reload()
+    setDetail(current => current && (fresh.find(entry => entry.id === current.id) ?? current))
+  }
   const runEdit = async (path: string, body: unknown, done: string) => {
     setEditBusy(true)
     try {
@@ -187,6 +267,7 @@ export default function WorkItemsPage({ session, notify }: {
               {item.stalled && <span className="state-chip stalled">{item.stalledWeeks}주 정체</span>}
               {item.latestManagementAsk && <span className="state-chip ask">요청</span>}
               {item.repeatedPlan >= 3 && <span className="state-chip past">계획 {item.repeatedPlan}주 반복</span>}
+              {dueChip(item)}
               {!item.completed && !item.atRisk && !item.stalled && !item.latestManagementAsk && <span className="state-chip">진행</span>}
             </div></td>
             {scope === 'TEAM' && <td>{item.displayName}</td>}
@@ -213,6 +294,7 @@ export default function WorkItemsPage({ session, notify }: {
           {detail.latestManagementAsk && <div className="ask-panel">
             <strong>상위 조직 요청</strong><p>{detail.latestManagementAsk}</p>
           </div>}
+          <DuePanel item={detail} editable={canEdit(detail)} notify={notify} onSaved={refreshDetail} />
           <h4 className="timeline-heading">선행·후행 업무</h4>
           {/* Above the decisions: a task waiting on another team is the most
               common reason work stops, and it is the fact the reader can act on
