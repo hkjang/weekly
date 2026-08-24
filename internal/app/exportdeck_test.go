@@ -104,11 +104,67 @@ func TestTheExportedDeckIsAFileWithTheReportInIt(t *testing.T) {
 		}
 	}
 
-	// One task, one page. The template is four slides and every export used to
-	// be four, three of them holding nothing but the column headers and a pair
-	// of dashes.
-	if slides != 1 {
-		t.Errorf("a one-item report exported %d slides; the extra ones are blank pages in a meeting", slides)
+	// The issue the author wrote has to be in the file that goes to the meeting.
+	// The built-in template has two columns — 추진실적 and 추진계획 — and no
+	// third place, so this text used to reach the database and never the room.
+	if !strings.Contains(text, "임대 회선 일정 지연") {
+		t.Errorf("the issue is not in the deck; an issue absent from the meeting material does not get raised")
+	}
+	if !strings.Contains(text, "이슈 및 애로사항") {
+		t.Errorf("the issue page has no heading, so the reader cannot tell what they are looking at")
+	}
+
+	// One task with one issue: one work page and one issue page. The template
+	// is four slides and every export used to be four, the unused ones holding
+	// nothing but the column headers and a pair of dashes.
+	if slides != 2 {
+		t.Errorf("a one-item report with an issue exported %d slides, want 2 (work + issues)", slides)
+	}
+}
+
+// guards: issueSlide=100
+//
+// The page appears only when there is something to put on it, and says so when
+// there is more than fits.
+func TestTheIssuePageAppearsOnlyWhenThereAreIssues(t *testing.T) {
+	width, height := 12192000, 6858000
+
+	if _, has := issueSlide(nil, width, height); has {
+		t.Error("an empty report produced an issue page")
+	}
+	if _, has := issueSlide([]reportItem{{Title: "이슈 없는 업무", CurrentResult: "완료"}}, width, height); has {
+		t.Error("a report whose items have no issues produced an issue page")
+	}
+	if _, has := issueSlide([]reportItem{{Title: "업무", Issue: "   "}}, width, height); has {
+		t.Error("whitespace counted as an issue")
+	}
+
+	slide, has := issueSlide([]reportItem{
+		{Category: "인프라", Title: "회선 이설", Issue: "임대 일정 지연"},
+		{Category: "개발", Title: "적재 배치", Issue: "원천 스키마 변경"},
+	}, width, height)
+	if !has {
+		t.Fatal("two issues produced no page")
+	}
+	for _, phrase := range []string{"이슈 및 애로사항", "회선 이설", "임대 일정 지연", "적재 배치", "원천 스키마 변경"} {
+		if !strings.Contains(slide.Shapes, phrase) {
+			t.Errorf("the page does not carry %q", phrase)
+		}
+	}
+
+	// More issues than the page holds: what is missing has to be stated, not
+	// dropped over the bottom edge.
+	many := make([]reportItem, 0, 30)
+	for index := 0; index < 30; index++ {
+		many = append(many, reportItem{Category: "운영", Title: fmt.Sprintf("업무 %d", index+1),
+			Issue: fmt.Sprintf("이슈 %d 상세", index+1)})
+	}
+	crowded, has := issueSlide(many, width, height)
+	if !has {
+		t.Fatal("thirty issues produced no page")
+	}
+	if !strings.Contains(crowded.Shapes, "담지 못한") {
+		t.Errorf("a page that could not fit every issue says nothing about the rest")
 	}
 }
 

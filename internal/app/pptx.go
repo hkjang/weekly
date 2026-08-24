@@ -377,6 +377,21 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Screen captures become their own slides before or after the written report.
+	// Issues get their own page, after the work and before any captures. The
+	// built-in template has nowhere else to put them, and a custom template with
+	// {{ISSUES}} has already placed them itself.
+	if !customTemplate && len(a.defaultPPTX) > 0 {
+		width, height := presentationSlideSize(result)
+		if slide, has := issueSlide(report.Items, width, height); has {
+			if withIssues, appendErr := appendSlidesToPPTX(result, nil, []builtSlide{slide}); appendErr != nil {
+				// A deck without the issue page is still the report, so a
+				// failure here never blocks the download.
+				a.logger.Error("append issue slide", "error", appendErr, "reportId", id)
+			} else {
+				result = withIssues
+			}
+		}
+	}
 	result = a.attachCaptureSlides(r.Context(), result, id)
 	filename := fmt.Sprintf("%s_%s_주간업무보고.pptx", strings.ReplaceAll(report.WeekStart, "-", ""), report.DisplayName)
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
