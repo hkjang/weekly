@@ -194,3 +194,4 @@
 .due-agreed small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
 .due-agreed p{margin:6px 0 0;font-size:13px;color:#334155}
 .search-inline{padding:6px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px;font-size:13px}
+.forecast-split{margin:12px 0 10px;border:0;border-top:1px solid var(--line)}

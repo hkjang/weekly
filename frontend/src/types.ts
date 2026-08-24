@@ -140,6 +140,16 @@ export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
 export interface AgreedDue {
   dueDate: string; title: string; decidedBy: string; decidedOn: string; followUp: string; decisionId: number
 }
+/**
+ * The same arithmetic as DueOutlook, run against the boundary the period
+ * report is already about. It needs no deadline entered anywhere, and it is
+ * not a commitment: a deadline says somebody promised, a period end says the
+ * report stops here.
+ */
+export interface PeriodOutlook {
+  kind: 'NONE' | 'LANDS' | 'SPLIT' | 'SHORT' | 'FINISHED'
+  periodEnd?: string; weeksLeft: number; projectedLow: number; projectedHigh: number; note: string
+}
 export interface DueOutlook {
   kind: 'NONE' | 'FINISHED' | 'UNKNOWN' | 'ON_TRACK' | 'SPLIT' | 'AT_RISK' | 'OVERDUE'
   dueDate?: string; weeksLeft: number; projectedLow: number; projectedHigh: number; note: string
@@ -168,7 +178,7 @@ export interface RollupItem {
   weeks?: RollupItemWeek[]
   mergedTitles: string[]
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean; duplicatesCut: number
-  forecast: CompletionForecast
+  forecast: CompletionForecast; periodOutlook: PeriodOutlook
 }
 export interface RollupCategory { name: string; items: number; completed: number; averageProgress: number; share: number; issueItems: number }
 export interface RollupContributor { userId: number; displayName: string; reports: number; items: number; completed: number; issueItems: number; averageProgress: number }
@@ -180,7 +190,7 @@ export interface RollupWeekPoint {
 export interface RollupInsights {
   totalItems: number; completedItems: number; inProgressItems: number; notStartedItems: number
   completionRate: number; averageProgress: number; progressGain: number
-  continuingItems: number; oneOffItems: number; stalledItems: number; noLandingItems: number; carryoverItems: number
+  continuingItems: number; oneOffItems: number; stalledItems: number; noLandingItems: number; missesPeriod: number; carryoverItems: number
   issueItems: number; persistentIssues: number; askItems: number
   expectedWeeks: number; reportedWeeks: number; reportCoverage: number
   sourceReports: number; sourceItems: number; duplicatesCut: number; mergedTitles: number; dedupRate: number

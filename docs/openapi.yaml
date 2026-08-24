@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.59.0
+  version: 0.60.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -850,6 +850,15 @@ paths:
         최대 50건이며 `decisionTotal`로 전체 건수를, `openDecisions`로 후속 조치가 남은
         수를, `decisionLimit`으로 상한을 함께 반환한다. 업무별 전체 이력은
         `/work-items/{id}/decisions`에 있다.
+
+        각 항목의 `periodOutlook`은 보고된 속도를 **이 보고서의 기간 말까지** 이어 붙인 결과다.
+        마감일 입력이 필요 없다 — 경계는 요청에 이미 들어 있다. kind 는 NONE, LANDS, SPLIT,
+        SHORT, FINISHED 이며 언제나 projectedLow·projectedHigh 와 근거 문장이 함께 온다.
+        약속된 마감이 아니라 보고 창의 경계이므로 `dueOutlook` 과 문구를 구분한다.
+
+        이미 끝난 기간에는 추정하지 않는다(NONE). 결과가 이미 있는데 추정을 내놓는 것은
+        예보가 아니라 예보처럼 보이는 잡음이다. 진척이 늘지 않은 업무도 추정하지 않는다 —
+        늘릴 속도가 없고, 정체 규칙이 이미 더 정확하게 말한다.
 
         `items`는 전부 반환하지만 주차별 계열(`weeks`)은 앞의 `timelineItems`건만 싣는다.
         타임라인이 그리는 것이 그만큼이고 아래 표는 그것을 읽지 않기 때문이다. 연간 조직

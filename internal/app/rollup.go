@@ -106,6 +106,9 @@ type rollupItem struct {
 	// Forecast is arithmetic on Weeks, not a judgement. It carries the paces it
 	// was computed from so a reader can dismiss it.
 	Forecast completionForecast `json:"forecast"`
+	// PeriodOutlook runs the same arithmetic against the boundary this report
+	// is already about, so the question needs no deadline typed in anywhere.
+	PeriodOutlook periodOutlook `json:"periodOutlook"`
 }
 
 type rollupCategory struct {
@@ -146,6 +149,7 @@ type rollupInsights struct {
 	OneOffItems      int     `json:"oneOffItems"`
 	StalledItems     int     `json:"stalledItems"`
 	NoLandingItems   int     `json:"noLandingItems"`
+	MissesPeriod     int     `json:"missesPeriod"`
 	CarryoverItems   int     `json:"carryoverItems"`
 	IssueItems       int     `json:"issueItems"`
 	PersistentIssues int     `json:"persistentIssues"`
@@ -754,6 +758,12 @@ func isStalled(weeks []rollupItemWeek, threshold int) bool {
 // layer that the reporting line reads before the item detail.
 func buildRollup(period periodRange, scope, scopeLabel string, entries []sourceEntry, reports []reportListItem, expected []string, cfg rollupConfig) rollupView {
 	items := aggregateRollupItems(entries, cfg)
+	// Attached here rather than inside the aggregation, which is about merging
+	// weekly entries and has no business knowing what window it is merging for.
+	for index := range items {
+		items[index].PeriodOutlook = outlookForPeriodEnd(period.End,
+			items[index].Forecast, items[index].Weeks, items[index].Progress)
+	}
 	view := rollupView{
 		Kind: period.Kind, Period: period.Period, Label: period.Label,
 		Start: period.Start, End: period.End, Scope: scope, ScopeLabel: scopeLabel,
@@ -785,6 +795,9 @@ func buildRollup(period periodRange, scope, scopeLabel string, entries []sourceE
 		}
 		if noLandingDate(item) {
 			insights.NoLandingItems++
+		}
+		if missesThePeriod(item) {
+			insights.MissesPeriod++
 		}
 		if item.Carryover {
 			insights.CarryoverItems++
@@ -989,6 +1002,18 @@ func buildHighlights(insights rollupInsights, items []rollupItem, cfg rollupConf
 		result = append(result, rollupHighlight{Severity: "WATCH", Category: "RISK",
 			Title:  fmt.Sprintf("%d주 이상 진척이 멈춘 업무 %d건", cfg.StallWeeks, insights.StalledItems),
 			Detail: fmt.Sprintf("%s. 진척도가 연속으로 변하지 않아 일정 재계획 또는 리소스 재배치 검토가 필요합니다.", strings.Join(names, ", "))})
+	}
+	// Work that finishes, but not inside the window this report covers.
+	//
+	// This is the question a period report is already asking, answered without
+	// anybody having entered a deadline: the boundary comes from the request.
+	// It is not a missed commitment — nobody promised this quarter — so it is
+	// stated as what the numbers say and left for the reader to weigh.
+	if insights.MissesPeriod > 0 {
+		names := topTitles(items, missesThePeriod, 3)
+		result = append(result, rollupHighlight{Severity: "WATCH", Category: "DELIVERY",
+			Title:  fmt.Sprintf("이 속도로는 기간 안에 끝나지 않는 업무 %d건", insights.MissesPeriod),
+			Detail: fmt.Sprintf("%s. 보고된 속도를 기간 말까지 이어 붙인 결과이며 약속된 마감과는 무관합니다. 각 업무의 예상 진척과 속도를 함께 확인하십시오.", strings.Join(names, ", "))})
 	}
 	// Work that is moving and still does not land. The stalled rule above only
 	// catches progress that stopped, so a task creeping up a point a week reads

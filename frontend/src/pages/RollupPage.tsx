@@ -45,7 +45,7 @@ function periodOptions(kind: PeriodKind, today: Date): { value: string; label: s
 const severityNames: Record<string, string> = { RISK: '위험', WATCH: '주의', GOOD: '양호', INFO: '참고' }
 const filters = [
   { key: 'ALL', name: '전체' }, { key: 'RISK', name: '이슈 지속' }, { key: 'STALLED', name: '정체' },
-  { key: 'NO_LANDING', name: '완료 시점 불명' },
+  { key: 'NO_LANDING', name: '완료 시점 불명' }, { key: 'MISSES_PERIOD', name: '기간 내 미완' },
   { key: 'CARRYOVER', name: '이월' }, { key: 'DONE', name: '완료' },
 ] as const
 
@@ -61,6 +61,18 @@ function noLanding(item: RollupItem): boolean {
   if (item.completed || item.stalled) return false
   return item.forecast.kind === 'DISTANT' ||
     (item.forecast.kind === 'PROJECTED' && !item.forecast.latestWeeks)
+}
+
+/**
+ * Work that finishes, but after this report closes.
+ *
+ * Narrower than it could be on purpose: work whose numbers name no finishing
+ * week at all is already under 완료 시점 불명, and a list that names the same
+ * task twice is one people stop reading.
+ */
+function missesPeriod(item: RollupItem): boolean {
+  if (item.completed || noLanding(item)) return false
+  return item.periodOutlook?.kind === 'SHORT'
 }
 
 function paceNote(forecast: CompletionForecast): string {
@@ -130,6 +142,7 @@ export default function RollupPage({ session, route, notify }: {
       case 'RISK': return item.atRisk
       case 'STALLED': return item.stalled
       case 'NO_LANDING': return noLanding(item)
+      case 'MISSES_PERIOD': return missesPeriod(item)
       case 'CARRYOVER': return item.carryover
       case 'DONE': return item.completed
       default: return true
@@ -270,6 +283,8 @@ export default function RollupPage({ session, route, notify }: {
                   : item.issueWeeks >= 2 && <span className="state-chip past">이슈 이력 {item.issueWeeks}주</span>}
                 {item.stalled && <span className="state-chip stalled">정체</span>}
                 {noLanding(item) && <span className="state-chip stalled">완료 시점 불명</span>}
+                {missesPeriod(item) && <span className="state-chip stalled">기간 말 {item.periodOutlook.projectedLow}
+                  {item.periodOutlook.projectedLow !== item.periodOutlook.projectedHigh ? `~${item.periodOutlook.projectedHigh}` : ''}%</span>}
                 {item.forecast.kind === 'PROJECTED' && item.forecast.latestWeeks
                   ? <span className="state-chip past">{item.forecast.earliestWeeks === item.forecast.latestWeeks
                       ? `${item.forecast.earliestWeeks}주 뒤 예상`
@@ -312,6 +327,16 @@ export default function RollupPage({ session, route, notify }: {
             }</strong></div>
             <p>{detail.forecast.note}</p>
             {detail.forecast.basedOnWeeks > 0 && <code>{paceNote(detail.forecast)}</code>}
+            {/* The question the report is already asking, answered without a
+                deadline: this window's own boundary. Not a commitment — nobody
+                promised this quarter — so it is worded as what the numbers say. */}
+            {detail.periodOutlook && detail.periodOutlook.kind !== 'NONE' && detail.periodOutlook.kind !== 'FINISHED' && <>
+              <hr className="forecast-split"/>
+              <div><small>기간 말 예상</small><strong>{detail.periodOutlook.projectedLow === detail.periodOutlook.projectedHigh
+                ? `${detail.periodOutlook.projectedLow}%`
+                : `${detail.periodOutlook.projectedLow}~${detail.periodOutlook.projectedHigh}%`}</strong></div>
+              <p className={detail.periodOutlook.kind === 'SHORT' ? 'warn-text' : ''}>{detail.periodOutlook.note}</p>
+            </>}
           </div>}
           {detail.mergedTitles.length > 1 && <div className="rollup-merged">
             <strong>병합된 주간보고 업무명</strong>
