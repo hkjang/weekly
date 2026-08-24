@@ -714,18 +714,49 @@ func confluenceErrorStatus(err error) int {
 	return 0
 }
 
+// safeConfluenceError turns a connection failure into something the person
+// reading it can act on.
+//
+// It used to hand back either "Confluence HTTP 401" — accurate, and no help in
+// deciding what to change — or the raw Go error, which on a wrong address meant
+// the administrator screen showed
+// `Get "http://host/confluence/rest/api/content/search?cql=type+%3D+page..."`,
+// and on a proxy sitting in front of Confluence meant
+// `invalid character '<' looking for beginning of value`. Neither says what is
+// wrong, and the second is an internal API path on a settings screen.
+//
+// The raw error still goes to the log, where whoever is debugging wants it.
 func safeConfluenceError(err error) string {
 	if err == nil {
 		return ""
 	}
 	var httpErr *ConfluenceHTTPError
 	if errors.As(err, &httpErr) {
-		return fmt.Sprintf("Confluence HTTP %d", httpErr.StatusCode)
+		switch {
+		case httpErr.StatusCode == http.StatusUnauthorized:
+			return "Confluence가 인증을 거부했습니다(HTTP 401). 연동 전용 계정의 아이디와 비밀번호를 확인하세요."
+		case httpErr.StatusCode == http.StatusForbidden:
+			return "Confluence가 접근을 거부했습니다(HTTP 403). 연동 계정이 대상 Space를 볼 수 있는지 확인하세요."
+		case httpErr.StatusCode == http.StatusNotFound:
+			return "Confluence에서 REST 경로를 찾지 못했습니다(HTTP 404). Base URL이 Confluence 루트(예: https://confluence.internal/confluence)인지 확인하세요."
+		case httpErr.StatusCode >= 500:
+			return fmt.Sprintf("Confluence가 오류로 응답했습니다(HTTP %d). Confluence 쪽 문제이므로 이 설정을 바꿔도 해결되지 않습니다.", httpErr.StatusCode)
+		}
+		return fmt.Sprintf("Confluence가 HTTP %d로 응답했습니다.", httpErr.StatusCode)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "Confluence 요청 시간 초과"
+		return "Confluence 요청 시간이 초과되었습니다. 주소와 사내망 경로를 확인하세요."
 	}
-	return trimRunes(err.Error(), 500)
+	lowered := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lowered, "looking for beginning of value") || strings.Contains(lowered, "decode confluence response"):
+		return "Confluence 주소가 JSON이 아닌 응답을 돌려줬습니다. 프록시나 로그인 페이지가 앞에 있는지, Base URL이 맞는지 확인하세요."
+	case strings.Contains(lowered, "no such host") || strings.Contains(lowered, "connection refused") || strings.Contains(lowered, "dial "):
+		return "Confluence 주소에 연결하지 못했습니다. Base URL과 사내망 접근 경로를 확인하세요."
+	case strings.Contains(lowered, "certificate") || strings.Contains(lowered, "x509"):
+		return "Confluence 인증서를 검증하지 못했습니다. 사내 CA가 이 서버에 설치돼 있는지 확인하세요."
+	}
+	return "Confluence에 연결하지 못했습니다. 서버 로그에서 자세한 원인을 확인하세요."
 }
 
 func nullableString(value string) any {

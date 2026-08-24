@@ -298,11 +298,11 @@ func callStructuredAI(ctx context.Context, cfg aiConfiguration, schemaName, syst
 		return "", fmt.Errorf("read AI response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", fmt.Errorf("AI endpoint returned HTTP %d", response.StatusCode)
+		return "", &aiStatusError{Status: response.StatusCode}
 	}
 	var completion chatCompletionResponse
 	if err := json.Unmarshal(body, &completion); err != nil {
-		return "", errors.New("AI endpoint returned invalid JSON")
+		return "", errAINotJSON
 	}
 	if completion.Error != nil {
 		return "", errors.New("AI endpoint returned an error")
@@ -726,11 +726,53 @@ func stripJSONFence(value string) string {
 	return strings.TrimSpace(value)
 }
 
+// aiStatusError is a gateway that answered with a status, kept so the message
+// can name what happened rather than guessing.
+type aiStatusError struct{ Status int }
+
+func (e *aiStatusError) Error() string { return fmt.Sprintf("AI endpoint returned HTTP %d", e.Status) }
+
+// errAINotJSON is something answering on that address that is not the gateway —
+// in an offline network, almost always a proxy or a sign-in page in front of it.
+var errAINotJSON = errors.New("AI endpoint returned invalid JSON")
+
+// aiUserMessage says which of several different failures happened.
+//
+// One sentence used to cover all of them: "유효한 구조화 결과를 반환하지
+// 못했습니다. 관리자 설정과 모델 지원 여부를 확인하세요." That is right for
+// exactly one case — a model that cannot produce structured output — and
+// misleading for the rest. A wrong API key, a gateway that is down, and a proxy
+// returning its own login page all sent the administrator to check whether the
+// model supports structured output, which is never the fix for any of them.
+//
+// Measured against a stub answering 401, 500, HTML and empty JSON: four
+// different causes, one identical message.
 func aiUserMessage(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout") || strings.Contains(strings.ToLower(err.Error()), "deadline") {
 		return "AI 분석 시간이 초과되었습니다. 잠시 후 다시 시도하세요."
 	}
-	return "AI Gateway가 유효한 구조화 결과를 반환하지 못했습니다. 관리자 설정과 모델 지원 여부를 확인하세요."
+	var status *aiStatusError
+	if errors.As(err, &status) {
+		switch {
+		case status.Status == http.StatusUnauthorized || status.Status == http.StatusForbidden:
+			return fmt.Sprintf("AI Gateway가 인증을 거부했습니다(HTTP %d). 관리자 설정의 AI API Key를 확인하세요.", status.Status)
+		case status.Status == http.StatusNotFound:
+			return "AI Gateway 주소에서 해당 경로를 찾지 못했습니다(HTTP 404). Endpoint가 /v1/chat/completions 로 끝나는지 확인하세요."
+		case status.Status == http.StatusTooManyRequests:
+			return "AI Gateway가 요청 한도를 초과했다고 답했습니다(HTTP 429). 잠시 후 다시 시도하세요."
+		case status.Status >= 500:
+			return fmt.Sprintf("AI Gateway가 오류로 응답했습니다(HTTP %d). 게이트웨이 쪽 문제이므로 이 설정을 바꿔도 해결되지 않습니다.", status.Status)
+		}
+		return fmt.Sprintf("AI Gateway가 HTTP %d로 응답했습니다.", status.Status)
+	}
+	if errors.Is(err, errAINotJSON) {
+		return "AI Gateway 주소가 JSON이 아닌 응답을 돌려줬습니다. 프록시나 로그인 페이지가 앞에 있는지, Endpoint 주소가 맞는지 확인하세요."
+	}
+	lowered := strings.ToLower(err.Error())
+	if strings.Contains(lowered, "no such host") || strings.Contains(lowered, "connection refused") || strings.Contains(lowered, "dial") {
+		return "AI Gateway 주소에 연결하지 못했습니다. 주소와 사내망 접근 경로를 확인하세요."
+	}
+	return "AI Gateway가 유효한 구조화 결과를 반환하지 못했습니다. 모델이 Structured Output(JSON Schema)을 지원하는지 확인하세요."
 }
 
 func runeLength(value string) int { return len([]rune(value)) }

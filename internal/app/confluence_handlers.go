@@ -313,6 +313,8 @@ func (a *App) testConfluence(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := client.SearchChangedPages(r.Context(), time.Now().Add(-24*time.Hour), 0, 1)
 	if err != nil {
+		// The raw error goes to the log; the screen gets the actionable version.
+		a.logger.Error("confluence test", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, 502, "CONFLUENCE_CONNECTION_FAILED", safeConfluenceError(err))
 		return
 	}
