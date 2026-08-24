@@ -11,7 +11,7 @@ import (
 
 func sampleRollup(t *testing.T, kind, period string, itemCount, linesPerItem int) rollupView {
 	t.Helper()
-	resolved, err := resolvePeriod(kind, period, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	resolved, err := resolvePeriod(kind, period, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "MONDAY")
 	if err != nil {
 		t.Fatal(err)
 	}

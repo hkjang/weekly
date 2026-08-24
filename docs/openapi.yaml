@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.62.0
+  version: 0.63.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -832,6 +832,11 @@ paths:
     get:
       summary: 월간·분기·반기·연간 기간 보고 집계
       description: |
+        `kind` 는 WEEK·MONTH·QUARTER·HALF·YEAR 다. WEEK 의 식별자는 그 주의 시작일
+        `yyyy-mm-dd` 이며 `weekly_reports.week_start` 와 같은 형식을 쓴다. ISO 주차 번호를
+        새로 만들면 한 주를 부르는 방식이 둘이 되고, 주차 시작 요일을 바꾸는 순간 둘이
+        어긋난다. 시작일이 아닌 날짜를 주면 그 날이 속한 주로 맞춘다.
+
         기간에 겹치는 주간보고를 취합해 중복 업무와 반복 기재를 제거한 업무 목록,
         완료율·정체·이슈 지속·보고 커버리지 인사이트와 주차별 추이를 반환합니다.
         저장하지 않고 요청할 때마다 원본 주간보고에서 다시 계산합니다.

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { todayLocal } from './localdate'
 import { api, del, errorText, patch, post } from './api'
 import { Button, Empty, Spinner } from './components'
 import type { Decision, DecisionCandidate, DecisionInput, DecisionStatus, DecisionSuggestion } from './types'
@@ -22,7 +23,7 @@ const statusName: Record<DecisionStatus, string> = {
 }
 
 const blank = (): DecisionInput => ({
-  title: '', decidedBy: '', decidedOn: new Date().toISOString().slice(0, 10),
+  title: '', decidedBy: '', decidedOn: todayLocal(),
   rationale: '', followUp: '', dueDate: '', status: 'OPEN',
 })
 

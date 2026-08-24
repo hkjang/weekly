@@ -39,9 +39,11 @@ func (a *App) resolveRollupRequest(w http.ResponseWriter, r *http.Request) (peri
 	if kind == "" {
 		kind = periodMonth
 	}
-	period, err := resolvePeriod(kind, r.URL.Query().Get("period"), time.Now().In(a.serviceLocation(r.Context())))
+	period, err := resolvePeriod(kind, r.URL.Query().Get("period"),
+		time.Now().In(a.serviceLocation(r.Context())),
+		a.setting(r.Context(), "workflow.week_start", "MONDAY"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_PERIOD", "조회 기간이 올바르지 않습니다. 예: 2026-08, 2026-Q3, 2026-H2, 2026")
+		writeError(w, http.StatusBadRequest, "INVALID_PERIOD", "조회 기간이 올바르지 않습니다. 예: 2026-08-24, 2026-08, 2026-Q3, 2026-H2, 2026")
 		return periodRange{}, "", false
 	}
 	scope := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("scope")))

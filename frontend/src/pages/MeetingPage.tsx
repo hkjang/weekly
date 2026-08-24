@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api } from '../api'
+import { shiftWeeks } from '../localdate'
 import { Card, Empty, PageHeader, Spinner } from '../components'
 import DecisionPanel from '../DecisionPanel'
 import PresentationMode from '../PresentationMode'
@@ -18,12 +19,6 @@ import type { MeetingEntry, MeetingView, SessionInfo } from '../types'
 const sectionTone: Record<string, string> = {
   DECISION: 'tone-decision', NEW_ISSUE: 'tone-new', LONG_ISSUE: 'tone-risk',
   CHANGE: 'tone-change', SILENT: 'tone-silent',
-}
-
-function shiftWeek(week: string, deltaWeeks: number): string {
-  const date = new Date(`${week}T00:00:00`)
-  date.setDate(date.getDate() + deltaWeeks * 7)
-  return date.toISOString().slice(0, 10)
 }
 
 /**
@@ -89,9 +84,9 @@ export default function MeetingPage({ session, notify }: {
   return <>
     <PageHeader title="회의 모드" description="이번 주 회의에서 다뤄야 할 것만 모았습니다. 변화가 없는 업무는 표시하지 않습니다."
       action={<div className="header-actions">
-        <button className="button secondary" onClick={() => setWeek(shiftWeek(week, -1))}>◀ 이전 주</button>
+        <button className="button secondary" onClick={() => setWeek(shiftWeeks(week, -1))}>◀ 이전 주</button>
         <input type="date" value={week} onChange={event => event.target.value && setWeek(event.target.value)} />
-        <button className="button secondary" onClick={() => setWeek(shiftWeek(week, 1))}>다음 주 ▶</button>
+        <button className="button secondary" onClick={() => setWeek(shiftWeeks(week, 1))}>다음 주 ▶</button>
         {canTeam && <select value={scope} onChange={event => setScope(event.target.value as 'SELF' | 'TEAM')}>
           <option value="TEAM">조직 전체</option>
           <option value="SELF">내 업무</option>

@@ -211,7 +211,9 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 		if scope == scopeTeam && p.Role == "USER" {
 			return a.mcpToolError(response, "조직 단위 집계는 팀장 이상만 조회할 수 있습니다.")
 		}
-		period, periodErr := resolvePeriod(kind, mcpArgumentString(params.Arguments, "period"), time.Now().In(a.serviceLocation(r.Context())))
+		period, periodErr := resolvePeriod(kind, mcpArgumentString(params.Arguments, "period"),
+			time.Now().In(a.serviceLocation(r.Context())),
+			a.setting(r.Context(), "workflow.week_start", "MONDAY"))
 		if periodErr != nil {
 			return a.mcpToolError(response, "조회 기간이 올바르지 않습니다. 예: 2026-08, 2026-Q3, 2026-H2, 2026")
 		}

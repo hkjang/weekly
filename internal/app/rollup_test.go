@@ -24,7 +24,7 @@ func TestResolvePeriodRanges(t *testing.T) {
 		{periodYear, "", "2026", "2026-01-01", "2026-12-31", "2026년"},
 	}
 	for _, testCase := range cases {
-		got, err := resolvePeriod(testCase.kind, testCase.period, now)
+		got, err := resolvePeriod(testCase.kind, testCase.period, now, "MONDAY")
 		if err != nil {
 			t.Fatalf("resolvePeriod(%s,%s): %v", testCase.kind, testCase.period, err)
 		}
@@ -43,14 +43,14 @@ func TestResolvePeriodRejectsInvalidInput(t *testing.T) {
 		{periodHalf, "2026-H3"}, {periodYear, "12"}, {"WEEK", "2026-08"},
 	}
 	for _, testCase := range invalid {
-		if _, err := resolvePeriod(testCase.kind, testCase.period, now); err == nil {
+		if _, err := resolvePeriod(testCase.kind, testCase.period, now, "MONDAY"); err == nil {
 			t.Errorf("resolvePeriod(%s,%s) accepted invalid input", testCase.kind, testCase.period)
 		}
 	}
 }
 
 func TestExpectedWeekStartsCoversOverlappingWeeks(t *testing.T) {
-	period, err := resolvePeriod(periodMonth, "2026-08", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	period, err := resolvePeriod(periodMonth, "2026-08", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "MONDAY")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestIsStalledDetectsFrozenProgress(t *testing.T) {
 }
 
 func TestBuildRollupInsightsAndHighlights(t *testing.T) {
-	period, err := resolvePeriod(periodMonth, "2026-08", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	period, err := resolvePeriod(periodMonth, "2026-08", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "MONDAY")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestBuildRollupInsightsAndHighlights(t *testing.T) {
 }
 
 func TestBuildRollupHandlesEmptyPeriod(t *testing.T) {
-	period, err := resolvePeriod(periodQuarter, "2026-Q1", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	period, err := resolvePeriod(periodQuarter, "2026-Q1", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "MONDAY")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,5 +496,53 @@ func TestRollupSendsTheWeeklySeriesOnlyForTheRowsThatAreDrawn(t *testing.T) {
 	// data would plot empty rows the moment the two disagreed.
 	if !strings.Contains(string(body), fmt.Sprintf(`"timelineItems":%d`, rollupTimelineItems)) {
 		t.Error("the response does not say how many rows carry a series")
+	}
+}
+
+// A weekly report product whose finest team view was monthly.
+//
+// The team page lists members' reports one at a time; the consolidated view —
+// deduplicated across people, with insights and an export — starts at a month.
+// The leader who needs "our team, this week, on one page" had to read N
+// reports or wait for month end. Measured on the demo data: the leader's own
+// weekly report shares nothing with the team's, because it is their own work,
+// not a summary of anyone else's.
+func TestWeekIsAPeriodLikeAnyOther(t *testing.T) {
+	// A Monday.
+	reference := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)
+	period, err := resolvePeriod(periodWeek, "", reference, "MONDAY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if period.Start != "2026-08-24" || period.End != "2026-08-30" {
+		t.Errorf("%s..%s, want 2026-08-24..2026-08-30", period.Start, period.End)
+	}
+	// Identified by the same yyyy-mm-dd a weekly report already uses, so the two
+	// cannot drift into naming the same week differently.
+	if period.Period != "2026-08-24" {
+		t.Errorf("period=%q want the week start itself", period.Period)
+	}
+}
+
+// A caller who names a Wednesday means the week containing it. Answering with a
+// Wednesday-to-Tuesday window would disagree with every report in the database.
+func TestWeekSnapsToTheConfiguredStartDay(t *testing.T) {
+	reference := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	period, err := resolvePeriod(periodWeek, "2026-08-26", reference, "MONDAY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if period.Start != "2026-08-24" {
+		t.Errorf("a Wednesday resolved to %s, want the Monday of its week", period.Start)
+	}
+
+	// The start day is a deployment setting, and the boundary has to follow it.
+	sunday, err := resolvePeriod(periodWeek, "2026-08-26", reference, "SUNDAY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sunday.Start != "2026-08-23" || sunday.End != "2026-08-29" {
+		t.Errorf("%s..%s, want 2026-08-23..2026-08-29 when the week starts on Sunday",
+			sunday.Start, sunday.End)
 	}
 }

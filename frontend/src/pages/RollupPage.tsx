@@ -4,19 +4,35 @@ import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import PresentationMode from '../PresentationMode'
 import { rollupSlides } from '../presentSlides'
 import { CompositionBar, ProgressTrendChart, RankBars, TaskTimeline, WeeklyStateChart } from '../charts'
+import { localDate } from '../localdate'
 import { replaceRoute } from '../router'
 import type { CompletionForecast, PeriodKind, Rollup, RollupItem, RollupScope, SessionInfo } from '../types'
 
 const kinds: { key: PeriodKind; name: string }[] = [
+  { key: 'WEEK', name: '주간' },
   { key: 'MONTH', name: '월간' }, { key: 'QUARTER', name: '분기' },
   { key: 'HALF', name: '반기' }, { key: 'YEAR', name: '연간' },
 ]
 
-/** Builds the selectable period tokens ending at the period containing today. */
-function periodOptions(kind: PeriodKind, today: Date): { value: string; label: string }[] {
+/**
+ * Builds the selectable period tokens ending at the period containing today.
+ *
+ * Weeks step back from the session's own currentWeekStart rather than from a
+ * weekday computed here. The day a week begins is a deployment setting, and a
+ * second implementation of it in the browser would disagree with the server the
+ * first time somebody changed it.
+ */
+function periodOptions(kind: PeriodKind, today: Date, currentWeekStart: string): { value: string; label: string }[] {
   const year = today.getFullYear(), month = today.getMonth() + 1
   const options: { value: string; label: string }[] = []
-  if (kind === 'MONTH') {
+  if (kind === 'WEEK') {
+    const cursor = new Date(`${currentWeekStart}T00:00:00`)
+    for (let offset = 0; offset < 16; offset++) {
+      const value = localDate(cursor)
+      options.push({ value, label: offset === 0 ? `${value} (이번 주)` : `${value} 주` })
+      cursor.setDate(cursor.getDate() - 7)
+    }
+  } else if (kind === 'MONTH') {
     for (let offset = 0; offset < 18; offset++) {
       const cursor = new Date(year, month - 1 - offset, 1)
       const value = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
@@ -91,7 +107,7 @@ export default function RollupPage({ session, route, notify }: {
   const [kind, setKind] = useState<PeriodKind>(routeKind ?? 'MONTH')
   const [period, setPeriod] = useState(() => {
     const initialKind = routeKind ?? 'MONTH'
-    const options = periodOptions(initialKind, new Date())
+    const options = periodOptions(initialKind, new Date(), session.currentWeekStart)
     return options.some(option => option.value === route?.period) ? route!.period : options[0].value
   })
   const [scope, setScope] = useState<RollupScope>(route?.scope === 'TEAM' ? 'TEAM' : 'SELF')
@@ -111,9 +127,9 @@ export default function RollupPage({ session, route, notify }: {
   const [detail, setDetail] = useState<RollupItem>()
 
   const canTeam = session.user.role !== 'USER'
-  const options = useMemo(() => periodOptions(kind, today), [kind, today])
+  const options = useMemo(() => periodOptions(kind, today, session.currentWeekStart), [kind, today, session.currentWeekStart])
 
-  const changeKind = (next: PeriodKind) => { setKind(next); setPeriod(periodOptions(next, today)[0].value) }
+  const changeKind = (next: PeriodKind) => { setKind(next); setPeriod(periodOptions(next, today, session.currentWeekStart)[0].value) }
 
   // Keep the address bar in step so the current view stays linkable.
   useEffect(() => { replaceRoute('rollup', { kind, period, scope }) }, [kind, period, scope])

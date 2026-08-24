@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import { localDate } from './localdate'
 
 /**
  * Inline SVG chart primitives. The app ships under a strict CSP with no external
@@ -426,7 +427,7 @@ function weekAxis(firstWeek: string, lastWeek: string, reported: string[]) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return [...reported].sort()
   const weeks = new Set(reported)
   for (let time = start; time <= end && weeks.size < 400; time += 7 * 86400000) {
-    weeks.add(new Date(time).toISOString().slice(0, 10))
+    weeks.add(localDate(new Date(time)))
   }
   const sorted = [...weeks].sort()
   return sorted.length > 105 ? sorted.slice(sorted.length - 105) : sorted

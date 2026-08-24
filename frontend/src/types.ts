@@ -125,7 +125,7 @@ export interface ReportAttachment {
   available?: boolean
 }
 
-export type PeriodKind = 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'
+export type PeriodKind = 'WEEK' | 'MONTH' | 'QUARTER' | 'HALF' | 'YEAR'
 export type RollupScope = 'SELF' | 'TEAM'
 export type HighlightSeverity = 'RISK' | 'WATCH' | 'GOOD' | 'INFO'
 /**

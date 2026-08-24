@@ -16,6 +16,7 @@ import (
 // without an AI gateway.
 
 const (
+	periodWeek    = "WEEK"
 	periodMonth   = "MONTH"
 	periodQuarter = "QUARTER"
 	periodHalf    = "HALF"
@@ -197,7 +198,12 @@ type rollupView struct {
 
 // resolvePeriod turns a kind plus a user supplied period token into an inclusive
 // date range. An empty period resolves to the period containing `now`.
-func resolvePeriod(kind, period string, now time.Time) (periodRange, error) {
+// resolvePeriod turns a kind and an identifier into dated boundaries.
+//
+// weekStart names the day a week begins in this deployment, because WEEK is the
+// one kind whose boundary is a setting rather than the calendar's. The others
+// ignore it.
+func resolvePeriod(kind, period string, now time.Time, weekStart string) (periodRange, error) {
 	kind = strings.ToUpper(strings.TrimSpace(kind))
 	period = strings.ToUpper(strings.TrimSpace(period))
 	location := now.Location()
@@ -212,6 +218,28 @@ func resolvePeriod(kind, period string, now time.Time) (periodRange, error) {
 	}
 
 	switch kind {
+	case periodWeek:
+		// Identified by the Monday itself, in the same yyyy-mm-dd form that
+		// weekly_reports.week_start already uses. Inventing an ISO week number
+		// here would give the product a second way to name a week, and the two
+		// would disagree the first time somebody moved the start day.
+		start := currentWeekStart(now, weekStart)
+		if period != "" {
+			parsed, err := time.ParseInLocation("2006-01-02", period, location)
+			if err != nil {
+				return periodRange{}, fmt.Errorf("invalid week")
+			}
+			// Snapped rather than trusted: a caller who passes a Wednesday means
+			// the week containing it, and answering with a Wednesday-to-Tuesday
+			// window would silently disagree with every report in the database.
+			start = currentWeekStart(parsed, weekStart)
+		}
+		return periodRange{
+			Kind: periodWeek, Period: start.Format("2006-01-02"),
+			Label:     fmt.Sprintf("%s 주차", start.Format("2006-01-02")),
+			StartDate: start, EndDate: start.AddDate(0, 0, 6),
+		}.normalized(), nil
+
 	case periodMonth:
 		if period != "" {
 			parts := strings.Split(period, "-")
