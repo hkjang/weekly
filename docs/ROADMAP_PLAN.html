@@ -818,6 +818,20 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
 <p>상수를 바꾸면 찾는 문장이 바뀌고, 문서가 따라오지 않으면 실패합니다. 세 개를 실제로 바꿔 전부 실패하는 것을 확인했습니다.</p>
 <p><strong>매직 넘버 셋을 상수로 뽑았습니다.</strong> 문서가 말하는데 코드에는 이름이 없던 숫자들입니다 — Import 상한 200, 검색 단계 전환 기준 5. 이름 없는 숫자는 이 검사가 볼 수 없고, 볼 수 없으면 지킬 수도 없습니다.</p>
 <p>원칙으로 남깁니다. <strong>문서가 말하는 숫자에는 코드에 이름이 있어야 합니다.</strong> 그래야 둘이 어긋나는 순간을 기계가 압니다.</p>
+<p>#### 3.10.35 v0.81.0에서 완료 — 아무것도 켜지 않은 상태, 그리고 물지 못한 제 테스트</p>
+<p>이 제품이 실제로 설치되는 모습은 <strong>모든 선택 기능이 꺼진 상태</strong>입니다. AI 게이트웨이 없음, Confluence 없음, 검토 워크플로 없음. 문서는 그 상태에서 무엇을 답하기로 했는지 적어 두었지만, 그 약속을 확인한 적은 없었습니다.</p>
+<p><strong>전부 옳았습니다.</strong></p>
+<table><thead><tr><th>상황</th><th>답</th></tr></thead><tbody><tr><td>AI 꺼짐 · 본문 분석 / 결정 제안 / PPTX 업로드</td><td>503 <code>AI_UNAVAILABLE</code></td></tr><tr><td>워크플로 꺼짐 · 승인</td><td>409 <code>WORKFLOW_DISABLED</code></td></tr><tr><td>Confluence 꺼짐 · 강제 동기화</td><td>409 <code>CONFLUENCE_DISABLED</code></td></tr><tr><td>아무것도 안 켠 채 읽기 7종</td><td>전부 200</td></tr></tbody></table>
+<p>500이 아니라 503·409라는 것이 요점입니다. 500은 "이 제품이 고장 났다"로 읽히고, 빈 200은 "찾을 게 없었다"로 읽힙니다. 둘 다 <strong>누군가 바꿀 수 있는 설정</strong>을 감춥니다.</p>
+<p>확장이 하나도 없는 PostgreSQL도 흉내 냈습니다. <code>word_similarity</code>와 <code>&lt;=&gt;</code>를 쓰는 세 함수가 모두 자기 능력 플래그 뒤에 있는지 읽고, 실제로 꺼서 확인했습니다. (읽는 중에 <code>semanticWorkItems</code>가 pg_trgm 함수를 pgvector 플래그로 막는 것처럼 보였는데, <code>&lt;=&gt;</code>여서 맞았습니다.)</p>
+<p><strong>그리고 이번 반복의 진짜 수확은 여기서 나왔습니다. 제가 방금 쓴 테스트 세 개가 물지 못했습니다.</strong></p>
+<ul>
+<li>확장 테스트는 <code>존재하지않는말</code>로 검색했습니다. 아무것도 매치되지 않으니 뒤 단계도 빈손이고, 게이트를 통째로 제거해도 <code>fuzzy</code>는 <code>false</code>로 남습니다.</li>
+<li>AI 테스트는 게이트웨이를 <strong>아예 설정하지 않은</strong> 상태로 돌렸습니다. 활성 여부 검사를 느슨하게 해도 주소가 없어 어차피 실패하니 티가 나지 않습니다.</li>
+</ul>
+<p><code>guard-check.py</code>는 이걸 못 잡습니다 — 두 테스트 모두 대상 함수를 <strong>실행하긴 했기</strong> 때문입니다. v0.73에서 "단언이 강한지는 보지 않는다"고 적어 둔 한계가 그대로 나타났고, 되돌려 보는 절차가 여전히 진짜 검사인 이유입니다.</p>
+<p>고쳤습니다. 검색은 <strong>매치되는 오타</strong>(<code>확장업는</code>)를 쓰고, 확장이 켜진 상태에서 <code>fuzzy</code>가 <code>true</code>인 것을 먼저 확인한 뒤 끕니다. AI는 <strong>설정은 되어 있고 꺼져만 있는</strong> 상태로 만듭니다. 이제 둘 다 되돌리면 실패합니다.</p>
+<p>원칙으로 남깁니다. <strong>없는 것을 확인하는 테스트는 있는 것으로 먼저 확인해야 합니다.</strong> 꺼진 상태만 보면, 애초에 켜도 안 되는 것과 구분되지 않습니다.</p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>

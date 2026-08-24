@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -132,6 +133,32 @@ func (s *testServer) createOrganization(name, code string) int64 {
 		s.t.Fatalf("organisation %s has no id: %s", unique, w.Body.String())
 	}
 	return int64(id)
+}
+
+// upload posts one file as multipart/form-data through the mux.
+func (s *testServer) upload(path, field, filename string, body []byte, cookie *http.Cookie) *httptest.ResponseRecorder {
+	s.t.Helper()
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	part, err := writer.CreateFormFile(field, filename)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	if _, err := part.Write(body); err != nil {
+		s.t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		s.t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, path, &buffer)
+	r.Header.Set("Content-Type", writer.FormDataContentType())
+	r.Header.Set("Origin", "http://"+r.Host)
+	if cookie != nil {
+		r.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	s.app.mux.ServeHTTP(w, r)
+	return w
 }
 
 func (s *testServer) ctx() context.Context { return context.Background() }
