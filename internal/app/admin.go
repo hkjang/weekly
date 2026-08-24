@@ -584,14 +584,20 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 // nothing else — made the stored answer unreachable within days of use. The
 // total is returned alongside the page so a screen can say how much matched
 // instead of implying that what it shows is all there is.
+const (
+	auditPageDefault = 50
+	auditPageMaximum = 200
+)
+
 func (a *App) auditLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	limit := a.settingIntFromQuery(r, "limit")
-	if limit <= 0 {
-		limit = 50
-	}
-	limit = min(limit, 200)
-	offset := a.settingIntFromQuery(r, "offset")
+	// clampQueryInt, like every other paged list, rather than a second version
+	// of the same rule. Written out by hand this endpoint answered limit=0 with
+	// the default while /reports answered it with 1 — one sentence in the
+	// contract, two behaviours, and a client that learned the rule from one list
+	// got a different answer from this one.
+	limit := clampQueryInt(r, "limit", auditPageDefault, 1, auditPageMaximum)
+	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
 
 	where := " WHERE 1=1"
 	args := []any{}

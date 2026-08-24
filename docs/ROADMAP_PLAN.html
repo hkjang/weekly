@@ -797,6 +797,18 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
 <table><thead><tr><th>위치</th><th>하는 일</th><th>검토 도장</th></tr></thead><tbody><tr><td><code>reports.go</code> 제출</td><td>DRAFT → SUBMITTED</td><td>지움 ✓</td></tr><tr><td><code>reports.go</code> 검토</td><td>SUBMITTED → APPROVED/반려</td><td>찍음 ✓</td></tr><tr><td><code>reports.go</code> 수정</td><td>본문 변경</td><td>지움 ✓</td></tr><tr><td><code>imports.go</code> REPLACE</td><td>본문 교체</td><td><strong>안 지움 → 고침</strong></td></tr><tr><td><code>imports.go</code> MERGE</td><td>본문 추가</td><td><strong>안 지움 → 고침</strong></td></tr><tr><td><code>confluence_handlers.go</code></td><td>자동 초안 수락</td><td><code>DRAFT</code>/<code>REVISION_REQUESTED</code>에서만 동작하고 본문은 편집기 저장으로 들어옴 — 해당 없음</td></tr></tbody></table>
 <p><strong>문서를 적은 것이 결함을 찾아냈습니다.</strong> v0.77에서 19개 필드에 뜻을 붙인 것은 문서화 작업이었는데, 그중 한 줄이 검증 가능한 약속이 되면서 코드가 그 약속을 어기고 있다는 것이 드러났습니다.</p>
 <p>원칙으로 남깁니다. <strong>행동을 문장으로 적으면 그 문장이 시험이 됩니다.</strong> 적을 수 없다면 아직 정하지 않은 것이고, 적었는데 다르다면 둘 중 하나가 틀린 것입니다.</p>
+<p>#### 3.10.33 v0.79.0에서 완료 — 한 문장, 두 가지 구현</p>
+<p>v0.78이 통했던 이유 — 문서에 적은 행동이 시험이 된다 — 를 넓혀 봤습니다. <code>docs/openapi.yaml</code>에서 <strong>행동으로 서술된 약속</strong>을 추려 실제로 그런지 확인했습니다.</p>
+<p>가장 여러 엔드포인트에 걸친 약속은 상한 규칙입니다.</p>
+<blockquote>limit 기본값 200, 최대 500. <strong>범위를 벗어나면 잘라 맞추고, 읽을 수 없는 값은 기본값으로 본다.</strong></blockquote>
+<p>네 개 목록 엔드포인트에 여섯 가지 입력(생략·상한 초과·0·음수·비숫자·상한 자체)을 넣어 봤습니다.</p>
+<p><strong>저부터 틀렸습니다.</strong> <code>limit=0</code>이 기본값을 줄 것이라 기대했는데 1을 줍니다. 다시 읽으니 계약은 "잘라 맞추고"이므로 1이 맞습니다 — 제 기대가 틀렸습니다. 그런데 그 실수 자체가 신호였습니다. 방금 그 문장을 다시 읽은 사람도 헷갈렸다면, 연동하는 사람은 더 헷갈립니다. 문장을 고쳤습니다.</p>
+<blockquote>범위를 벗어나면 가까운 끝으로 잘라 맞춘다 — 상한보다 크면 상한, <strong>1보다 작으면 1이다(0이나 음수도 기본값이 아니라 1이다)</strong>.</blockquote>
+<p><strong>그리고 진짜가 하나 나왔습니다.</strong> <code>/admin/audit</code>만 다르게 답합니다.</p>
+<table><thead><tr><th></th><th><code>limit=0</code></th><th><code>limit=-5</code></th></tr></thead><tbody><tr><td><code>clampQueryInt</code> — 5개 엔드포인트</td><td>1</td><td>1</td></tr><tr><td><code>auditLogs</code> — 직접 구현</td><td>50</td><td>50</td></tr></tbody></table>
+<p>같은 규칙을 문서에 한 번 적어 놓고 구현이 둘이었습니다. <code>/reports</code>에서 규칙을 배운 클라이언트가 <code>/admin/audit</code>에서 다른 답을 받습니다. <code>offset</code>도 마찬가지로 혼자 다른 형태였습니다. 둘 다 공용 헬퍼로 모았습니다.</p>
+<p>되돌려 확인했습니다 — audit을 직접 구현으로 되돌리면 실패하고, 상한을 무시하게 하면 실패하고, 읽을 수 없는 값의 기본값 처리를 없애면 실패합니다. 음수 <code>offset</code>이 500이 되지 않는지도 함께 고정했습니다(PostgreSQL은 음수 OFFSET에 오류를 냅니다).</p>
+<p>원칙으로 남깁니다. <strong>규칙을 문장으로 한 번 적었다면 구현도 한 곳이어야 합니다.</strong> 문장은 하나인데 구현이 둘이면, 둘 중 하나는 문서를 읽은 사람을 배신합니다.</p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>
