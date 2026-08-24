@@ -217,3 +217,7 @@
 /* Work that arrived and did not become a draft. Louder than a counter because a
    green SUCCESS above it is otherwise the only thing the reader sees. */
 .sync-unattributed{margin:12px 0 0;padding:10px 12px;border:1px solid #fde68a;background:#fffbeb;border-radius:9px;color:#92400e;font-size:12px;line-height:1.6}
+
+/* A misconfiguration of the signed-in account, not an announcement. Warmer than
+   the service notice because somebody has to act on it. */
+.notice.account-notice{border:1px solid #fdba74;background:#fff7ed;color:#9a3412}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.87.0
+  version: 0.88.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -43,6 +43,7 @@ info:
     | `latestIssue` | 업무 목록 | 그 업무에 가장 최근 기재된 이슈 문장 |
     | `scannedCharacters` | 결정 제안 | 제안을 만들며 읽은 본문 글자 수. 0이면 읽을 것이 없었다는 뜻이며 제안 없음과 다릅니다 |
     | `roles` | 관리자 사용자 | 부여된 역할 목록. 단일 역할일 때는 생략됩니다 |
+    | `accountNotice` | `/me` | **이 계정** 때문에 화면이 비어 보이는 상태를 설명합니다. 서비스 공지(`notice`)와 달리 읽는 사람 본인에 관한 것이며, 지금은 소속 조직이 없는 팀장·조직장에게만 나옵니다. 정상이면 빈 문자열입니다 |
 servers:
   - url: /api/v1
 security:

@@ -3,7 +3,7 @@ export type ReportStatus = 'DRAFT' | 'SUBMITTED' | 'REVISION_REQUESTED' | 'APPRO
 
 export interface BuildInfo { version: string; commit: string; builtAt: string }
 export interface User { id: number; username: string; displayName: string; email: string; role: Role; organizationId?: number; keyVersion: number }
-export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; currentWeekStart: string; serviceName: string; notice: string; build: BuildInfo }
+export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; currentWeekStart: string; serviceName: string; notice: string; accountNotice?: string; build: BuildInfo }
 export interface Providers { local: boolean; oidc: boolean; name: string; notice: string; build: BuildInfo }
 export type ItemSourceKind = 'MANUAL' | 'CONFLUENCE' | 'PPTX' | 'AI_TEXT' | 'JIRA' | 'GIT' | 'CI' | 'ITSM' | 'API'
 export interface ItemSource { kind: ItemSourceKind; reference?: string; title?: string; url?: string; detail?: string; occurredAt?: string }

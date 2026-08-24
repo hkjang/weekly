@@ -201,7 +201,28 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	workflow := a.settingBool(r.Context(), "workflow.enabled", false)
 	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
-	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "currentWeekStart": week.Format("2006-01-02"), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "build": a.build})
+	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "currentWeekStart": week.Format("2006-01-02"), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "accountNotice": accountNotice(p), "build": a.build})
+}
+
+// accountNotice describes a state of this account that makes the product answer
+// correctly and uselessly.
+//
+// A leader with no organisation is the one that exists today. Every screen built
+// on the organisation subtree — the team list, the dashboard, the handover
+// roster — answers with nothing, and "nothing" is what a quiet week looks like
+// too. Saying it once, where the reader always is, beats an explanation glued
+// to each empty screen and forgotten on the next one.
+//
+// The service-wide notice is separate on purpose: that one is for everybody and
+// this one is about you.
+func accountNotice(p *principal) string {
+	if p == nil {
+		return ""
+	}
+	if (p.Role == "TEAM_LEADER" || p.Role == "ORG_MANAGER") && p.OrganizationID == nil {
+		return "이 계정에 소속 조직이 지정되어 있지 않습니다. 팀 주간보고·대시보드·인수인계가 모두 비어 보이며, 관리자가 소속 조직을 지정하면 해결됩니다."
+	}
+	return ""
 }
 
 func (a *App) authProviders(w http.ResponseWriter, r *http.Request) {

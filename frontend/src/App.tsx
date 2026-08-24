@@ -261,6 +261,9 @@ export default function App() {
         </div>
       </header>
       {session.notice && <div className="notice">{session.notice}</div>}
+      {/* About this account rather than the service, and it stays until an
+          administrator fixes it — every org-scoped screen is blank meanwhile. */}
+      {session.accountNotice && <div className="notice account-notice" role="alert">{session.accountNotice}</div>}
       {sessionExpired && <div className="session-expired" role="alert">
         <div>
           <strong>세션이 만료되었습니다.</strong>
