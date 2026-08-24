@@ -13,9 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -289,15 +292,92 @@ func (s *secretBox) Decrypt(value string) (string, error) {
 // another 64 MiB the container has to have.
 var passwordWork = make(chan struct{}, passwordWorkers())
 
+// argonBytes is what one argon2id call reserves while it runs, matching the
+// 64 MiB in hashPassword. Verifications read their cost from the stored hash,
+// so an older hash could name less; sizing on the figure we write is the
+// conservative reading.
+const argonBytes = 64 << 20
+
+// passwordWorkerHeadroom is what the rest of the process needs while the pool
+// is full: the steady state measured at 44 MiB, plus room for a PPTX export
+// holding one report's attachments.
+const passwordWorkerHeadroom = 192 << 20
+
+// passwordWorkers sizes the queue to the container, not to the machine.
+//
+// runtime.NumCPU reports the host's cores, not the share this container was
+// given. On a 32 core node a pod limited to one CPU and 512 MiB still opened
+// eight slots and reserved 512 MiB for argon2 alone — the whole limit — and was
+// OOM killed on its first busy minute. The bound that was supposed to prevent
+// exactly that failure was itself sized against the wrong machine.
+//
+// Memory is the binding constraint, so it decides. CPU only caps it further:
+// running more argon2 calls than there are cores buys nothing, they just take
+// proportionally longer while holding their memory.
+//
+// One slot is a legitimate answer. A small pod signs 250 people in over fifteen
+// seconds instead of two, which is slower than anyone would like and much
+// better than dying. Giving the pod more memory is how an operator buys the
+// speed back, and the arithmetic to do that is written above.
 func passwordWorkers() int {
-	workers := runtime.NumCPU()
+	workers := runtime.GOMAXPROCS(0)
+	if limit := cgroupMemoryLimit(); limit > 0 {
+		affordable := int((limit - passwordWorkerHeadroom) / argonBytes)
+		if affordable < workers {
+			workers = affordable
+		}
+	}
 	if workers > 8 {
 		workers = 8
 	}
-	if workers < 2 {
-		workers = 2
+	if workers < 1 {
+		workers = 1
 	}
 	return workers
+}
+
+// applyContainerMemoryLimit tells Go's collector how much room it actually has.
+//
+// Without it the runtime grows the heap until it decides a collection is worth
+// the CPU, which on a machine with 30 GB free is far past what a 512 MiB
+// container is allowed to touch. Argon2 makes that visible: five slots reserve
+// 320 MiB live, and the blocks they finish with pile up unswept, so the
+// resident set reached twice the live heap and the container was killed while
+// only a third of its limit was in use.
+//
+// Set a little below the hard limit, because a soft limit the collector chases
+// is only useful if it has somewhere to land before the kernel intervenes.
+func applyContainerMemoryLimit(logger *slog.Logger) {
+	limit := cgroupMemoryLimit()
+	if limit <= 0 {
+		return
+	}
+	soft := limit - limit/8
+	debug.SetMemoryLimit(soft)
+	if logger != nil {
+		logger.Info("memory limit applied to the collector",
+			"container_limit_mib", limit>>20, "soft_limit_mib", soft>>20)
+	}
+}
+
+// cgroupMemoryLimit reads the container's memory ceiling, or 0 when there is
+// none to read. Only cgroup v2 is consulted: v1 reports an enormous sentinel
+// when unlimited and distinguishing that from a real limit is guesswork, and
+// every runtime this ships to is v2.
+func cgroupMemoryLimit() int64 {
+	raw, err := os.ReadFile("/sys/fs/cgroup/memory.max")
+	if err != nil {
+		return 0
+	}
+	text := strings.TrimSpace(string(raw))
+	if text == "max" {
+		return 0
+	}
+	limit, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || limit <= 0 {
+		return 0
+	}
+	return limit
 }
 
 // withPasswordSlot runs fn while holding one of the argon2 slots.

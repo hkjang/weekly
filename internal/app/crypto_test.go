@@ -132,3 +132,40 @@ func TestPasswordSlotsAreReturned(t *testing.T) {
 		t.Error("a correct password no longer verifies after repeated failures")
 	}
 }
+
+// The bound is only worth having if it is sized against the container. On a
+// 32 core host a pod limited to one CPU and 512 MiB still opened eight slots
+// and reserved the whole limit for argon2, so the guard that existed to prevent
+// an out-of-memory kill caused one.
+func TestPasswordWorkersFitInsideTheContainerLimit(t *testing.T) {
+	workers := cap(passwordWork)
+	limit := cgroupMemoryLimit()
+	if limit <= 0 {
+		// No cgroup limit here, so there is nothing to fit inside. The ceiling
+		// still has to hold.
+		if workers > 8 {
+			t.Errorf("%d slots reserve %d MiB with no limit to answer to", workers, workers*64)
+		}
+		return
+	}
+	reserved := int64(workers) * argonBytes
+	if reserved+passwordWorkerHeadroom > limit {
+		t.Errorf("%d slots reserve %d MiB, which with %d MiB of headroom does not fit a %d MiB limit",
+			workers, reserved>>20, passwordWorkerHeadroom>>20, limit>>20)
+	}
+	if workers < 1 {
+		t.Error("a pool of zero can never verify a password")
+	}
+}
+
+// cgroupMemoryLimit answers 0 rather than guessing when there is no limit to
+// read, because a wrong number here silently mis-sizes the queue.
+func TestCgroupMemoryLimitReadsOnlyWhatItCanTrust(t *testing.T) {
+	limit := cgroupMemoryLimit()
+	if limit < 0 {
+		t.Errorf("a negative limit (%d) would size the queue below one slot", limit)
+	}
+	if limit > 0 && limit < argonBytes {
+		t.Logf("한도 %d MiB 는 argon2 한 번보다 작아 큐가 최소치로 내려갑니다", limit>>20)
+	}
+}

@@ -1,6 +1,6 @@
 services:
   weekly:
-    image: weekly:v${WEEKLY_VERSION:-0.57.0}
+    image: weekly:v${WEEKLY_VERSION:-0.58.0}
     container_name: weekly
     restart: unless-stopped
     ports:
@@ -18,6 +18,12 @@ services:
       WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: ${WEEKLY_BOOTSTRAP_ADMIN_PASSWORD:?required}
       WEEKLY_ENCRYPTION_KEY: ${WEEKLY_ENCRYPTION_KEY:?required}
       WEEKLY_ALLOW_SECRET_RESET: ${WEEKLY_ALLOW_SECRET_RESET:-false}
+    # Same reasoning as deploy/kubernetes.yaml: the password queue sizes
+    # itself to this limit at startup and logs what it chose. Without a limit
+    # the container inherits the host's memory, which is fine until the host
+    # is shared.
+    mem_limit: 1g
+    cpus: 2
     volumes:
       - weekly-data:/var/lib/weekly
     healthcheck:

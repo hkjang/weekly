@@ -121,6 +121,13 @@ func New(ctx context.Context, options Options) (*App, error) {
 	}
 	a.capabilities = detectCapabilities(ctx, db)
 	logger.Info("database capabilities detected", "pg_trgm", a.capabilities.Trigram, "pgvector", a.capabilities.Vector)
+	// The password queue's size and what it reserves, because an operator
+	// tuning the container's memory limit has no other way to see the figure
+	// the process chose for itself.
+	applyContainerMemoryLimit(logger)
+	logger.Info("password hashing pool sized", "workers", cap(passwordWork),
+		"reserved_mib", cap(passwordWork)*argonBytes>>20,
+		"container_limit_mib", cgroupMemoryLimit()>>20)
 	a.routes()
 	// Off the startup path on purpose. Both of these walk the whole corpus, and
 	// waiting for them meant the process did not answer /healthz until they were

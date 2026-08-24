@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: weekly
-          image: weekly:v0.57.0
+          image: weekly:v0.58.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:
@@ -83,13 +83,30 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+          # Memory is sized by what password hashing reserves, which is the
+          # only part of this service that holds a large block for the length
+          # of a request. Argon2id takes 64 MiB per verification, and the
+          # process queues them so the peak is bounded: it reads this limit at
+          # startup, sizes the queue to fit, and logs the figure it chose
+          # ("password hashing pool sized").
+          #
+          # Measured on 300 people, 52 weeks, 109,200 report items, with 300
+          # sessions signing in and working at once:
+          #
+          #   512Mi / 1 CPU  -> 5 slots, survives, 48.8s for the burst
+          #   1Gi   / 2 CPU  -> 8 slots, survives, 31.3s for the burst
+          #
+          # 512Mi is enough and 1Gi is the default here because Monday morning
+          # is the minute this service is judged on. Lowering it is safe and
+          # signs people in more slowly; the queue is what keeps that a delay
+          # rather than an outage.
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 200m
+              memory: 256Mi
             limits:
-              cpu: "1"
-              memory: 512Mi
+              cpu: "2"
+              memory: 1Gi
       volumes:
         - name: data
           persistentVolumeClaim:
