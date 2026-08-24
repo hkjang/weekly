@@ -32,8 +32,11 @@ type Options struct {
 }
 
 type App struct {
-	db              *pgxpool.Pool
-	logger          *slog.Logger
+	db     *pgxpool.Pool
+	logger *slog.Logger
+	// conditions reports standing states — a cap that is truncating, a limit
+	// that is biting — once each rather than once per request.
+	conditions      *conditionLog
 	web             fs.FS
 	build           BuildInfo
 	box             *secretBox
@@ -115,6 +118,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
 	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
+	a.conditions = newConditionLog(logger)
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
 		return nil, err

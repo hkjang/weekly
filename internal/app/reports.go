@@ -806,7 +806,11 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 		result = append(result, item)
 	}
 	if total > len(result)+offset {
-		a.logger.Info("report list truncated", "total", total, "returned", len(result), "limit", limit, "offset", offset)
+		// A standing condition, not an event: this deployment has more reports
+		// than one page holds and will say so on every request. The response
+		// carries total and limit for the caller either way.
+		a.conditions.once("report-list-truncated", "report list truncated",
+			"total", total, "returned", len(result), "limit", limit, "offset", offset)
 	}
 	writeData(w, 200, reportListView{Items: result, Total: total, Limit: limit, Offset: offset})
 }

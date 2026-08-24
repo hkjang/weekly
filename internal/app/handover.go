@@ -372,7 +372,7 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	graph := linkWorkItems(items, insightLinkLimit)
 	if graph.SimilarTotal > len(graph.Similar) || graph.DuplicateTotal > len(graph.Duplicates) {
-		a.logger.Info("work graph truncated", "workItems", len(items),
+		a.conditions.once("work-graph-truncated", "work graph truncated", "workItems", len(items),
 			"similar", graph.SimilarTotal, "duplicates", graph.DuplicateTotal, "limit", insightLinkLimit)
 	}
 	// Declared dependencies, not inferred ones: everything else on this screen
