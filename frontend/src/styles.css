@@ -202,3 +202,9 @@
 .issue-ended p{margin:4px 0 0;font-size:13px;color:#334155}
 .issue-ended-actions{display:flex;gap:8px;flex-shrink:0}
 .issue-ended-done{font-size:13px;color:var(--state-stalled-ink);flex-shrink:0}
+
+/* Declaring what an issue is waiting on, offered beside the sentence that says it. Quiet: this is an invitation, not a warning. */
+.issue-dependency{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 0;padding:9px 12px;border-radius:9px;background:#f8fafc;border:1px dashed var(--line);font-size:13px;color:#475569}
+.issue-dependency.declared{background:#eff6ff;border-style:solid;border-color:#bfdbfe;color:#1e3a5f}
+.issue-dependency.open{display:block;background:#f8fafc;border-style:solid}
+.issue-dependency b{color:#172033}

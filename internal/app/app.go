@@ -244,6 +244,7 @@ func (a *App) routes() {
 
 	a.mux.Handle("GET /api/v1/analytics/overview", a.requireRole("TEAM_LEADER", "ORG_MANAGER", "ADMIN")(http.HandlerFunc(a.analyticsOverview)))
 	a.mux.Handle("GET /api/v1/work-items/search", a.requireAuth(http.HandlerFunc(a.searchWorkItems)))
+	a.mux.Handle("GET /api/v1/work-items/lookup", a.requireAuth(http.HandlerFunc(a.lookupWorkItems)))
 	a.mux.Handle("GET /api/v1/meeting", a.requireAuth(http.HandlerFunc(a.meetingMode)))
 	a.mux.Handle("GET /api/v1/changes", a.requireAuth(http.HandlerFunc(a.weeklyChanges)))
 	a.mux.Handle("GET /api/v1/present/theme", a.requireAuth(http.HandlerFunc(a.presentThemeInfo)))

@@ -848,3 +848,122 @@ func TestIssueOutcomeIsRecordedOncePerWeek(t *testing.T) {
 		t.Errorf("weeks=%d want=3", weeks)
 	}
 }
+
+// Declaring a dependency names somebody else's task, so it has to be findable.
+//
+// The panel used to call the work search, which defaults to the caller's own
+// items and refuses an organisation-wide scope to anyone below team leader. An
+// ordinary contributor looking for the other team's task therefore found
+// nothing, and the only route to declaring a blocker was closed to almost
+// everybody who has one. Measured before this changed: 12 issues written, 0
+// dependencies declared.
+func TestWorkLookupFindsOtherPeoplesWorkAndNothingFromTheirReports(t *testing.T) {
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	clean := func() {
+		db.Exec(context.Background(), `DELETE FROM users WHERE username IN ('lookup-owner','lookup-seeker')`)
+	}
+	clean()
+	defer clean()
+
+	var ownerID, seekerID int64
+	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('lookup-owner','다른 팀 담당','USER') RETURNING id`).Scan(&ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('lookup-seeker','기다리는 사람','USER') RETURNING id`).Scan(&seekerID); err != nil {
+		t.Fatal(err)
+	}
+	var blockerID int64
+	if err := db.QueryRow(ctx, `INSERT INTO work_items(user_id,title,normalized_key,category)
+		VALUES($1,'결제 게이트웨이 공개','결제게이트웨이공개','개발') RETURNING id`, ownerID).Scan(&blockerID); err != nil {
+		t.Fatal(err)
+	}
+	var reportID int64
+	if err := db.QueryRow(ctx, `INSERT INTO weekly_reports(user_id,week_start,summary) VALUES($1,'2026-08-17','') RETURNING id`, ownerID).Scan(&reportID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,progress,sort_order)
+		VALUES($1,$2,'개발','결제 게이트웨이 공개','내부 검토 중','공개','대외 심사 지연이라는 민감한 사정',40,0)`, reportID, blockerID); err != nil {
+		t.Fatal(err)
+	}
+
+	seeker := &principal{ID: seekerID, Role: "USER"}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/work-items/lookup?q=결제", nil)
+	request = request.WithContext(context.WithValue(ctx, principalContext, seeker))
+	recorder := httptest.NewRecorder()
+	application.lookupWorkItems(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "결제 게이트웨이 공개") {
+		t.Errorf("an ordinary user cannot find another team's task, which is the case this exists for: %s", body)
+	}
+	if !strings.Contains(body, "다른 팀 담당") {
+		t.Errorf("the owner is not named, so the declarer cannot tell which task they mean: %s", body)
+	}
+	// Only what the declaration itself will show. The work search carries issue
+	// and resolution text to answer a different question, and that is more than
+	// everybody should see of everybody's reports.
+	if strings.Contains(body, "대외 심사 지연") {
+		t.Errorf("the lookup leaked report body text: %s", body)
+	}
+	if strings.Contains(body, "내부 검토 중") {
+		t.Errorf("the lookup leaked this week's result text: %s", body)
+	}
+}
+
+// Two characters is what the picker promises, and Korean terms are short.
+func TestWorkLookupAnswersShortQueries(t *testing.T) {
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	clean := func() { db.Exec(context.Background(), `DELETE FROM users WHERE username='lookup-short'`) }
+	clean()
+	defer clean()
+
+	var ownerID int64
+	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('lookup-short','짧은 질의','USER') RETURNING id`).Scan(&ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO work_items(user_id,title,normalized_key,category)
+		VALUES($1,'방화벽 정책 정비','방화벽정책정비','인프라')`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+
+	ask := func(query string) string {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/work-items/lookup?q="+query, nil)
+		request = request.WithContext(context.WithValue(ctx, principalContext, &principal{ID: ownerID, Role: "USER"}))
+		recorder := httptest.NewRecorder()
+		application.lookupWorkItems(recorder, request)
+		return recorder.Body.String()
+	}
+	if !strings.Contains(ask("방화"), "방화벽 정책 정비") {
+		t.Error("두 글자 질의가 아무것도 찾지 못하면 선행 업무를 지정할 방법이 없습니다")
+	}
+	// One character is too little to mean anything, and answering it would walk
+	// every title in the deployment on every keystroke.
+	if strings.Contains(ask("방"), "방화벽 정책 정비") {
+		t.Error("한 글자 질의에는 답하지 않아야 합니다")
+	}
+}

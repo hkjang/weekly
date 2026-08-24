@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, del, errorText, post } from './api'
 import { Button } from './components'
-import type { WorkItemLink, WorkItemLinkView, WorkSearchResponse } from './types'
+import type { WorkItemLink, WorkItemLinkView, WorkLookupResponse } from './types'
 
 /**
  * What this task waits on, and what waits on it.
@@ -15,13 +15,20 @@ import type { WorkItemLink, WorkItemLinkView, WorkSearchResponse } from './types
  * dependency that requires the other team to agree is one nobody records. The
  * reason travels with it so the other team can dispute it.
  */
-export default function DependencyPanel({ workItemId, editable, notify }: {
+export default function DependencyPanel({ workItemId, editable, notify, startAdding = false }: {
   workItemId: number
   editable: boolean
   notify: (message: string, kind?: 'success' | 'error') => void
+  /**
+   * Open on the form rather than on the list. Set where the caller has already
+   * asked the question — the report editor offers this beside an issue, and
+   * making the reader press a second button named almost the same thing is a
+   * click that buys nothing.
+   */
+  startAdding?: boolean
 }) {
   const [view, setView] = useState<WorkItemLinkView>()
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState(startAdding)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ id: number; title: string; displayName: string; organizationName: string }[]>([])
   const [picked, setPicked] = useState<{ id: number; title: string }>()
@@ -33,17 +40,23 @@ export default function DependencyPanel({ workItemId, editable, notify }: {
     .catch(error => { setView({ blockers: [], blocking: [] }); notify(errorText(error, '의존 관계를 불러올 수 없습니다.'), 'error') })
   useEffect(() => { void load() }, [workItemId])
 
-  // Searching across the whole organisation on purpose: waiting on another
-  // team's work is the case this exists for.
+  // Across the whole deployment, which is the case this exists for: a
+  // dependency inside one team is settled by the two people in it.
+  //
+  // It used to call the work search, which defaults to the caller's own items
+  // and refuses an organisation-wide scope to anyone below team leader. So an
+  // ordinary contributor searching for the other team's task found nothing, and
+  // the only path to declaring a blocker was closed to almost everybody who
+  // has one. Measured on real data before this changed: 12 issues written, 0
+  // dependencies declared.
   const search = async (text: string) => {
     setQuery(text)
     if (text.trim().length < 2) { setResults([]); return }
     try {
-      const found = await api<WorkSearchResponse>(`/api/v1/work-items/search?q=${encodeURIComponent(text)}`)
+      const found = await api<WorkLookupResponse>(`/api/v1/work-items/lookup?q=${encodeURIComponent(text)}`)
       setResults(found.hits
         .filter(hit => hit.workItemId !== workItemId)
-        .map(hit => ({ id: hit.workItemId, title: hit.title, displayName: hit.displayName, organizationName: hit.organizationName }))
-        .slice(0, 8))
+        .map(hit => ({ id: hit.workItemId, title: hit.title, displayName: hit.displayName, organizationName: hit.organizationName })))
     } catch { setResults([]) }
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import IssueDependency from '../IssueDependency'
 import { errorText, api, del, patch, post, put , download} from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import AttachmentPanel from '../AttachmentPanel'
@@ -172,6 +173,14 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
               <Button variant="ghost" onClick={() => changeItem(index, { issue: plan.issue, issueOutcome: undefined })}>아직 남음</Button>
             </div>}
       </div>}
+      {/* Where the blockage is written, offer to say what it is waiting on.
+          v0.40-42 built dependency links, bottlenecks and 타 조직 대기 on top of
+          them. Measured on real data: 12 issues written, 0 links declared. The
+          machinery is complete and structurally unreachable, because declaring
+          a blocker lives on the work tracking screen and being blocked is
+          written here. So the declaration comes to the sentence. */}
+      {editable && item.workItemId && item.issue.trim() && <IssueDependency
+        workItemId={item.workItemId} notify={notify} />}
       <div className="form-grid content-grid"><label>이번 주 — 한 일<textarea value={item.currentResult} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { currentResult: e.target.value })} placeholder="완료한 일과 결과를 적으세요."/></label><label>다음 주 — 할 일<textarea value={item.nextPlan} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { nextPlan: e.target.value })} placeholder="다음 주 계획을 적으세요."/></label><label>이슈 / 지원 요청<textarea value={item.issue} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { issue: e.target.value })} placeholder="이슈가 없다면 비워 두세요."/></label><label>상위 조직 요청<textarea value={item.managementAsk ?? ''} disabled={!editable} maxLength={5000} onChange={e => changeItem(index, { managementAsk: e.target.value })} placeholder="상위 조직의 결정이나 지원이 필요한 내용만 적으세요."/></label></div>
     </Card> }) : <Empty>업무 항목을 추가해 주세요.</Empty>}
     {report && <AttachmentPanel reportId={report.id} editable notify={notify} onCountChange={setCaptureCount} />}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.61.0
+  version: 0.62.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -1283,6 +1283,27 @@ paths:
         "200": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /work-items/lookup:
+    get:
+      summary: 선행 업무로 지정할 대상 찾기
+      description: |
+        선행 관계를 선언하는 것은 **남의 업무를 가리키는 일**이고, 찾을 수 없는 것은 가리킬 수도
+        없다. `/work-items/search` 는 다른 질문("전에 이런 걸 다뤄 본 사람이 있나")에 답하느라
+        이슈·해결·판단 근거 본문을 함께 싣는데, 그것은 선언에 필요한 것보다 많고 모두가 볼 것보다도
+        많다. 그래서 이 경로는 선언이 화면에 표시할 네 가지만 돌려준다 — 업무 식별자·제목·담당자·조직.
+
+        범위는 **배포 전체**다. 한 팀 안의 의존은 그 안의 두 사람이 정리하고, 기록할 가치가 있는
+        것은 조직을 가로지르는 쪽인데 호출자의 조직으로 제한하면 바로 그것들이 빠진다. 대가로
+        로그인한 누구나 그런 제목의 업무가 있고 누가 맡고 있는지 알 수 있게 된다. 선언이 어차피
+        화면에 내보이는 것과 같은 정보이므로 이 조회가 새로 드러내는 것은 없지만, 노출이 넓어지는
+        변경이므로 운영자가 알고 있어야 한다.
+
+        두 글자부터 답한다. 한국어 업무 제목은 짧고, 검색이 두 글자에 침묵하면 선행 업무를 지정할
+        길이 사라진다. 한 글자에는 답하지 않는다 — 매 타건마다 배포 전체의 제목을 훑게 된다.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
   /work-items/search:
     get:
       summary: 자연어 과거 업무·사례 검색

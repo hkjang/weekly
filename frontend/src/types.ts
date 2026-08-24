@@ -287,6 +287,13 @@ export interface WorkItemLink {
   progress: number; completed: boolean; lastWeek: string; createdAt: string
 }
 export interface WorkItemLinkView { blockers: WorkItemLink[]; blocking: WorkItemLink[] }
+/**
+ * Naming somebody else's task in order to declare you are waiting on it.
+ * Carries only what the declaration itself will show — no issue or resolution
+ * text from anyone's report.
+ */
+export interface WorkLookupHit { workItemId: number; title: string; displayName: string; organizationName: string }
+export interface WorkLookupResponse { query: string; hits: WorkLookupHit[]; total: number; limit: number }
 export interface DecisionCandidate {
   title: string; decidedBy: string; decidedOn: string; rationale: string
   followUp: string; confidence: number; evidence: string
