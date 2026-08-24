@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import IssueDependency from '../IssueDependency'
+import ReportComments from '../ReportComments'
 import { errorText, api, del, patch, post, put , download} from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import AttachmentPanel from '../AttachmentPanel'
@@ -184,7 +185,14 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
       <div className="form-grid content-grid"><label>이번 주 — 한 일<textarea value={item.currentResult} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { currentResult: e.target.value })} placeholder="완료한 일과 결과를 적으세요."/></label><label>다음 주 — 할 일<textarea value={item.nextPlan} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { nextPlan: e.target.value })} placeholder="다음 주 계획을 적으세요."/></label><label>이슈 / 지원 요청<textarea value={item.issue} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { issue: e.target.value })} placeholder="이슈가 없다면 비워 두세요."/></label><label>상위 조직 요청<textarea value={item.managementAsk ?? ''} disabled={!editable} maxLength={5000} onChange={e => changeItem(index, { managementAsk: e.target.value })} placeholder="상위 조직의 결정이나 지원이 필요한 내용만 적으세요."/></label></div>
     </Card> }) : <Empty>업무 항목을 추가해 주세요.</Empty>}
     {report && <AttachmentPanel reportId={report.id} editable notify={notify} onCountChange={setCaptureCount} />}
-    {report?.comments.length ? <Card title="검토 의견"><div className="comments">{report.comments.map(comment => <div key={comment.id}><strong>{comment.displayName}</strong><span>{new Date(comment.createdAt).toLocaleString('ko-KR')}</span><p>{comment.content}</p></div>)}</div></Card> : null}
+    {/* Shown once there is something to discuss: a draft nobody has looked at
+        yet has nothing to answer. The author could previously read 검토 의견 and
+        not reply to it. */}
+    {report && (report.comments.length > 0 || report.status !== 'DRAFT') &&
+      <Card title="검토 의견">
+        <ReportComments reportId={report.id} comments={report.comments} notify={notify}
+          onPosted={load} placeholder="검토 의견에 답하거나 진행 상황을 알리세요." />
+      </Card>}
     {/* Presents what is on screen, including unsaved edits: a report is often
         walked through immediately after being written. */}
     {presenting && report && <ReportPresentation label={`${report.weekStart} 주간보고`}

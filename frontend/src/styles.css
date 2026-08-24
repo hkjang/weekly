@@ -208,3 +208,8 @@
 .issue-dependency.declared{background:#eff6ff;border-style:solid;border-color:#bfdbfe;color:#1e3a5f}
 .issue-dependency.open{display:block;background:#f8fafc;border-style:solid}
 .issue-dependency b{color:#172033}
+
+/* Asking about a report without sending it back. Small on purpose: a weekly report is not a chat room. */
+.report-comments{margin-top:14px}
+.comment-form{display:flex;gap:10px;align-items:flex-start;margin-top:10px}
+.comment-form textarea{flex:1;min-height:64px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;resize:vertical}
