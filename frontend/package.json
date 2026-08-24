@@ -1,13 +1,13 @@
 {
   "name": "weekly-frontend",
   "private": true,
-  "version": "0.94.0",
+  "version": "0.95.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
-    "test": "vitest run"
+    "test": "TZ=Asia/Seoul vitest run && TZ=America/New_York vitest run"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.0.5",

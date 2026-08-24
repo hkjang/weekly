@@ -38,8 +38,11 @@ func TestFrontendNeverFormatsACalendarDateThroughUTC(t *testing.T) {
 		if extension := filepath.Ext(path); extension != ".ts" && extension != ".tsx" {
 			return nil
 		}
-		// The helper itself names the mistake in order to explain it.
-		if strings.HasSuffix(path, "localdate.ts") {
+		// The helper itself names the mistake in order to explain it, and its
+		// test compares the right answer against the wrong one — which is the
+		// only way to show that the two actually differ. Neither ships as
+		// behaviour; every other file does.
+		if strings.HasSuffix(path, "localdate.ts") || strings.HasSuffix(path, ".test.ts") || strings.HasSuffix(path, ".test.tsx") {
 			return nil
 		}
 		body, readErr := os.ReadFile(path)
