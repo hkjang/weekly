@@ -194,7 +194,13 @@ func writeImportFile(path string, body []byte) error {
 // importPageDefault is how many past import jobs one request returns. The list
 // ended at a bare LIMIT 100 before, so a heavy user's older jobs simply stopped
 // existing as far as the screen was concerned.
-const importPageDefault = 50
+const (
+	importPageDefault = 50
+	// Named rather than left as a literal in the handler, because
+	// TestTheContractsNumbersAreTheOnesTheCodeUses compares the published
+	// sentence against this value and cannot see a magic number.
+	importPageMaximum = 200
+)
 
 type importJobListView struct {
 	Items  []importJobView `json:"items"`
@@ -205,7 +211,7 @@ type importJobListView struct {
 
 func (a *App) listImportJobs(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
-	limit := clampQueryInt(r, "limit", importPageDefault, 1, 200)
+	limit := clampQueryInt(r, "limit", importPageDefault, 1, importPageMaximum)
 	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
 	total := 0
 	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM import_jobs WHERE user_id=$1`, p.ID).Scan(&total); err != nil {

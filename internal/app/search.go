@@ -26,8 +26,13 @@ import (
 // search still works exactly as it did before they existed.
 
 const (
-	searchMaxTerms  = 6
-	searchScanLimit = 2000
+	searchMaxTerms = 6
+	// How thin an exact-match result has to be before the approximate and
+	// meaning-based passes are worth their cost. Named because the published
+	// contract states the figure and TestTheContractsNumbersAreTheOnesTheCodeUses
+	// compares the two.
+	searchThinResult = 5
+	searchScanLimit  = 2000
 	// The budget for the title and category pass, sized to fill the response
 	// several times over.
 	//
@@ -163,7 +168,7 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	// different ending. When trigram similarity is available and the exact pass
 	// came back thin, offer approximate matches rather than an empty screen.
 	fuzzy := false
-	if a.capabilities.Trigram && len(hits) < 5 {
+	if a.capabilities.Trigram && len(hits) < searchThinResult {
 		approximate, approxErr := a.searchApproximate(r, p, terms, byReport)
 		if approxErr != nil {
 			a.logger.Warn("approximate search", "error", approxErr, "trace", traceIDFromContext(r.Context()))
@@ -183,7 +188,7 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	// It costs an embedding call, so it only runs when the cheaper passes came
 	// back thin and the feature is configured.
 	semantic := false
-	if a.capabilities.Vector && len(hits) < 5 {
+	if a.capabilities.Vector && len(hits) < searchThinResult {
 		matches, semanticErr := a.searchSemantic(r, p, query, byReport)
 		if semanticErr != nil {
 			a.logger.Warn("semantic search", "error", semanticErr, "trace", traceIDFromContext(r.Context()))
