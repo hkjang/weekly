@@ -4,7 +4,7 @@ import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
 import DecisionPanel from '../DecisionPanel'
 import DependencyPanel from '../DependencyPanel'
-import type { DueOutlook, SessionInfo, WorkItem, WorkItemPage, WorkSearchResponse } from '../types'
+import type { DueOutlook, SessionInfo, WorkItem, WorkItemEditResult, WorkItemPage, WorkSearchResponse } from '../types'
 
 /**
  * Work item tracking. Each row is a task followed across every week it was
@@ -199,13 +199,20 @@ export default function WorkItemsPage({ session, notify }: {
     const open = detail
     if (open) setDetail(await api<WorkItem>(`/api/v1/work-items/${open.id}`))
   }
-  const runEdit = async (path: string, body: unknown, done: string) => {
+  // Reports what happened, not what was asked for.
+  //
+  // The server answers with movedItems — how many weekly snapshots actually
+  // changed hands — and its own comment calls that the only number that tells
+  // the author whether the correction did what they meant. The screen was
+  // throwing it away and announcing the requested count instead, so a split
+  // that moved fewer rows than asked still said it had moved all of them.
+  const runEdit = async (path: string, body: unknown, done: (moved: number) => string) => {
     setEditBusy(true)
     try {
-      await post(path, body)
+      const result = await post<WorkItemEditResult>(path, body)
       closeDetail()
       await reload()
-      notify(done)
+      notify(done(result.movedItems))
     } catch (error) {
       notify(errorText(error, '업무를 정리할 수 없습니다.'), 'error')
     } finally { setEditBusy(false) }
@@ -214,10 +221,13 @@ export default function WorkItemsPage({ session, notify }: {
     const ids = (item.weeks ?? []).filter(week => picked.includes(week.weekStart)).flatMap(week => week.itemIds)
     return runEdit(`/api/v1/work-items/${item.id}/split`,
       { title: splitTitle, category: item.category, reportItemIds: ids },
-      `${ids.length}개 주차를 '${splitTitle.trim()}' 업무로 분리했습니다.`)
+      moved => moved === ids.length
+        ? `${moved}개 주차를 '${splitTitle.trim()}' 업무로 분리했습니다.`
+        : `${ids.length}개 주차 중 ${moved}개를 '${splitTitle.trim()}' 업무로 분리했습니다. 나머지는 옮겨지지 않았습니다.`)
   }
   const mergeWith = (item: WorkItem) => runEdit(`/api/v1/work-items/${item.id}/merge`,
-    { intoId: Number(mergeInto) }, '두 업무를 하나로 합쳤습니다.')
+    { intoId: Number(mergeInto) },
+    moved => `두 업무를 하나로 합쳤습니다. 주차 기록 ${moved}건이 옮겨졌습니다.`)
 
   const runSearch = async (text: string) => {
     const trimmed = text.trim()

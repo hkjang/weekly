@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -131,4 +132,72 @@ func readFrontendSources(root string) (string, error) {
 		return nil
 	})
 	return builder.String(), err
+}
+
+// Fields the server puts in a response that no screen ever reads.
+//
+// The mirror of the route check above, and it catches a different failure: an
+// endpoint that is called, whose answer is partly thrown away. work_items
+// carried a deadline for years that nothing displayed. The merge and split
+// endpoints answered with how many weekly snapshots actually changed hands —
+// the server's own comment calls it the only number that tells the author
+// whether the correction did what they meant — and the screen announced the
+// count that had been requested instead, so a partial move read as a complete
+// one.
+//
+// Wire formats belonging to somebody else are excluded by file: what Confluence
+// sends us, what an OpenAI-compatible endpoint expects, the JSON-RPC envelope
+// and the OIDC discovery document are not this product's responses and no
+// screen should be reading them.
+func TestEveryResponseFieldIsRead(t *testing.T) {
+	foreign := map[string]string{
+		"confluence_client.go":   "Confluence 서버가 보내는 전문",
+		"ai.go":                  "OpenAI 호환 엔드포인트의 요청·응답 형식",
+		"mcp.go":                 "JSON-RPC 봉투와 MCP 프로토콜",
+		"confluence_analysis.go": "AI 구조화 출력 스키마",
+	}
+	// Ours, read by something other than a screen, with the reason.
+	allowed := map[string]string{
+		"authorization_endpoint": "OIDC 디스커버리 문서를 그대로 되비추는 값. 관리자 연결 시험이 서버에서 확인한다.",
+		"token_endpoint":         "위와 같다.",
+	}
+
+	sources, err := os.ReadDir("../app")
+	if err != nil {
+		t.Skipf("go sources are not readable from here: %v", err)
+	}
+	frontend, err := readFrontendSources("../../frontend/src")
+	if err != nil {
+		t.Skipf("frontend sources are not readable from here: %v", err)
+	}
+
+	tag := regexp.MustCompile("`json:\"([A-Za-z0-9_]+)[,\"]")
+	unread := []string{}
+	for _, entry := range sources {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if _, isForeign := foreign[name]; isForeign {
+			continue
+		}
+		body, readErr := os.ReadFile(filepath.Join("../app", name))
+		if readErr != nil {
+			continue
+		}
+		for _, match := range tag.FindAllStringSubmatch(string(body), -1) {
+			field := match[1]
+			if _, excused := allowed[field]; excused {
+				continue
+			}
+			if !strings.Contains(frontend, field) {
+				unread = append(unread, field+" ("+name+")")
+			}
+		}
+	}
+	if len(unread) > 0 {
+		t.Errorf("응답에 실려 나가지만 화면이 이름조차 언급하지 않는 필드 %d건: %s\n"+
+			"버려지는 답이거나, 이유를 적어 allowed 에 넣어야 합니다.",
+			len(unread), strings.Join(unread, ", "))
+	}
 }

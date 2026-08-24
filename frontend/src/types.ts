@@ -75,6 +75,12 @@ export interface WorkItem {
   weeks?: WorkItemWeek[]
   forecast: CompletionForecast; dueOutlook: DueOutlook; agreedDue?: AgreedDue
 }
+/**
+ * What a merge or split actually did. `movedItems` counts the weekly snapshots
+ * that changed hands, which is the only number that says whether the correction
+ * did what its author meant.
+ */
+export interface WorkItemEditResult { workItemId: number; movedItems: number }
 export interface WorkItemPage { items: WorkItem[]; total: number; limit: number; offset: number }
 
 export type ChangeKind = 'NEW' | 'RESUMED' | 'COMPLETED' | 'PROGRESSED' | 'REGRESSED' | 'STALLED' | 'SILENT' | 'STEADY' | 'ABSENT'
