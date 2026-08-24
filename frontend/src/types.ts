@@ -216,7 +216,7 @@ export interface Rollup {
 
 export interface ConfluenceSyncStatus {
   enabled: boolean; status: string; lastSuccessAt?: string; lastAttemptAt?: string; currentStartedAt?: string; errorMessage: string
-  pagesScanned: number; pagesChanged: number; candidatesCreated: number; pagesFailed: number; mappedUsers: number; unmappedUsers: number
+  pagesScanned: number; pagesChanged: number; candidatesCreated: number; pagesFailed: number; mappedUsers: number; unmappedUsers: number; unresolvedActors: number; unattributedPages: number
   recentErrors: { id: number; pageId?: string; phase: string; statusCode?: number; message: string; createdAt: string }[]
 }
 

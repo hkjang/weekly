@@ -252,9 +252,9 @@ func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	var status, errorMessage string
 	var lastSuccess, lastAttempt, currentStarted *time.Time
-	var scanned, changed, created, failed int
-	err = a.db.QueryRow(r.Context(), `SELECT status,last_success_at,last_attempt_at,current_started_at,error_message,pages_scanned,pages_changed,candidates_created,pages_failed
-		FROM confluence_sync_state WHERE system_type='CONFLUENCE'`).Scan(&status, &lastSuccess, &lastAttempt, &currentStarted, &errorMessage, &scanned, &changed, &created, &failed)
+	var scanned, changed, created, failed, unresolvedActors, unattributedPages int
+	err = a.db.QueryRow(r.Context(), `SELECT status,last_success_at,last_attempt_at,current_started_at,error_message,pages_scanned,pages_changed,candidates_created,pages_failed,actors_unresolved,pages_unattributed
+		FROM confluence_sync_state WHERE system_type='CONFLUENCE'`).Scan(&status, &lastSuccess, &lastAttempt, &currentStarted, &errorMessage, &scanned, &changed, &created, &failed, &unresolvedActors, &unattributedPages)
 	if err != nil {
 		writeError(w, 500, "QUERY_FAILED", "동기화 상태를 조회할 수 없습니다.")
 		return
@@ -281,6 +281,10 @@ func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 		"enabled": cfg.Enabled, "status": status, "lastSuccessAt": lastSuccess, "lastAttemptAt": lastAttempt, "currentStartedAt": currentStarted,
 		"errorMessage": errorMessage, "pagesScanned": scanned, "pagesChanged": changed, "candidatesCreated": created, "pagesFailed": failed,
 		"mappedUsers": mapped, "unmappedUsers": unmapped, "recentErrors": errorsView,
+		// unmappedUsers answers "which of our people are not linked". These two
+		// answer the question that actually loses work: which Confluence
+		// accounts turned up in the scan and matched nobody.
+		"unresolvedActors": unresolvedActors, "unattributedPages": unattributedPages,
 	})
 }
 

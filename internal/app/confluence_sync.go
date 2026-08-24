@@ -20,6 +20,13 @@ type confluenceSyncCounters struct {
 	PagesChanged      int
 	CandidatesCreated int
 	PagesFailed       int
+	// ActorsUnresolved and PagesUnattributed count the other direction from
+	// everything above: Confluence accounts the scan met that belong to no
+	// Weekly user, and the pages they wrote. Nothing failed and nothing was
+	// created, so without these two the sync reports a clean success over work
+	// that never arrived.
+	ActorsUnresolved  int
+	PagesUnattributed int
 }
 
 func (a *App) wakeConfluenceWorker() {
@@ -89,7 +96,7 @@ func (a *App) runConfluenceSync(ctx context.Context, cfg confluenceSettings) err
 		a.finishConfluenceSync(ctx, "FAILED", err.Error(), confluenceSyncCounters{}, false)
 		return err
 	}
-	_, err = a.db.Exec(ctx, `UPDATE confluence_sync_state SET status='RUNNING',last_attempt_at=now(),current_started_at=now(),error_message='',pages_scanned=0,pages_changed=0,candidates_created=0,pages_failed=0,updated_at=now() WHERE system_type='CONFLUENCE'`)
+	_, err = a.db.Exec(ctx, `UPDATE confluence_sync_state SET status='RUNNING',last_attempt_at=now(),current_started_at=now(),error_message='',pages_scanned=0,pages_changed=0,candidates_created=0,pages_failed=0,actors_unresolved=0,pages_unattributed=0,updated_at=now() WHERE system_type='CONFLUENCE'`)
 	if err != nil {
 		return err
 	}
@@ -154,6 +161,11 @@ func (a *App) runConfluenceSync(ctx context.Context, cfg confluenceSettings) err
 	if mappingErr != nil {
 		counters.PagesFailed++
 		a.recordConfluenceError(ctx, "", "IDENTITY_MAPPING", 0, mappingErr)
+	}
+	unresolved, unattributed := unresolvedConfluenceActors(pages, mappings)
+	counters.ActorsUnresolved, counters.PagesUnattributed = len(unresolved), unattributed
+	if len(unresolved) > 0 {
+		a.recordConfluenceNotice(ctx, "IDENTITY_MAPPING", unresolvedActorNotice(unresolved, unattributed))
 	}
 	activities := a.buildConfluenceActivities(ctx, pages, pageDBIDs, mappings, since, cfg)
 	groupsByOwner := map[string][]confluenceActivity{}
@@ -692,9 +704,9 @@ func firstGroupPageID(group confluenceCandidateGroup) string {
 
 func (a *App) finishConfluenceSync(ctx context.Context, status, message string, counters confluenceSyncCounters, success bool) {
 	if success {
-		_, _ = a.db.Exec(ctx, `UPDATE confluence_sync_state SET status=$1,last_success_at=now(),current_started_at=NULL,error_message=$2,pages_scanned=$3,pages_changed=$4,candidates_created=$5,pages_failed=$6,updated_at=now() WHERE system_type='CONFLUENCE'`, status, trimRunes(message, 2000), counters.PagesScanned, counters.PagesChanged, counters.CandidatesCreated, counters.PagesFailed)
+		_, _ = a.db.Exec(ctx, `UPDATE confluence_sync_state SET status=$1,last_success_at=now(),current_started_at=NULL,error_message=$2,pages_scanned=$3,pages_changed=$4,candidates_created=$5,pages_failed=$6,actors_unresolved=$7,pages_unattributed=$8,updated_at=now() WHERE system_type='CONFLUENCE'`, status, trimRunes(message, 2000), counters.PagesScanned, counters.PagesChanged, counters.CandidatesCreated, counters.PagesFailed, counters.ActorsUnresolved, counters.PagesUnattributed)
 	} else {
-		_, _ = a.db.Exec(ctx, `UPDATE confluence_sync_state SET status=$1,current_started_at=NULL,error_message=$2,pages_scanned=$3,pages_changed=$4,candidates_created=$5,pages_failed=$6,updated_at=now() WHERE system_type='CONFLUENCE'`, status, trimRunes(message, 2000), counters.PagesScanned, counters.PagesChanged, counters.CandidatesCreated, counters.PagesFailed)
+		_, _ = a.db.Exec(ctx, `UPDATE confluence_sync_state SET status=$1,current_started_at=NULL,error_message=$2,pages_scanned=$3,pages_changed=$4,candidates_created=$5,pages_failed=$6,actors_unresolved=$7,pages_unattributed=$8,updated_at=now() WHERE system_type='CONFLUENCE'`, status, trimRunes(message, 2000), counters.PagesScanned, counters.PagesChanged, counters.CandidatesCreated, counters.PagesFailed, counters.ActorsUnresolved, counters.PagesUnattributed)
 	}
 }
 
@@ -703,6 +715,59 @@ func (a *App) recordConfluenceError(ctx context.Context, pageID, phase string, s
 		return
 	}
 	_, _ = a.db.Exec(ctx, `INSERT INTO confluence_sync_errors(page_id,phase,status_code,error_message) VALUES($1,$2,$3,$4)`, nullableString(pageID), phase, nullableInteger(statusCode), trimRunes(safeConfluenceError(err), 2000))
+	_, _ = a.db.Exec(ctx, `DELETE FROM confluence_sync_errors WHERE id IN (SELECT id FROM confluence_sync_errors ORDER BY created_at DESC OFFSET 500)`)
+}
+
+// unresolvedActorNameLimit caps how many names one notice spells out. Both
+// counts stay exact; only the list is shortened.
+const unresolvedActorNameLimit = 20
+
+// unresolvedConfluenceActors reports which Confluence accounts on these pages
+// belong to no Weekly user, and how many pages they account for. A page counts
+// once however many of its two actors are unresolved: it is one page of work
+// that will not reach anybody's draft.
+func unresolvedConfluenceActors(pages []ConfluencePage, mappings map[string]int64) ([]string, int) {
+	missing := map[string]bool{}
+	unattributed := 0
+	for _, page := range pages {
+		dropped := false
+		for _, actor := range []string{page.CreatorUsername, page.LastModifierUsername} {
+			actor = strings.ToLower(strings.TrimSpace(actor))
+			if actor == "" || mappings[actor] > 0 {
+				continue
+			}
+			missing[actor] = true
+			dropped = true
+		}
+		if dropped {
+			unattributed++
+		}
+	}
+	names := make([]string, 0, len(missing))
+	for name := range missing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, unattributed
+}
+
+func unresolvedActorNotice(names []string, unattributed int) string {
+	listed := names
+	suffix := ""
+	if len(listed) > unresolvedActorNameLimit {
+		listed = listed[:unresolvedActorNameLimit]
+		suffix = fmt.Sprintf(" 외 %d명", len(names)-unresolvedActorNameLimit)
+	}
+	return fmt.Sprintf("Weekly 계정에 연결되지 않은 Confluence 사용자 %d명: %s%s. 이 사용자들이 작성·수정한 페이지 %d개는 초안이 되지 못했습니다. 관리자 > 사용자 매핑에서 연결하세요.",
+		len(names), strings.Join(listed, ", "), suffix, unattributed)
+}
+
+// recordConfluenceNotice stores a diagnosis that is not an error and must reach
+// the screen as written. recordConfluenceError runs its input through
+// safeConfluenceError, which would replace this text with the generic
+// connection message.
+func (a *App) recordConfluenceNotice(ctx context.Context, phase, message string) {
+	_, _ = a.db.Exec(ctx, `INSERT INTO confluence_sync_errors(page_id,phase,status_code,error_message) VALUES(NULL,$1,NULL,$2)`, phase, trimRunes(message, 2000))
 	_, _ = a.db.Exec(ctx, `DELETE FROM confluence_sync_errors WHERE id IN (SELECT id FROM confluence_sync_errors ORDER BY created_at DESC OFFSET 500)`)
 }
 
