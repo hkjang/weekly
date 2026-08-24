@@ -203,6 +203,22 @@ func (s *testServer) bearer(method, path, token string) *httptest.ResponseRecord
 	return w
 }
 
+// lastCreatedUsername and passwordFor recover the decorated name and password
+// createUser generated, so a test can sign the same person in again.
+func (s *testServer) lastCreatedUsername(stem string) string {
+	s.t.Helper()
+	var username string
+	if err := s.app.db.QueryRow(s.ctx(),
+		`SELECT username FROM users WHERE username LIKE $1 ORDER BY id DESC LIMIT 1`, stem+"_%").Scan(&username); err != nil {
+		s.t.Fatal(err)
+	}
+	return username
+}
+
+func (s *testServer) passwordFor(stem string) string {
+	return s.lastCreatedUsername(stem) + "Password1234"
+}
+
 func (s *testServer) ctx() context.Context { return context.Background() }
 
 func (s *testServer) signIn(username, password string) *http.Cookie {

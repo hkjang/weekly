@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.86.0
+  version: 0.87.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1568,6 +1568,27 @@ paths:
       summary: 사용자 등록
       responses:
         "201": { $ref: "#/components/responses/Success" }
+  /admin/users/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    put:
+      summary: 사용자 수정
+      description: |
+        **보낸 것으로 바꾸는 것이 아니라, 보낸 것이 전부가 된다.** `organizationId`,
+        `managerId` 처럼 생략한 항목은 유지되지 않고 **비워진다**. PUT 의 의미이지만
+        결과가 조용해서 위험하다 — 표시 이름만 고치려고 그 두 필드를 빼고 보내면 그
+        사람의 소속과 검토 책임자가 사라지고, 아무 오류도 나지 않는다.
+
+        소속이 사라진 팀장·조직장은 `GET /team/reports` 에서 **빈 목록**을 받는다.
+        조직원이 아무도 쓰지 않은 것과 화면이 같아지므로, 그 응답은 `notice` 에 소속이
+        지정되어 있지 않다는 사실을 담는다.
+
+        `password` 는 보냈을 때만 바뀐다. 생략하면 기존 비밀번호가 유지된다.
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /admin/organizations:
     get:
       summary: 조직 목록

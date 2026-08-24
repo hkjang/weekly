@@ -14,6 +14,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
   }
   const [reports, setReports] = useState<ReportListItem[]>()
   const [total, setTotal] = useState(0)
+  const [notice, setNotice] = useState('')
   const [selected, setSelected] = useState<Report>()
   const [presenting, setPresenting] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -21,7 +22,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
   // total beside it, so 3,120 reports arrived as 500 and the table looked like
   // everything there was.
   const load = () => api<ReportListView>('/api/v1/team/reports')
-    .then(value => { setReports(value.items); setTotal(value.total) })
+    .then(value => { setReports(value.items); setTotal(value.total); setNotice(value.notice ?? '') })
   const loadMore = async () => {
     if (!reports) return
     setBusy(true)
@@ -37,7 +38,9 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
   const open = (id: number) => api<Report>(`/api/v1/reports/${id}`).then(setSelected).catch(error => notify(error.message, 'error'))
   const review = async (action: 'approve' | 'reject') => { if (!selected) return; const comment = prompt(action === 'reject' ? '반려 사유를 입력하세요.' : '승인 의견(선택)') ?? ''; if (action === 'reject' && !comment.trim()) return; try { await post(`/api/v1/reports/${selected.id}/${action}`, { comment }); notify(action === 'approve' ? '승인했습니다.' : '반려했습니다.'); setSelected(undefined); await load() } catch (error) { notify(errorText(error, '처리할 수 없습니다.'), 'error') } }
   return <><PageHeader title="팀 주간보고" description={workflowEnabled ? '구성원의 보고서를 검토하고 승인 또는 반려합니다.' : '승인 절차 없이 확정된 구성원 보고서를 조회합니다.'}/>
-    {!reports ? <Spinner/> : !reports.length ? <Empty>조회할 팀 보고서가 없습니다.</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>상태</th><th>진행</th></tr></thead><tbody>{reports.map(report => <tr key={report.id} onClick={() => open(report.id)}><td>{report.weekStart}</td><td><strong>{report.displayName}</strong><small className="cell-sub">{report.username}</small></td><td className="truncate">{report.summary || '-'}</td><td><StatusBadge status={report.status}/></td><td><button className="text-button">열기 →</button></td></tr>)}</tbody></table></div>
+    {/* An empty list has more than one cause, and only one of them is the
+        team's. When the server says which, say it instead of the blank. */}
+    {!reports ? <Spinner/> : !reports.length ? <Empty>{notice || '조회할 팀 보고서가 없습니다.'}</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>상태</th><th>진행</th></tr></thead><tbody>{reports.map(report => <tr key={report.id} onClick={() => open(report.id)}><td>{report.weekStart}</td><td><strong>{report.displayName}</strong><small className="cell-sub">{report.username}</small></td><td className="truncate">{report.summary || '-'}</td><td><StatusBadge status={report.status}/></td><td><button className="text-button">열기 →</button></td></tr>)}</tbody></table></div>
       <div className="list-more">
         <span className="muted">{total.toLocaleString()}건 중 {reports.length.toLocaleString()}건</span>
         {reports.length < total && <Button variant="secondary" disabled={busy} onClick={loadMore}>

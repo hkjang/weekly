@@ -322,7 +322,7 @@ export interface DecisionInput {
   title: string; decidedBy: string; decidedOn: string; rationale: string
   followUp: string; dueDate: string; status: DecisionStatus; supersedesId?: number
 }
-export interface ReportListView { items: ReportListItem[]; total: number; limit: number; offset: number }
+export interface ReportListView { items: ReportListItem[]; total: number; limit: number; offset: number; notice?: string }
 export interface TeamMember { id: number; displayName: string; organizationName: string; active: boolean; lastWeek: string }
 export interface HandoverWeek { week: string; progress: number; issue?: boolean }
 export interface HandoverItem {

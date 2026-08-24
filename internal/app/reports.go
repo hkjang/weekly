@@ -749,6 +749,11 @@ type reportListView struct {
 	Total  int              `json:"total"`
 	Limit  int              `json:"limit"`
 	Offset int              `json:"offset"`
+	// Notice explains an empty list that is empty for a reason other than
+	// "nobody wrote anything". A leader whose account has no organisation sees
+	// the same blank screen as a leader whose team is behind, and only one of
+	// those is something they can act on.
+	Notice string `json:"notice,omitempty"`
 }
 
 func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool) {
@@ -765,7 +770,12 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 		where += fmt.Sprintf(" AND r.user_id=$%d", len(args))
 	} else if p.Role != "ADMIN" {
 		if p.OrganizationID == nil {
-			writeData(w, 200, reportListView{Items: []reportListItem{}, Limit: limit, Offset: offset})
+			// Not an error: the account is valid and the request is allowed.
+			// But an empty list here means the account is not attached to an
+			// organisation, and without saying so the screen reports it as a
+			// team that filed nothing.
+			writeData(w, 200, reportListView{Items: []reportListItem{}, Limit: limit, Offset: offset,
+				Notice: "이 계정에 소속 조직이 지정되어 있지 않아 조직원의 보고서를 찾을 수 없습니다. 관리자에게 소속 조직 지정을 요청하세요."})
 			return
 		}
 		args = append(args, *p.OrganizationID)
