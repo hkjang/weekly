@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -253,8 +254,16 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 		sum := fmt.Sprintf("%x", sha256.Sum256(body))
 		relative := filepath.Join(strconv.FormatInt(id, 10), sum+"."+kind.Extension)
 		absolute := filepath.Join(stateDirectoryAttachments, relative)
-		if err := os.WriteFile(absolute, body, 0o600); err != nil {
-			a.logger.Error("store attachment", "error", err, "reportId", id)
+		if err := writeAttachmentFile(absolute, body); err != nil {
+			a.logger.Error("store attachment", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
+			if errors.Is(err, syscall.ENOSPC) {
+				// Naming the cause, because the person who can fix it is not the
+				// person who sees the message. "이미지를 저장할 수 없습니다" sent an
+				// administrator looking at the upload code; the volume was full.
+				writeError(w, http.StatusInsufficientStorage, "STORAGE_FULL",
+					"서버 저장 공간이 가득 차 이미지를 저장하지 못했습니다. 관리자에게 /var/lib/weekly 볼륨 용량을 확인하도록 알려 주세요.")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "이미지를 저장할 수 없습니다.")
 			return
 		}
@@ -529,4 +538,35 @@ func (a *App) cleanupAttachmentFiles(ctx context.Context) {
 			a.logger.Warn("remove orphaned attachment directory", "error", err, "reportId", reportID)
 		}
 	}
+}
+
+// writeAttachmentFile puts the bytes in place, or leaves nothing behind.
+//
+// os.WriteFile creates the destination and writes into it, so a disk that fills
+// part way through leaves a truncated file under the final name — unreferenced,
+// because the row is only inserted after the write succeeds, and therefore
+// invisible to every cleanup path the product has. Measured: one failed upload
+// left 319 KB on a 320 KB volume, and the volume stayed full forever.
+//
+// Writing to a temporary neighbour and renaming is what the PPTX template and
+// the import store already do. The rename is atomic within a directory, so the
+// final name never names a half-written file either.
+func writeAttachmentFile(path string, body []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), "upload-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+
+	if err = temporary.Chmod(0o600); err == nil {
+		_, err = temporary.Write(body)
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
