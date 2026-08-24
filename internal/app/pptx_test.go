@@ -155,8 +155,10 @@ func TestGeneratedReferenceStylePPTX(t *testing.T) {
 			slides++
 		}
 	}
-	if slides != 4 {
-		t.Fatalf("got %d slides, want 4", slides)
+	// Two tasks, two pages. This used to assert four — the template's count —
+	// which meant every export carried its unused pages into the meeting.
+	if slides != 2 {
+		t.Fatalf("got %d slides for a two-item report, want 2", slides)
 	}
 }
 

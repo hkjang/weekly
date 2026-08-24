@@ -398,13 +398,32 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 			slideCount++
 		}
 	}
+	// Only as many slides as there is work to put on them.
+	//
+	// The template is four pages. A week with one task used to export four,
+	// three of them holding nothing but the column headers and a pair of
+	// dashes. That deck goes into a meeting, and nobody reads past the first
+	// blank page wondering whether the rest failed to load.
 	groups := distributeReferenceItems(report.Items, slideCount)
+	used := 0
+	for _, group := range groups {
+		if len(group) > 0 {
+			used++
+		}
+	}
+	if used < 1 {
+		// An empty report still exports one page, so the file is a deck rather
+		// than a zip with no slides in it.
+		used = 1
+	}
 	currentHeader := fmt.Sprintf("추진실적 (%s ~ %s)", formatReferenceDate(weekStart), formatReferenceDate(weekStart.AddDate(0, 0, 6)))
 	nextStart := weekStart.AddDate(0, 0, 7)
 	nextHeader := fmt.Sprintf("추진계획 (%s ~ %s)", formatReferenceDate(nextStart), formatReferenceDate(nextStart.AddDate(0, 0, 6)))
 	var output bytes.Buffer
 	writer := zip.NewWriter(&output)
 	slideIndex := 0
+	dropped := []string{}
+	deferred := map[string][]byte{}
 	for _, file := range reader.File {
 		source, err := file.Open()
 		if err != nil {
@@ -416,12 +435,28 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 			return nil, err
 		}
 		if isSlideXML(file.Name) {
+			if slideIndex >= used {
+				// Past the last slide that carries anything. Dropping the part
+				// alone would leave a deck PowerPoint refuses, so the removal
+				// is finished below by dropSlidesAfter.
+				dropped = append(dropped, file.Name)
+				slideIndex++
+				continue
+			}
 			items := []reportItem{}
 			if slideIndex < len(groups) {
 				items = groups[slideIndex]
 			}
 			data = []byte(renderReferenceSlide(string(data), team, currentHeader, nextHeader, items))
 			slideIndex++
+		}
+		if relatesToDroppedSlide(file.Name, dropped) {
+			continue
+		}
+		if file.Name == "[Content_Types].xml" || file.Name == "ppt/presentation.xml" || file.Name == "ppt/_rels/presentation.xml.rels" {
+			// Rewritten after the loop, once the dropped set is known.
+			deferred[file.Name] = data
+			continue
 		}
 		header := file.FileHeader
 		header.Method = zip.Deflate
@@ -433,10 +468,89 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 			return nil, err
 		}
 	}
+	// The three parts that name every slide, rewritten now that the dropped set
+	// is known. A slide removed from the zip but left in these is a deck that
+	// downloads and will not open.
+	// The relationship ids the dropped slides are reached through, read before
+	// anything is rewritten: the slide order names ids, not file names.
+	droppedIDs := droppedRelationshipIDs(string(deferred["ppt/_rels/presentation.xml.rels"]), dropped)
+	for name, data := range deferred {
+		rewritten := removeDroppedSlides(name, string(data), dropped, droppedIDs)
+		header := zip.FileHeader{Name: name, Method: zip.Deflate}
+		destination, err := writer.CreateHeader(&header)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := destination.Write([]byte(rewritten)); err != nil {
+			return nil, err
+		}
+	}
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
 	return output.Bytes(), nil
+}
+
+// relatesToDroppedSlide reports whether this part belongs to a slide that is not
+// being written — its own relationship file.
+func relatesToDroppedSlide(name string, dropped []string) bool {
+	for _, slide := range dropped {
+		base := strings.TrimPrefix(slide, "ppt/slides/")
+		if name == "ppt/slides/_rels/"+base+".rels" {
+			return true
+		}
+	}
+	return false
+}
+
+// removeDroppedSlides takes the dropped slides out of the three parts that list
+// them: the content types, the slide order, and the presentation's own
+// relationships. Each removal is by the relationship id the slide is reached
+// through, because the order in the file and the order in the deck are not the
+// same thing.
+// droppedRelationshipIDs maps the dropped slide files back to the ids that
+// ppt/presentation.xml uses to name them.
+func droppedRelationshipIDs(rels string, dropped []string) []string {
+	ids := []string{}
+	pattern := regexp.MustCompile(`<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*/>`)
+	for _, match := range pattern.FindAllStringSubmatch(rels, -1) {
+		target := "ppt/" + strings.TrimPrefix(match[2], "./")
+		for _, slide := range dropped {
+			if target == slide {
+				ids = append(ids, match[1])
+			}
+		}
+	}
+	return ids
+}
+
+func removeDroppedSlides(name, document string, dropped, droppedIDs []string) string {
+	if len(dropped) == 0 {
+		return document
+	}
+	if name == "[Content_Types].xml" {
+		for _, slide := range dropped {
+			pattern := regexp.MustCompile(`<Override[^>]*PartName="/` + regexp.QuoteMeta(slide) + `"[^>]*/>`)
+			document = pattern.ReplaceAllString(document, "")
+		}
+		return document
+	}
+	if name == "ppt/_rels/presentation.xml.rels" {
+		for _, slide := range dropped {
+			target := strings.TrimPrefix(slide, "ppt/")
+			pattern := regexp.MustCompile(`<Relationship[^>]*Target="` + regexp.QuoteMeta(target) + `"[^>]*/>`)
+			document = pattern.ReplaceAllString(document, "")
+		}
+		return document
+	}
+	if name == "ppt/presentation.xml" {
+		for _, id := range droppedIDs {
+			pattern := regexp.MustCompile(`<p:sldId[^>]*r:id="` + regexp.QuoteMeta(id) + `"[^>]*/>`)
+			document = pattern.ReplaceAllString(document, "")
+		}
+		return document
+	}
+	return document
 }
 
 func isSlideXML(name string) bool {

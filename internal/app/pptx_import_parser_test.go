@@ -24,7 +24,9 @@ func TestExtractAndDetectGeneratedReferencePPTX(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(extracted.Slides) != 4 || extracted.SlideCount != 4 || extracted.Truncated ||
+	// One task, one page: renderReferencePPTX stops at the last slide that
+	// carries work rather than emitting the template's full four.
+	if len(extracted.Slides) != 1 || extracted.SlideCount != 1 || extracted.Truncated ||
 		!strings.Contains(extracted.Normalized, "AI 구조화 완료") || !strings.Contains(extracted.Normalized, "[TABLE 1]") ||
 		!strings.Contains(extracted.Normalized, "[ROW 1]") || !strings.Contains(extracted.Normalized, "[COL 1]") {
 		t.Fatalf("unexpected extraction: slides=%d text=%s", len(extracted.Slides), extracted.Normalized)
