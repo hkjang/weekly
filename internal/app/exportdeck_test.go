@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -403,5 +404,86 @@ func TestThePeriodDeckCarriesWhatTheAuthorsAskedFor(t *testing.T) {
 	}
 	if !strings.Contains(crowded.Shapes, "담지 못한 요청") {
 		t.Error("a table that could not fit every ask says nothing about the rest")
+	}
+}
+
+// A report with an issue and a capture makes appendSlidesToPPTX run twice — once
+// for the issue page added in v0.91, then again for the images. The second call
+// works on the first one's output rather than the pristine template, and a
+// relationship id reused across the two produces a deck that downloads and will
+// not open. Nothing had exercised the pair.
+//
+// guards: exportReportPPTX, appendSlidesToPPTX
+func TestADeckWithBothAnIssuePageAndCapturesStaysValid(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("deck_both", "USER", nil)
+	id, version := server.draft(author, "2026-08-24", "이슈와 캡처가 함께 있는 보고서")
+	filled := server.request(http.MethodPut, fmt.Sprintf("/api/v1/reports/%d", id), map[string]any{
+		"summary": "이슈와 캡처", "version": version,
+		"items": []map[string]any{{
+			"category": "인프라", "title": "회선 이설", "currentResult": "완료",
+			"issue": "임대 일정 지연", "managementAsk": "예산 승인 필요", "progress": 60,
+		}},
+	}, author)
+	if filled.Code != http.StatusOK {
+		t.Fatalf("fill: %d %s", filled.Code, filled.Body.String())
+	}
+
+	// A one pixel PNG is enough: the question is the package, not the picture.
+	png := []byte{
+		0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A,
+		0, 0, 0, 0x0D, 'I', 'H', 'D', 'R', 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0,
+		0x1F, 0x15, 0xC4, 0x89,
+		0, 0, 0, 0x0A, 'I', 'D', 'A', 'T', 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1,
+		0x0D, 0x0A, 0x2D, 0xB4,
+		0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xAE, 0x42, 0x60, 0x82,
+	}
+	upload := server.upload(fmt.Sprintf("/api/v1/reports/%d/attachments", id), "files", "캡처.png", png, author)
+	if upload.Code != http.StatusOK && upload.Code != http.StatusCreated {
+		t.Skipf("the capture was not accepted (%d), so the pair cannot be exercised: %s", upload.Code, upload.Body.String())
+	}
+
+	export := server.request(http.MethodGet, fmt.Sprintf("/api/v1/reports/%d/export.pptx", id), nil, author)
+	if export.Code != http.StatusOK {
+		t.Fatalf("export: %d %s", export.Code, export.Body.String())
+	}
+	deck := export.Body.Bytes()
+	text, names := deckText(t, deck)
+
+	slides := 0
+	for _, name := range names {
+		if strings.HasPrefix(name, "ppt/slides/slide") && strings.HasSuffix(name, ".xml") && !strings.Contains(name, "_rels") {
+			slides++
+		}
+	}
+	presentation := partOf(t, deck, "ppt/presentation.xml")
+	if listed := strings.Count(presentation, "<p:sldId "); listed != slides {
+		t.Errorf("%d slides but the order names %d", slides, listed)
+	}
+	contentTypes := partOf(t, deck, "[Content_Types].xml")
+	if overrides := strings.Count(contentTypes, `PartName="/ppt/slides/slide`); overrides != slides {
+		t.Errorf("%d slides but %d content-type entries", slides, overrides)
+	}
+
+	// No relationship id may appear twice in the presentation's relationships:
+	// the second append has to continue the first one's numbering.
+	rels := partOf(t, deck, "ppt/_rels/presentation.xml.rels")
+	seen := map[string]bool{}
+	for _, match := range regexp.MustCompile(`Id="([^"]+)"`).FindAllStringSubmatch(rels, -1) {
+		if seen[match[1]] {
+			t.Errorf("relationship id %s appears twice; the second append reused the first one's numbering", match[1])
+		}
+		seen[match[1]] = true
+	}
+	if related := strings.Count(rels, `Target="slides/slide`); related != slides {
+		t.Errorf("%d slides but %d relationships", slides, related)
+	}
+
+	// And the issue page survived the second append.
+	if !strings.Contains(text, "임대 일정 지연") {
+		t.Error("the issue page was lost when the captures were added")
+	}
+	if !strings.Contains(text, "예산 승인 필요") {
+		t.Error("the ask was lost when the captures were added")
 	}
 }
