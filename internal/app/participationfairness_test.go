@@ -14,6 +14,7 @@ import (
 // nobody is late while the list names people, or the reverse. This pins them to
 // each other against a real PostgreSQL rather than to a literal either could
 // wander away from.
+// guards: instant
 func TestDeadlineInstantMatchesTheSQLItGuards(t *testing.T) {
 	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -54,6 +55,7 @@ func TestDeadlineInstantMatchesTheSQLItGuards(t *testing.T) {
 
 // The week in progress must be marked, because its submission rate is a count
 // so far. Reading it beside finished weeks turns every Monday into a collapse.
+// guards: instant
 func TestWeekInProgressIsMarkedOpen(t *testing.T) {
 	seoul, err := time.LoadLocation("Asia/Seoul")
 	if err != nil {

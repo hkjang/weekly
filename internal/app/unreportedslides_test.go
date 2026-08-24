@@ -61,6 +61,7 @@ func warningAboutUnreportedSlides(warnings []string) string {
 // A deck whose work silently failed to reach the draft is the failure this
 // pipeline cannot see on its own: the reviewer reads what is there, never what
 // is absent.
+// guards: uncoveredContentSlides, unreportedSlideWarning, pptxSlidesWithContent, finalizeImportedAIResult
 func TestUnreportedSlidesAreNamedAndHeldForReview(t *testing.T) {
 	deck := deckWithEmptySlides(12, 4, 7, 9)
 	result, decision := finalizeDeck(t, deck, itemsCiting(1, 2, 3))
@@ -87,6 +88,7 @@ func TestUnreportedSlidesAreNamedAndHeldForReview(t *testing.T) {
 }
 
 // The other half: a warning that fires on every import is a warning nobody reads.
+// guards: uncoveredContentSlides, finalizeImportedAIResult
 func TestFullyReportedDeckStaysQuietAndReady(t *testing.T) {
 	deck := deckWithEmptySlides(12, 4, 7, 9)
 	result, decision := finalizeDeck(t, deck, itemsCiting(1, 2, 3, 5, 6, 8, 10, 11, 12))
@@ -102,6 +104,7 @@ func TestFullyReportedDeckStaysQuietAndReady(t *testing.T) {
 // The list is capped so a sixty-slide deck does not produce a warning nobody
 // finishes reading. The count has to survive the cap: a shortened list that
 // also shortens the number would understate what went missing.
+// guards: unreportedSlideWarning
 func TestManyUnreportedSlidesKeepTheirCount(t *testing.T) {
 	deck := deckWithEmptySlides(60)
 	result, _ := finalizeDeck(t, deck, itemsCiting(1))

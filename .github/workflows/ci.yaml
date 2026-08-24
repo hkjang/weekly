@@ -11,6 +11,24 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Without a database every integration test skips, and a skipped test is not
+    # a passing one. The migrations, the participation window and the search
+    # ranking were all verified only on somebody's laptop until this existed.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: weekly
+          POSTGRES_DB: weeklytest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      WEEKLY_TEST_POSTGRES_DSN: postgres://postgres:weekly@127.0.0.1:5432/weeklytest?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -24,6 +42,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: go test ./...
       - run: go vet ./...
+      # A guard that never runs its subject passes whatever the subject does.
+      # Three releases in a row shipped one before this check existed.
+      - run: python3 scripts/guard-check.py
       - run: npm ci && npm run build
         working-directory: frontend
       - run: docker build --build-arg VERSION=ci --build-arg COMMIT=${{ github.sha }} --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t weekly:ci .

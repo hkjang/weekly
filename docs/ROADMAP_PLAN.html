@@ -710,6 +710,27 @@ scaleadmin    누락 12주   마지막 제출 없음      ← 부트스트랩 �
 <p><strong>인덱스가 하나 빠져 있었습니다.</strong> 다른 검색 대상 컬럼은 모두 트라이그램 인덱스가 있는데 <code>category</code>만 없었습니다. 4글자 질의에서 47ms → 0.5ms, <strong>94배</strong>입니다(마이그레이션 020). 2글자 한글 질의는 여전히 느리고, 이건 트라이그램이 3글자 미만에서 선택도를 못 갖는 구조적 한계라 인덱스를 더 넣어도 해결되지 않습니다 — 확인하고 적어 둡니다.</p>
 <p><strong>가드가 처음엔 물지 못했습니다.</strong> 테스트가 핸들러가 아니라 테스트 자신이 쓴 SQL을 검사하고 있어서, 우선 패스를 통째로 지워도 통과했습니다. 스캔을 <code>searchScan</code>으로 뽑아내 테스트가 실제 코드를 부르게 고쳤고, 이제 패스를 지우거나 대상 필드를 바꾸면 실패합니다. v0.64·v0.68에 이어 세 번째로 같은 실수를 했으니, 가드를 쓴 뒤 <strong>되돌려 보는 것</strong>은 선택이 아니라 절차입니다.</p>
 <p>원칙으로 남깁니다. <strong>부분집합 위에서 매긴 순위를 전체 순위로 제시하지 않습니다.</strong> 잘렸다고 표시하는 것과, 남은 것이 최선이라고 말하는 것은 다릅니다.</p>
+<p>#### 3.10.27 v0.73.0에서 완료 — 짖지 못하는 감시견을 기억이 아니라 절차로 잡습니다</p>
+<p>세 릴리즈 연속으로 같은 실수를 했습니다. 특정 결함을 잡으라고 쓴 테스트가 통과했는데, <strong>애초에 실패할 수 없는 것</strong>이었습니다.</p>
+<ul>
+<li>v0.64 — 도달성 가드의 일치 조건이 느슨해 CSS 클래스 이름이 조건을 만족시켰습니다. 유일한 호출부를 지워도 통과했습니다.</li>
+<li>v0.68 — 메시지 테스트의 모든 사례가 앞쪽 분기에 걸려, 정작 그 테스트가 존재하는 이유인 폴백이 한 번도 실행되지 않았습니다.</li>
+<li>v0.72 — 순위 테스트가 제품 함수 대신 테스트 자신이 쓴 SQL을 검사했습니다. 그 함수를 통째로 지워도 통과했습니다.</li>
+</ul>
+<p>뒤의 둘은 기계적으로 같은 신호를 냅니다. <strong>테스트가 지키겠다는 코드를 실행하지 않았다.</strong> 그건 퍼-테스트 커버리지가 재는 것이고, 따라서 기억해서 확인할 일이 아닙니다.</p>
+<p><code>scripts/guard-check.py</code>를 만들었습니다. 가드 테스트가 자기 대상을 선언합니다.</p>
+<div class="phase-box">// guards: searchScan, appendSearchMatches
+func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
+<p>각 테스트를 혼자 커버리지와 함께 돌려, 선언한 함수에 닿지 않으면 보고하고 종료 코드 1을 냅니다. 검사기 자신도 되돌려 확인했습니다 — v0.72의 실수를 재현하니 <code>go test</code>는 <code>ok</code>인데 검사기가 잡습니다.</p>
+<p><strong>함수에 닿는 것과 정작 그 분기에 닿는 것은 다릅니다.</strong> v0.68의 경우가 그랬습니다. 그래서 임계값을 선언할 수 있게 했습니다.</p>
+<div class="phase-box">// guards: safeConfluenceError=100</div>
+<p>"원인마다 다른 문장"이 주장의 전부인 가드에는 이걸 씁니다. 안 닿은 분기가 곧 아무도 확인하지 않은 사례이기 때문입니다.</p>
+<p><strong>27개 가드에 마커를 붙였고, 여섯 개의 진짜 구멍이 나왔습니다.</strong></p>
+<table><thead><tr><th>발견</th><th>내용</th></tr></thead><tbody><tr><td><code>TestOnlyGenuineSignOutIsMarkedAsNoSession</code></td><td><code>authenticate</code>를 <strong>한 번도 부르지 않음</strong>. <code>errors.Is</code>의 동작만 확인. <code>authenticate</code>가 래핑을 그만둬도 통과</td></tr><tr><td><code>aiUserMessage</code></td><td>예상 못 한 상태 코드의 폴백 문구 미검증</td></tr><tr><td><code>safeConfluenceError</code></td><td>같은 폴백 + <strong>Confluence 타임아웃 문구가 한 번도 읽힌 적 없음</strong></td></tr><tr><td><code>outlookForDueDate</code></td><td>읽을 수 없는 주차, 최근이 더 느린 경우의 문장, 범위로 모자란 경우의 문장 — 3개 분기</td></tr><tr><td><code>outlookForPeriodEnd</code></td><td>기간 미설정, 읽을 수 없는 주차, 범위로 모자란 경우 — 3개 분기</td></tr><tr><td>CI</td><td><strong>PostgreSQL이 없어 통합 테스트가 전부 건너뛰어지고 있었음</strong></td></tr></tbody></table>
+<p>첫 번째가 가장 무겁습니다. v0.66에서 "DB 장애를 로그아웃으로 보고하던" 버그를 고치며 쓴 가드인데, 그 버그를 다시 넣어도 잡지 못했습니다. <code>authenticate</code>를 실제로 부르도록 고치니 이제 잡습니다.</p>
+<p>마지막도 큽니다. CI에 데이터베이스가 없어 마이그레이션·제출 현황·검색 순위 검증이 전부 <strong>누군가의 노트북에서만</strong> 돌고 있었습니다. <code>pgvector/pgvector:pg16</code> 서비스를 붙였습니다.</p>
+<p><strong>이 검사기가 하지 않는 일도 적어 둡니다.</strong> 단언이 강한지는 보지 않습니다. 되돌려서 실패하는지 확인하는 것은 여전히 진짜 검사이고, 이건 *되돌릴 것이 애초에 없던* 경우를 잡습니다.</p>
+<p>원칙으로 남깁니다. <strong>세 번 반복한 실수는 규율의 문제가 아니라 절차의 부재입니다.</strong> 사람에게 기억하라고 요구하는 대신, 기계가 물을 수 있는 형태로 바꿉니다.</p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>

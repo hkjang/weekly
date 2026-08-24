@@ -16,6 +16,7 @@ import (
 // model that cannot produce structured output and wrong for every other case.
 // A rejected API key, a gateway that is down, and a proxy answering with its own
 // sign-in page all sent the administrator to check the model.
+// guards: aiUserMessage=100
 func TestAIMessageNamesWhichFailureItWas(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -27,6 +28,9 @@ func TestAIMessageNamesWhichFailureItWas(t *testing.T) {
 		{"권한 없음", &aiStatusError{Status: http.StatusForbidden}, "API Key", "Structured Output"},
 		{"경로 없음", &aiStatusError{Status: http.StatusNotFound}, "chat/completions", "API Key"},
 		{"한도 초과", &aiStatusError{Status: http.StatusTooManyRequests}, "429", "API Key"},
+		// A gateway is free to answer with a status nobody planned for. Saying
+		// which one is still more use than a guess about the model.
+		{"그 밖의 상태", &aiStatusError{Status: http.StatusPaymentRequired}, "HTTP 402", "API Key"},
 		{"게이트웨이 오류", &aiStatusError{Status: http.StatusBadGateway}, "게이트웨이 쪽 문제", "API Key"},
 		{"JSON 아님", fmt.Errorf("wrapped: %w", errAINotJSON), "프록시", "Structured Output"},
 		{"주소 없음", errors.New(`Post "http://x/v1": dial tcp: no such host`), "연결하지 못했습니다", "API Key"},
@@ -53,6 +57,7 @@ func TestAIMessageNamesWhichFailureItWas(t *testing.T) {
 // wrong Base URL used to answer with the whole REST query string, and a proxy
 // in front of Confluence with `invalid character '<' looking for beginning of
 // value`.
+// guards: safeConfluenceError=100
 func TestConfluenceMessageIsActionableAndLeaksNothing(t *testing.T) {
 	cases := []struct {
 		name string
@@ -63,6 +68,11 @@ func TestConfluenceMessageIsActionableAndLeaksNothing(t *testing.T) {
 		{"권한 없음", &ConfluenceHTTPError{StatusCode: http.StatusForbidden}, "Space"},
 		{"경로 없음", &ConfluenceHTTPError{StatusCode: http.StatusNotFound}, "Base URL"},
 		{"서버 오류", &ConfluenceHTTPError{StatusCode: http.StatusInternalServerError}, "Confluence 쪽 문제"},
+		{"그 밖의 상태", &ConfluenceHTTPError{StatusCode: http.StatusTeapot}, "HTTP 418"},
+		// A Confluence that accepts the connection and then never answers is one
+		// of the likeliest failures on an internal network, and its message had
+		// never been read by anything until this line.
+		{"응답 없음", fmt.Errorf("search: %w", context.DeadlineExceeded), "시간이 초과"},
 		{"JSON 아님", errors.New("decode Confluence response: invalid character '<' looking for beginning of value"), "프록시"},
 		{"주소 없음", errors.New(`Get "http://host/confluence/rest/api/content/search?cql=type+%3D+page": dial tcp: no such host`), "연결하지 못했습니다"},
 		{"인증서", errors.New("x509: certificate signed by unknown authority"), "인증서"},

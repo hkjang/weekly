@@ -13,6 +13,7 @@ func pageBy(id, creator, modifier string) ConfluencePage {
 // The sync counted what it produced and what failed. A Confluence account that
 // belongs to nobody produces nothing and fails at nothing, so twelve pages of
 // work disappeared under a green SUCCESS.
+// guards: unresolvedConfluenceActors, unresolvedActorNotice
 func TestUnresolvedActorsAreCountedAndNamed(t *testing.T) {
 	pages := []ConfluencePage{
 		pageBy("1", "j.hkjang", "j.hkjang"),
@@ -42,6 +43,7 @@ func TestUnresolvedActorsAreCountedAndNamed(t *testing.T) {
 }
 
 // A fully mapped deployment must stay silent, or the notice becomes furniture.
+// guards: unresolvedConfluenceActors
 func TestFullyMappedSyncSaysNothing(t *testing.T) {
 	pages := []ConfluencePage{pageBy("1", "a", "b"), pageBy("2", "b", "a")}
 	names, unattributed := unresolvedConfluenceActors(pages, map[string]int64{"a": 1, "b": 2})
@@ -52,6 +54,7 @@ func TestFullyMappedSyncSaysNothing(t *testing.T) {
 
 // Pages with no recorded author at all are a different problem and must not be
 // blamed on a missing mapping.
+// guards: unresolvedConfluenceActors
 func TestAnonymousPagesAreNotCalledUnmapped(t *testing.T) {
 	names, unattributed := unresolvedConfluenceActors([]ConfluencePage{pageBy("1", "", "")}, map[string]int64{})
 	if len(names) != 0 || unattributed != 0 {
@@ -61,6 +64,7 @@ func TestAnonymousPagesAreNotCalledUnmapped(t *testing.T) {
 
 // The list is shortened for readability; the counts are what the reader acts on
 // and must survive it.
+// guards: unresolvedConfluenceActors, unresolvedActorNotice
 func TestManyUnresolvedActorsKeepTheirCounts(t *testing.T) {
 	pages := make([]ConfluencePage, 0, 30)
 	for index := 0; index < 30; index++ {

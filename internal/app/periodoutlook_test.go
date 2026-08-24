@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// guards: outlookForPeriodEnd=100
 func TestOutlookForPeriodEnd(t *testing.T) {
 	// 10 a week for four weeks, ending at 40 on 2026-06-22.
 	steady := series("2026-06-01", 10, 20, 30, 40)
@@ -24,6 +25,33 @@ func TestOutlookForPeriodEnd(t *testing.T) {
 		wantHigh int
 		noteHas  string
 	}{
+		{
+			// No period at all. There is nothing to be short of.
+			name: "no period end", end: "",
+			forecast: steadyForecast, weeks: steady, progress: 40,
+			wantKind: periodOutlookNone,
+		},
+		{
+			// The projection runs from the last reported week, so a week whose
+			// own date is unreadable leaves nothing to run from.
+			name: "unreadable last week", end: "2026-09-30",
+			forecast: steadyForecast, weeks: []rollupItemWeek{{WeekStart: "이번 주", Progress: 40}}, progress: 40,
+			wantKind: periodOutlookNone,
+		},
+		{
+			// Three weeks left and neither pace arrives, but they disagree about
+			// how far short — which is the number worth printing.
+			name: "short by different amounts", end: "2026-07-20",
+			forecast: unevenForecast, weeks: uneven, progress: 36,
+			wantKind: periodOutlookShort, noteHas: "기간 말(2026-07-20)에",
+		},
+		{
+			// A period end that will not parse. Whatever wrote it was wrong; the
+			// screen must not turn that into a claim about the work.
+			name: "unparseable period end", end: "2026-13-45",
+			forecast: steadyForecast, weeks: steady, progress: 40,
+			wantKind: periodOutlookNone,
+		},
 		{
 			name: "lands well inside the quarter", end: "2026-09-30",
 			forecast: steadyForecast, weeks: steady, progress: 40,
@@ -105,6 +133,7 @@ func TestPeriodOutlookNeedsNoDeadline(t *testing.T) {
 // being read. Work whose numbers name no finishing week at all is already
 // reported as 완료 시점 불명; this heading is for work that does finish, just
 // after the report closes.
+// guards: missesThePeriod
 func TestPeriodMissDoesNotRepeatWhatNoLandingAlreadySays(t *testing.T) {
 	crawling := rollupItem{Progress: 4, Weeks: series("2026-06-01", 1, 2, 3, 4)}
 	crawling.Forecast = forecastCompletion(crawling.Weeks, crawling.Progress)

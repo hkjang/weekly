@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -26,34 +26,60 @@ import (
 //
 // So the sentinel exists to say which case it is, and every genuine "you are
 // not signed in" path has to carry it.
+// guards: authenticate
 func TestOnlyGenuineSignOutIsMarkedAsNoSession(t *testing.T) {
-	genuine := []error{
-		fmt.Errorf("%w: no session cookie", errNoSession),
-		fmt.Errorf("%w: session expired or revoked", errNoSession),
-		fmt.Errorf("%w: unsupported bearer token", errNoSession),
-		fmt.Errorf("%w: no such api key", errNoSession),
+	// These two branches answer before touching the database, so they are
+	// checked wherever this runs.
+	app := &App{}
+	bearer := httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)
+	bearer.Header.Set("Authorization", "Bearer not-one-of-ours")
+	if _, err := app.authenticate(bearer); !errors.Is(err, errNoSession) {
+		t.Errorf("a token in the wrong format is a sign-out, got %v", err)
 	}
-	for _, err := range genuine {
-		if !errors.Is(err, errNoSession) {
-			t.Errorf("%v should be answered 401", err)
-		}
+	if _, err := app.authenticate(httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)); !errors.Is(err, errNoSession) {
+		t.Errorf("no cookie at all is a sign-out, got %v", err)
 	}
 
-	// What a database outage looks like coming out of pgx. Anything in this
-	// shape must not be reported as an authentication problem.
-	outages := []error{
-		errors.New("failed to connect to `host=weekly-pg`: dial error"),
-		errors.New("conn closed"),
-		fmt.Errorf("query failed: %w", errors.New("server closed the connection unexpectedly")),
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
-	for _, err := range outages {
-		if errors.Is(err, errNoSession) {
-			t.Errorf("%v would be reported to the user as a login problem", err)
-		}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := &App{db: db}
+
+	// A token of the right shape that matches nothing, and a session cookie that
+	// matches nothing. Both are pgx.ErrNoRows, and both are genuine sign-outs.
+	apiKey := httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)
+	apiKey.Header.Set("Authorization", "Bearer wky_nothing_matches_this")
+	if _, err := live.authenticate(apiKey); !errors.Is(err, errNoSession) {
+		t.Errorf("an unknown API key is a sign-out, got %v", err)
+	}
+	stale := httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)
+	stale.AddCookie(&http.Cookie{Name: sessionCookie, Value: "expired-or-revoked"})
+	if _, err := live.authenticate(stale); !errors.Is(err, errNoSession) {
+		t.Errorf("an expired session is a sign-out, got %v", err)
+	}
+
+	// And the case this whole distinction exists for: the store is gone. Telling
+	// that user they are signed out sends them to type their password again at
+	// the one moment it cannot work.
+	db.Close()
+	outage := httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)
+	outage.AddCookie(&http.Cookie{Name: sessionCookie, Value: "anything"})
+	_, err = live.authenticate(outage)
+	if err == nil {
+		t.Fatal("a closed pool answered as though the session were valid")
+	}
+	if errors.Is(err, errNoSession) {
+		t.Errorf("a database outage would be reported as a sign-out: %v", err)
 	}
 
 	// pgx.ErrNoRows is the one database error that really does mean "no such
-	// session", and authenticate converts it before returning.
+	// session", and authenticate converts it deliberately rather than by match.
 	if errors.Is(pgx.ErrNoRows, errNoSession) {
 		t.Error("pgx.ErrNoRows must be converted deliberately, not matched by accident")
 	}
@@ -65,6 +91,7 @@ func TestOnlyGenuineSignOutIsMarkedAsNoSession(t *testing.T) {
 // outage told everybody their password had stopped working. Worse, each retry
 // was recorded against the throttle, so the people who tried hardest were
 // locked out of a service that had never rejected them.
+// guards: login
 func TestLoginSaysTheStoreIsDownRatherThanBlamingThePassword(t *testing.T) {
 	// A pool that parses and constructs but can never connect: pgxpool dials
 	// lazily, so this stands in for a database that has gone away.

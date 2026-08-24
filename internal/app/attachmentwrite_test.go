@@ -14,6 +14,7 @@ import (
 // inserted after the write succeeds, so that file was referenced by nothing and
 // invisible to every cleanup path the product has. Measured on a 320 KB volume:
 // one failed upload left 319 KB of it consumed, and it stayed consumed.
+// guards: writeAttachmentFile
 func TestFailedAttachmentWriteLeavesNothingBehind(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "capture.png")
@@ -42,6 +43,7 @@ func TestFailedAttachmentWriteLeavesNothingBehind(t *testing.T) {
 
 // The file appears complete or not at all: the final name never refers to a
 // partly written image, because the bytes land on a neighbour first.
+// guards: writeAttachmentFile
 func TestAttachmentWriteIsAllOrNothing(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "capture.png")

@@ -13,6 +13,7 @@ func series(startWeek string, progress ...int) []rollupItemWeek {
 	return weeks
 }
 
+// guards: forecastCompletion
 func TestForecastCompletion(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -127,6 +128,7 @@ func TestEveryProjectionShowsThePaceItCameFrom(t *testing.T) {
 // A task creeping forward is not a stalled task, and the two findings must not
 // both claim it. Naming the same work twice under two headings is how a risk
 // list stops being read.
+// guards: noLandingDate
 func TestNoLandingDateDoesNotRepeatWhatStalledAlreadySays(t *testing.T) {
 	creeping := rollupItem{Progress: 4, Weeks: series("2026-06-01", 1, 2, 3, 4)}
 	creeping.Forecast = forecastCompletion(creeping.Weeks, creeping.Progress)
@@ -150,6 +152,7 @@ func TestNoLandingDateDoesNotRepeatWhatStalledAlreadySays(t *testing.T) {
 // The whole point of this finding: it catches work that every status board
 // shows as healthy. Progress moves every single week and the item is neither
 // stalled nor flagged by an issue, yet its own numbers need a year.
+// guards: noLandingDate
 func TestNoLandingCatchesWorkThatLooksHealthy(t *testing.T) {
 	weeks := series("2026-06-01", 1, 2, 3, 4, 5, 6)
 	item := rollupItem{Progress: 6, Weeks: weeks}
@@ -170,6 +173,7 @@ func TestNoLandingCatchesWorkThatLooksHealthy(t *testing.T) {
 // last is observed, not extrapolated, and the stall rule on the same screen is
 // already saying 정체 — telling the reader to wait for an estimate is telling
 // them to wait for news they have.
+// guards: forecastCompletion
 func TestShortFlatSeriesSaysStalledRatherThanAskingForMoreWeeks(t *testing.T) {
 	flat := forecastCompletion(series("2026-06-01", 60, 60), 60)
 	if flat.Kind != forecastStalled {

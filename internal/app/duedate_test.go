@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// guards: outlookForDueDate=100
 func TestOutlookForDueDate(t *testing.T) {
 	// 10 a week, four weeks, sitting at 40.
 	steady := series("2026-06-01", 10, 20, 30, 40)
@@ -12,6 +13,9 @@ func TestOutlookForDueDate(t *testing.T) {
 	// Slow overall, fast lately: 4 a week over the whole run, 15 a week now.
 	uneven := series("2026-06-01", 0, 2, 4, 6, 36)
 	unevenForecast := forecastCompletion(uneven, 36)
+	// Fast early, slow lately: the run average is well ahead of the recent pace.
+	slowing := series("2026-06-01", 0, 30, 60, 62, 64)
+	slowingForecast := forecastCompletion(slowing, 64)
 
 	cases := []struct {
 		name     string
@@ -28,6 +32,39 @@ func TestOutlookForDueDate(t *testing.T) {
 			// Six weeks left at 10 a week clears 60 points with room to spare.
 			name: "comfortable", due: "2026-08-10", forecast: steadyForecast, weeks: steady, progress: 40,
 			wantKind: dueOutlookOnTrack, wantLow: 100, wantHigh: 100,
+		},
+		{
+			// The projection runs from the last reported week, so a week whose
+			// own date is unreadable leaves nothing to run from.
+			name: "unreadable last week", due: "2026-08-10", forecast: steadyForecast,
+			weeks: []rollupItemWeek{{WeekStart: "지난주", Progress: 40}}, progress: 40,
+			wantKind: dueOutlookNone,
+		},
+		{
+			// Fast early, slow lately — the mirror of the case above it. The
+			// sentence has to name the pace that gets there, and here that is
+			// the run average rather than the recent one.
+			name: "recent pace is the slower one", due: "2026-07-20",
+			forecast: slowingForecast, weeks: slowing, progress: 64,
+			wantKind: dueOutlookSplit, noteHas: "전체 평균",
+		},
+		{
+			// Neither pace arrives, and they disagree about how far short.
+			name: "short by different amounts", due: "2026-07-06",
+			forecast: slowingForecast, weeks: slowing, progress: 64,
+			wantKind: dueOutlookAtRisk, noteHas: "두 속도 어느 쪽으로도",
+		},
+		{
+			// A deadline with nothing reported behind it. Saying "at risk" here
+			// would be a guess dressed as a projection.
+			name: "nothing reported", due: "2026-08-10", forecast: forecastCompletion(nil, 0), weeks: nil, progress: 0,
+			wantKind: dueOutlookUnknown, noteHas: "보고된 주차가 없어",
+		},
+		{
+			// A stored date that will not parse. Whatever wrote it was wrong;
+			// the screen must not turn that into a claim about the work.
+			name: "unparseable date", due: "2026-13-45", forecast: steadyForecast, weeks: steady, progress: 40,
+			wantKind: dueOutlookNone,
 		},
 		{
 			// Three weeks left is 30 points, and 70 is not 100.
@@ -117,6 +154,7 @@ func TestOutlookDoesNotProjectPastADateThatAlreadyArrived(t *testing.T) {
 // answered the question does not need a second date beside the first, which
 // turns one answer into an argument. Finished work has nothing left to be late
 // for.
+// guards: workItemsWantingADeadline
 func TestAgreedDueIsOnlyOfferedWhereThereIsNoDeadline(t *testing.T) {
 	got := workItemsWantingADeadline([]workItemView{
 		{ID: 1, DueDate: ""},

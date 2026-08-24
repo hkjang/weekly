@@ -12,6 +12,7 @@ import (
 // budget on recent paragraphs, so on a deployment with a year of reports that
 // title becomes unreachable — and the screen still presents what survived as
 // the top results.
+// guards: searchScan, appendSearchMatches
 func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {
 	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
 	if dsn == "" {

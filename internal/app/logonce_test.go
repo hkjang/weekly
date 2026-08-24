@@ -21,6 +21,7 @@ func (r *recordingLogger) Info(msg string, args ...any) {
 // produced sixty identical lines in three and a half seconds under load — and
 // those were the only lines the service wrote, so anything that had actually
 // gone wrong would have been buried in a report that everything was fine.
+// guards: once=100
 func TestConditionIsLoggedOncePerProcess(t *testing.T) {
 	sink := &recordingLogger{}
 	conditions := newConditionLog(sink)
@@ -33,10 +34,17 @@ func TestConditionIsLoggedOncePerProcess(t *testing.T) {
 	if sink.lines[0] != "report list truncated" {
 		t.Errorf("wrote %q", sink.lines[0])
 	}
+
+	// A condition worth reporting must never be the reason a request dies. The
+	// nil receiver is reachable wherever an App was built without a logger.
+	var missing *conditionLog
+	missing.once("no-logger", "there is nobody to tell")
+	(&conditionLog{}).once("no-inner", "there is nobody to tell")
 }
 
 // Two different conditions are two different things to know about. Holding one
 // must not silence the other.
+// guards: once
 func TestDifferentConditionsAreEachReported(t *testing.T) {
 	sink := &recordingLogger{}
 	conditions := newConditionLog(sink)
@@ -55,6 +63,7 @@ func TestDifferentConditionsAreEachReported(t *testing.T) {
 
 // Requests arrive concurrently, so the latch has to hold under a race — this
 // runs with -race in CI.
+// guards: once
 func TestConditionLogIsSafeUnderConcurrentRequests(t *testing.T) {
 	sink := &recordingLogger{}
 	conditions := newConditionLog(sink)
