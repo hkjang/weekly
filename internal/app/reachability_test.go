@@ -112,6 +112,35 @@ func frontendCalls(sources, route string) bool {
 	return strings.Contains(sources, "/"+suffix)
 }
 
+// readFrontendSources concatenates the frontend, optionally skipping a file.
+// types.ts is skipped for the response-field guard: declaring a field in the
+// API type is not reading it, and the guard passed for 26 fields that no screen
+// ever touched because the declaration alone satisfied the search.
+func readFrontendSourcesExcept(root, skip string) (string, error) {
+	var builder strings.Builder
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if extension := filepath.Ext(path); extension != ".ts" && extension != ".tsx" {
+			return nil
+		}
+		if skip != "" && filepath.Base(path) == skip {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		builder.Write(body)
+		return nil
+	})
+	return builder.String(), err
+}
+
 func readFrontendSources(root string) (string, error) {
 	var builder strings.Builder
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -166,10 +195,19 @@ func TestEveryResponseFieldIsRead(t *testing.T) {
 	if err != nil {
 		t.Skipf("go sources are not readable from here: %v", err)
 	}
-	frontend, err := readFrontendSources("../../frontend/src")
+	// types.ts is excluded on purpose — see readFrontendSourcesExcept.
+	frontend, err := readFrontendSourcesExcept("../../frontend/src", "types.ts")
 	if err != nil {
 		t.Skipf("frontend sources are not readable from here: %v", err)
 	}
+	// This product is also read through personal API keys and the MCP server, so
+	// a field the screen ignores is not dead if the published contract describes
+	// it. What is dead is a field nobody renders and nobody documents.
+	contract, err := os.ReadFile("../../docs/openapi.yaml")
+	if err != nil {
+		t.Skipf("the API contract is not readable from here: %v", err)
+	}
+	documented := string(contract)
 
 	tag := regexp.MustCompile("`json:\"([A-Za-z0-9_]+)[,\"]")
 	unread := []string{}
@@ -190,14 +228,14 @@ func TestEveryResponseFieldIsRead(t *testing.T) {
 			if _, excused := allowed[field]; excused {
 				continue
 			}
-			if !strings.Contains(frontend, field) {
+			if !strings.Contains(frontend, field) && !strings.Contains(documented, field) {
 				unread = append(unread, field+" ("+name+")")
 			}
 		}
 	}
 	if len(unread) > 0 {
-		t.Errorf("응답에 실려 나가지만 화면이 이름조차 언급하지 않는 필드 %d건: %s\n"+
-			"버려지는 답이거나, 이유를 적어 allowed 에 넣어야 합니다.",
+		t.Errorf("응답에 실려 나가지만 화면도 그리지 않고 docs/openapi.yaml 도 적지 않는 필드 %d건: %s\n"+
+			"버려지는 답이거나, 화면이나 문서 중 한 곳에는 있어야 합니다.",
 			len(unread), strings.Join(unread, ", "))
 	}
 }

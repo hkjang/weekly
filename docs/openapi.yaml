@@ -1,8 +1,48 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.76.0
-  description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
+  version: 0.77.0
+  description: |
+    주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
+    PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
+
+    ## 화면이 쓰지 않는 응답 필드
+
+    이 제품은 화면 말고도 개인 API 키와 MCP 서버로 읽힙니다. 아래 필드들은 응답에
+    실려 나가지만 웹 화면이 그리지 않으므로, 연동하는 쪽에서는 이 문서 외에 존재를
+    알 방법이 없었습니다. 계산해서 내보내면서 어디에도 적지 않는 것은 버리는 것과
+    같습니다.
+
+    **수명 주기 시각** — 모두 RFC 3339이며 아직 그 단계에 이르지 않았으면 `null`입니다.
+
+    | 필드 | 응답 | 뜻 |
+    |---|---|---|
+    | `submittedAt` | 보고서 | 작성자가 제출한 시각 |
+    | `reviewedAt` | 보고서 | 검토자가 승인 또는 반려한 시각. 작성자가 내용을 고치면 다시 `null`이 됩니다 |
+    | `startedAt` / `completedAt` | Import 작업 | 분석이 시작·종료된 시각 |
+    | `analyzedAt` / `confirmedAt` | Import 파일 | AI 분석이 끝난 시각, 보고서로 확정된 시각 |
+    | `builtAt` | `/version` | 이미지 빌드 시각 |
+    | `generatedAt` | 기간 보고 | 이 응답을 계산한 시각. 기간 보고는 저장하지 않고 매번 다시 계산합니다 |
+
+    **기간 보고 인사이트** — `/rollups` 응답의 `insights` 안에 있습니다.
+
+    | 필드 | 뜻 |
+    |---|---|
+    | `continuingItems` | 둘 이상의 주에 걸쳐 보고된 업무 수 |
+    | `oneOffItems` | 한 주에만 나타난 업무 수 |
+    | `noLandingItems` | 진척은 있으나 끝날 주차를 추정할 수 없는 업무 수 |
+    | `sourceReports` / `sourceItems` | 이 집계가 읽은 원본 주간보고 수와 업무 항목 수 |
+    | `dedupRate` | 중복 제거로 줄어든 비율. `sourceItems` 대비 `duplicatesCut` |
+
+    **그 밖에**
+
+    | 필드 | 응답 | 뜻 |
+    |---|---|---|
+    | `periodEnd` | `periodOutlook` | 추정의 기준이 된 기간 말일. `kind`가 `NONE`이면 없습니다 |
+    | `overlapWeeks` | 협업 분석 | 두 사람이 같은 업무를 함께 보고한 주 수 |
+    | `latestIssue` | 업무 목록 | 그 업무에 가장 최근 기재된 이슈 문장 |
+    | `scannedCharacters` | 결정 제안 | 제안을 만들며 읽은 본문 글자 수. 0이면 읽을 것이 없었다는 뜻이며 제안 없음과 다릅니다 |
+    | `roles` | 관리자 사용자 | 부여된 역할 목록. 단일 역할일 때는 생략됩니다 |
 servers:
   - url: /api/v1
 security:

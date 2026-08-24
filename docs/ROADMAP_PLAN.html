@@ -769,6 +769,19 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
 <p>나머지 절반은 <code>p.Role == "USER"</code> 분기인데, 승인 라우트가 이미 <code>requireRole</code>로 USER를 막으므로 <strong>요청으로는 닿을 수 없는 방어선</strong>입니다. 100%를 요구하면 그 함수를 직접 부르는 테스트를 쓰게 되고, 그건 라우트가 아니라 함수를 시험하는 것입니다. 임계값을 내리고 그 이유를 주석으로 적었습니다 — 다음 사람이 "왜 여기만 100%가 아니지"를 다시 묻지 않도록.</p>
 <table><thead><tr><th></th><th>v0.75.0</th><th>v0.76.0</th></tr></thead><tbody><tr><td>구문 커버리지</td><td>45.6%</td><td>46.7%</td></tr><tr><td>커버리지 0%인 함수</td><td>214개</td><td>207개</td></tr><tr><td>가드</td><td>34개</td><td>39개</td></tr></tbody></table>
 <p>원칙으로 남깁니다. <strong>모든 규칙에 100%를 요구하면 규칙이 아니라 함수를 시험하게 됩니다.</strong> 요구를 낮출 때는 낮춘 이유를 남깁니다.</p>
+<p>#### 3.10.31 v0.77.0에서 완료 — 이름을 언급하기만 하면 통과하던 가드</p>
+<p>Import 확정 경로를 보러 갔다가 다른 것을 찾았습니다.</p>
+<p>확정은 <code>WHERE user_id=$1</code>로 <strong>자기 보고서만</strong> 건드립니다. 남의 주간보고를 교체하거나 병합할 수 없습니다. 여기까지는 안전한데, 눈에 걸린 것이 하나 있었습니다 — REPLACE가 승인된 보고서의 내용을 통째로 바꾸면서 <code>reviewed_by</code>는 지우지 않습니다. v0.76에서 확인한 "승인이 내용보다 오래 살지 않는다"와 어긋납니다.</p>
+<p>그래서 <code>reviewed_by</code>가 화면에 나오는지 봤습니다. <strong>어디에도 안 나옵니다.</strong> 그런데 이 프로젝트에는 v0.65부터 *"응답에 실려 나가지만 화면이 읽지 않는 필드"*를 잡는 가드가 있습니다. 왜 못 잡았는지 보니, 가드가 이렇게 되어 있었습니다.</p>
+<div class="phase-box">if !strings.Contains(frontend, field) { … }</div>
+<p><strong>프런트엔드 어딘가에 그 이름이 들어 있으면 통과합니다.</strong> <code>types.ts</code>의 타입 선언만으로 충분합니다. v0.64에서 CSS 클래스 이름이 도달성 조건을 만족시킨 것과 같은 모양입니다.</p>
+<p>세어 봤습니다. 응답 필드 335개 중 <strong>26개가 <code>types.ts</code>에만 있고 화면 코드 어디에서도 쓰이지 않습니다.</strong></p>
+<p><strong>그런데 화면이 안 쓰는 것이 곧 죽은 것은 아닙니다.</strong> 이 제품은 개인 API 키와 MCP 서버로도 읽힙니다. 26개 중 7개는 <code>docs/openapi.yaml</code> 산문에 설명이 있었습니다 — 화면 대신 연동하는 쪽이 소비합니다. 즉 옳은 기준은 "화면이 읽는가"가 아니라 <strong>"화면이 그리거나 문서가 적는가"</strong>입니다.</p>
+<p>그 기준으로 다시 세니 <strong>19개가 어디에도 없습니다.</strong> 계산해서 網선으로 내보내는데, 그리지도 적지도 않습니다. 연동하는 사람은 존재 자체를 알 방법이 없습니다.</p>
+<table><thead><tr><th>무리</th><th>필드</th></tr></thead><tbody><tr><td>수명 주기 시각</td><td><code>submittedAt</code> <code>reviewedAt</code> <code>startedAt</code> <code>completedAt</code> <code>analyzedAt</code> <code>confirmedAt</code> <code>builtAt</code> <code>generatedAt</code></td></tr><tr><td>기간 보고 인사이트</td><td><code>continuingItems</code> <code>oneOffItems</code> <code>noLandingItems</code> <code>sourceReports</code> <code>sourceItems</code> <code>dedupRate</code></td></tr><tr><td>그 밖</td><td><code>periodEnd</code> <code>overlapWeeks</code> <code>latestIssue</code> <code>scannedCharacters</code> <code>roles</code></td></tr></tbody></table>
+<p>쓰레기가 아니라 <strong>문서화되지 않은 API 표면</strong>입니다. 전부 <code>docs/openapi.yaml</code>에 뜻과 함께 적었고, 가드는 <code>types.ts</code>를 빼고 보되 문서를 함께 보도록 고쳤습니다.</p>
+<p>되돌려서 확인했습니다. 문서에서 인사이트 여섯 줄을 지우면 새 가드가 실패합니다. 그리고 <strong>옛 가드로 되돌리면 문서를 통째로 지워도 통과합니다</strong> — 19개를 애초에 잡을 수 없었다는 증거입니다.</p>
+<p>원칙으로 남깁니다. <strong>"어딘가에 그 이름이 있다"는 사용의 증거가 아닙니다.</strong> 그리고 소비자가 화면 하나뿐이라고 가정하면, API를 가진 제품에서는 살아 있는 것을 죽었다고 부르게 됩니다.</p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>
