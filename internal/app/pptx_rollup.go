@@ -49,6 +49,9 @@ func buildRollupDeck(view rollupView) ([]byte, error) {
 	slides = append(slides, detailSlides(view)...)
 	// Decisions before risk: the period explains itself, then asks. A deck that
 	// ends on the ask is one the room can act on.
+	if asks := askSlide(view); asks != nil {
+		slides = append(slides, *asks)
+	}
 	if decisions := decisionSlide(view); decisions != nil {
 		slides = append(slides, *decisions)
 	}
@@ -556,3 +559,60 @@ func decisionDeckStatus(status string) (string, string) {
 		return "대체됨", "64748B"
 	}
 }
+
+// askSlide lists what the authors said the reporting line has to decide or
+// supply.
+//
+// ManagementAsk is deliberately separate from Issue — an issue states what is
+// wrong, an ask states what somebody above has to do about it — and it reached
+// the CSV, the meeting agenda and the handover note while appearing in neither
+// deck. The decks are what management reads. This one's own assembly comment
+// says a deck should end on the ask; until now the ask it ended on was a list
+// this product inferred, not the sentence somebody wrote.
+func askSlide(view rollupView) *builtSlide {
+	rows := [][]tableCell{}
+	remaining := 0
+	for _, item := range view.Items {
+		ask := firstLine(item.ManagementAsk)
+		if ask == "" {
+			continue
+		}
+		if len(rows) == askSlideRows {
+			remaining++
+			continue
+		}
+		owner := ""
+		if len(item.Owners) > 0 {
+			owner = item.Owners[0]
+			if len(item.Owners) > 1 {
+				owner += fmt.Sprintf(" 외 %d명", len(item.Owners)-1)
+			}
+		}
+		rows = append(rows, []tableCell{
+			{Text: trimRunes(item.Title, 26)},
+			{Text: trimRunes(owner, 14), Align: "ctr", Color: "475569"},
+			{Text: trimRunes(ask, 52), Color: "7C2D12"},
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	columns := []tableColumn{
+		{Width: 3000000, Title: "업무"},
+		{Width: 1600000, Title: "담당"},
+		{Width: 6632000, Title: "요청·결정 필요 사항"},
+	}
+	note := "작성자가 상위 조직의 결정이나 지원이 필요하다고 적은 내용입니다."
+	if remaining > 0 {
+		// Saying how many did not fit beats letting them fall off the page.
+		note += fmt.Sprintf(" 이 장에 담지 못한 요청이 %d건 더 있습니다.", remaining)
+	}
+	shapes := rollupHeader(2, "상위 조직 요청 · 결정 필요", "")
+	shapes += textBox(4, "AskNote", rollupMargin, 940000, rollupContentWidth, 260000, shapeStyle{},
+		[]textRun{{Text: note, Size: 950, Color: "64748B"}})
+	shapes += tableShape(6, "AskTable", rollupMargin, rollupContentTop+90000, rollupContentWidth, 400000, columns, rows)
+	shapes += rollupFooter(8, view.Label+" · "+view.ScopeLabel, "")
+	return &builtSlide{Shapes: shapes}
+}
+
+const askSlideRows = 11

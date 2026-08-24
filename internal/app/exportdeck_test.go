@@ -122,7 +122,7 @@ func TestTheExportedDeckIsAFileWithTheReportInIt(t *testing.T) {
 	}
 }
 
-// guards: issueSlide=100
+// guards: issueSlide
 //
 // The page appears only when there is something to put on it, and says so when
 // there is more than fits.
@@ -298,4 +298,110 @@ func visibleText(xml string) string {
 		}
 	}
 	return strings.Join(strings.Fields(out.String()), " ")
+}
+
+// guards: issueSlide, askRuns
+//
+// Not =100: the last uncovered branch in each is the fallback for an item with
+// no title at all, which the editor does not allow. Writing a case for it would
+// be a test about the function rather than about the rule.
+//
+// ManagementAsk is "what the reporting line must decide or supply" — the most
+// management-facing field the product has. It reached the CSV, the meeting
+// agenda and the handover note, and neither deck. The decks are what management
+// reads.
+func TestTheAskReachesTheDeckAndStaysApartFromTheIssue(t *testing.T) {
+	width, height := 12192000, 6858000
+
+	onlyIssue, has := issueSlide([]reportItem{{Title: "회선 이설", Issue: "임대 일정 지연"}}, width, height)
+	if !has {
+		t.Fatal("an issue alone produced no page")
+	}
+	if !strings.Contains(onlyIssue.Shapes, "이슈 및 애로사항") {
+		t.Errorf("a page with only issues is not titled for them")
+	}
+	if strings.Contains(onlyIssue.Shapes, "상위 조직 요청") {
+		t.Errorf("a page with no asks carries the ask heading anyway")
+	}
+
+	onlyAsk, has := issueSlide([]reportItem{{Title: "예산 배정", ManagementAsk: "3분기 예산 승인 필요"}}, width, height)
+	if !has {
+		t.Fatal("an ask alone produced no page")
+	}
+	if !strings.Contains(onlyAsk.Shapes, "3분기 예산 승인 필요") {
+		t.Errorf("the ask text is not on the page")
+	}
+	if !strings.Contains(onlyAsk.Shapes, "상위 조직 요청") {
+		t.Errorf("a page with only asks is not titled for them")
+	}
+
+	both, has := issueSlide([]reportItem{
+		{Category: "인프라", Title: "회선 이설", Issue: "임대 일정 지연", ManagementAsk: "사업부 예산 승인"},
+	}, width, height)
+	if !has {
+		t.Fatal("an item with both produced no page")
+	}
+	// The distinction the editor asks the author to make has to survive the
+	// export: merging the two would lose exactly what makes them different.
+	for _, phrase := range []string{"이슈 및 요청 사항", "이슈 · 애로사항", "임대 일정 지연", "상위 조직 요청 · 결정 필요", "사업부 예산 승인"} {
+		if !strings.Contains(both.Shapes, phrase) {
+			t.Errorf("the page does not carry %q", phrase)
+		}
+	}
+
+	// More asks than the block holds. What is missing is stated rather than
+	// falling off the bottom of the page.
+	many := make([]reportItem, 0, 20)
+	for index := 0; index < 20; index++ {
+		many = append(many, reportItem{Category: "운영", Title: fmt.Sprintf("업무 %d", index+1),
+			ManagementAsk: fmt.Sprintf("요청 %d 상세 내용", index+1)})
+	}
+	crowded, has := issueSlide(many, width, height)
+	if !has {
+		t.Fatal("twenty asks produced no page")
+	}
+	if !strings.Contains(crowded.Shapes, "담지 못한 요청") {
+		t.Error("a block that could not fit every ask says nothing about the rest")
+	}
+}
+
+// guards: askSlide=100
+//
+// The period deck's own assembly comment says it should end on the ask. Until
+// now the ask it ended on was a risk list this product inferred, not the
+// sentence somebody wrote.
+func TestThePeriodDeckCarriesWhatTheAuthorsAskedFor(t *testing.T) {
+	if askSlide(rollupView{Items: []rollupItem{{Title: "요청 없는 업무"}}}) != nil {
+		t.Error("a period with no asks produced an ask slide")
+	}
+
+	slide := askSlide(rollupView{
+		Label: "2026-08", ScopeLabel: "팀",
+		Items: []rollupItem{
+			{Title: "예산 배정", Owners: []string{"김담당", "이담당"}, ManagementAsk: "3분기 예산 승인 필요"},
+			{Title: "회선 이설", Owners: []string{"박담당"}, ManagementAsk: "통신사 계약 변경 승인"},
+		},
+	})
+	if slide == nil {
+		t.Fatal("two asks produced no slide")
+	}
+	for _, phrase := range []string{"상위 조직 요청 · 결정 필요", "3분기 예산 승인 필요", "통신사 계약 변경 승인", "김담당 외 1명", "박담당"} {
+		if !strings.Contains(slide.Shapes, phrase) {
+			t.Errorf("the slide does not carry %q", phrase)
+		}
+	}
+
+	// More asks than the table holds: the count of what is missing is stated.
+	many := make([]rollupItem, 0, 20)
+	for index := 0; index < 20; index++ {
+		many = append(many, rollupItem{Title: fmt.Sprintf("업무 %d", index+1),
+			ManagementAsk: fmt.Sprintf("요청 %d", index+1)})
+	}
+	crowded := askSlide(rollupView{Items: many})
+	if crowded == nil {
+		t.Fatal("twenty asks produced no slide")
+	}
+	if !strings.Contains(crowded.Shapes, "담지 못한 요청") {
+		t.Error("a table that could not fit every ask says nothing about the rest")
+	}
 }
