@@ -258,10 +258,15 @@ export default function WorkItemsPage({ session, notify }: {
         {found && <button className="button secondary" type="button"
           onClick={() => { setFound(undefined); setQuery('') }}>지우기</button>}
       </form>
+      {/* "찾지 못했습니다" claims a search happened. When the meaning-based pass
+          could not run, say which kind of nothing this is. */}
       {found && (found.hits.length === 0
-        ? <Empty>비슷한 과거 업무를 찾지 못했습니다.</Empty>
+        ? <Empty>{found.semanticReason
+            ? `글자가 일치하는 업무가 없습니다. ${found.semanticReason}`
+            : '비슷한 과거 업무를 찾지 못했습니다.'}</Empty>
         : <ul className="work-search-results">
             {found.semantic && <li className="muted work-search-note">표현이 달라도 내용이 가까운 업무를 함께 찾았습니다.</li>}
+            {!found.semantic && found.semanticReason && <li className="muted work-search-note">{found.semanticReason}</li>}
             {found.hits.map(hit => <li key={hit.workItemId}>
               <div className="work-search-head">
                 <strong>{hit.title}</strong>

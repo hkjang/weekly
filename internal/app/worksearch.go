@@ -45,6 +45,11 @@ type workSearchResponse struct {
 	Terms    []string        `json:"terms"`
 	Semantic bool            `json:"semantic"`
 	Hits     []workSearchHit `json:"hits"`
+	// SemanticReason says why the meaning-based pass did not run, when it did
+	// not. Without it "비슷한 과거 업무를 찾지 못했습니다" is the same sentence
+	// whether the search looked and found nothing or never looked at all, and
+	// only one of those is something an administrator can change.
+	SemanticReason string `json:"semanticReason,omitempty"`
 }
 
 // searchableText is everything the task ever reported, lowercased once.
@@ -166,10 +171,17 @@ func (a *App) searchWorkItems(w http.ResponseWriter, r *http.Request) {
 	// Paraphrase is exactly what a literal scan cannot do, so the semantic pass
 	// runs whenever it is available rather than only on thin results.
 	semantic := false
-	if a.capabilities.Vector {
+	semanticReason := ""
+	if !a.capabilities.Vector {
+		semanticReason = "이 데이터베이스에 pgvector 확장이 없어 글자 일치로만 찾았습니다."
+	} else if _, cfgErr := a.embeddingConfig(r.Context()); cfgErr != nil {
+		semanticReason = "임베딩이 설정되지 않아 글자 일치로만 찾았습니다. 관리자 설정에서 임베딩을 활성화하면 표현이 달라도 찾습니다."
+	}
+	if a.capabilities.Vector && semanticReason == "" {
 		matches, semanticErr := a.semanticWorkItems(r, query, items)
 		if semanticErr != nil {
 			a.logger.Warn("semantic work search", "error", semanticErr, "trace", traceIDFromContext(r.Context()))
+			semanticReason = "의미 검색이 실패해 글자 일치 결과만 보여 줍니다. 서버 로그에서 원인을 확인하세요."
 		} else {
 			for id, similarity := range matches {
 				if existing := byID[id]; existing != nil {
@@ -212,7 +224,7 @@ func (a *App) searchWorkItems(w http.ResponseWriter, r *http.Request) {
 	if len(hits) > workSearchLimit {
 		hits = hits[:workSearchLimit]
 	}
-	writeData(w, http.StatusOK, workSearchResponse{Query: query, Terms: terms, Semantic: semantic, Hits: hits})
+	writeData(w, http.StatusOK, workSearchResponse{Query: query, Terms: terms, Semantic: semantic, SemanticReason: semanticReason, Hits: hits})
 }
 
 // describeWorkHit says what this past task offers the person searching.

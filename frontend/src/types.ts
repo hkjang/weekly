@@ -279,7 +279,7 @@ export interface WorkSearchHit extends WorkRef {
   score: number; semantic: boolean; ageWeeks: number; issueWeeks: number; resolved: boolean
   matched: string[]; issue: string; resolution: string; why: string
 }
-export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; hits: WorkSearchHit[] }
+export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; semanticReason?: string; hits: WorkSearchHit[] }
 
 export interface HandoverIssue { week: string; text: string; resolved: boolean }
 export interface ImportJobListView { items: ImportJob[]; total: number; limit: number; offset: number }
