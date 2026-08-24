@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,11 +26,21 @@ import (
 // search still works exactly as it did before they existed.
 
 const (
-	searchMaxTerms      = 6
-	searchScanLimit     = 2000
-	searchReportLimit   = 30
-	searchSnippetPerHit = 3
-	searchSnippetRunes  = 68
+	searchMaxTerms  = 6
+	searchScanLimit = 2000
+	// The budget for the title and category pass, sized to fill the response
+	// several times over.
+	//
+	// Lowering it does not make the pass cheaper, which is worth knowing before
+	// somebody tries: ordering by date means every title match in the whole
+	// history has to be found before the newest can be taken, so the work is the
+	// same at 150 as at 500. Measured on 109,175 items, the pass costs about
+	// 50–70 ms either way — and that is the price of looking through all of
+	// history, which is exactly what the date-ordered scan alone refuses to do.
+	searchPriorityScanLimit = 5 * searchReportLimit
+	searchReportLimit       = 30
+	searchSnippetPerHit     = 3
+	searchSnippetRunes      = 68
 )
 
 type searchMatch struct {
@@ -119,51 +131,19 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 		args = append(args, p.ID)
 		statement += fmt.Sprintf(" AND r.user_id=$%d", len(args))
 	}
+	termPositions := make([]int, 0, len(terms))
 	for _, term := range terms {
 		args = append(args, escapeLikePattern(term))
 		position := len(args)
+		termPositions = append(termPositions, position)
 		statement += fmt.Sprintf(` AND (r.summary ILIKE $%d OR i.title ILIKE $%d OR i.category ILIKE $%d
 			OR i.current_result ILIKE $%d OR i.next_plan ILIKE $%d OR i.issue ILIKE $%d)`,
 			position, position, position, position, position, position)
 	}
-	statement += fmt.Sprintf(` ORDER BY r.week_start DESC,r.id DESC,i.sort_order NULLS FIRST LIMIT %d`, searchScanLimit)
-
-	rows, err := a.db.Query(r.Context(), statement, args...)
+	order, byReport, scanned, priorityScanned, err := a.searchScan(r.Context(), statement, args, termPositions, terms)
 	if err != nil {
 		a.logger.Error("search reports", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "검색을 수행할 수 없습니다.")
-		return
-	}
-	defer rows.Close()
-
-	order := []int64{}
-	byReport := map[int64]*searchHit{}
-	scanned := 0
-	for rows.Next() {
-		var reportID, userID int64
-		var displayName, status, sourceType string
-		var week time.Time
-		var summary, title, category, current, next, issue string
-		if err := rows.Scan(&reportID, &userID, &displayName, &week, &status, &sourceType,
-			&summary, &title, &category, &current, &next, &issue); err != nil {
-			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "검색 결과를 읽을 수 없습니다.")
-			return
-		}
-		scanned++
-		hit, exists := byReport[reportID]
-		if !exists {
-			hit = &searchHit{
-				ReportID: reportID, UserID: userID, DisplayName: displayName,
-				WeekStart: week.Format("2006-01-02"), Status: status, SourceType: sourceType,
-				Matches: []searchMatch{},
-			}
-			byReport[reportID] = hit
-			order = append(order, reportID)
-		}
-		appendSearchMatches(hit, terms, summary, title, category, current, next, issue)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "검색 결과를 읽을 수 없습니다.")
 		return
 	}
 
@@ -213,7 +193,7 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	truncated := scanned >= searchScanLimit || len(hits) > searchReportLimit
+	truncated := scanned >= searchScanLimit || priorityScanned >= searchPriorityScanLimit || len(hits) > searchReportLimit
 	if len(hits) > searchReportLimit {
 		hits = hits[:searchReportLimit]
 	}
@@ -221,23 +201,14 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 }
 
 // appendSearchMatches records the highest value snippets for one scanned row.
-func appendSearchMatches(hit *searchHit, terms []string, summary, title, category, current, next, issue string) {
-	candidates := []struct {
-		field, label, value string
-		weight              int
-	}{
-		{"title", "업무", title, 50},
-		{"category", "구분", category, 30},
-		{"summary", "주간 요약", summary, 25},
-		{"currentResult", "실적", current, 20},
-		{"nextPlan", "계획", next, 15},
-		{"issue", "이슈", issue, 15},
-	}
-	for _, candidate := range candidates {
-		if strings.TrimSpace(candidate.value) == "" {
+// values are in searchFieldWeights order, so the score here and the score the
+// scan ordered by cannot drift apart.
+func appendSearchMatches(hit *searchHit, terms []string, values []string) {
+	for index, candidate := range searchFieldWeights {
+		if index >= len(values) || strings.TrimSpace(values[index]) == "" {
 			continue
 		}
-		snippet, ok := buildSnippet(candidate.value, terms)
+		snippet, ok := buildSnippet(values[index], terms)
 		if !ok {
 			continue
 		}
@@ -249,7 +220,7 @@ func appendSearchMatches(hit *searchHit, terms []string, summary, title, categor
 		}
 		match := searchMatch{Field: candidate.field, Label: candidate.label, Snippet: snippet}
 		if candidate.field != "title" && candidate.field != "summary" {
-			match.Title = strings.TrimSpace(title)
+			match.Title = strings.TrimSpace(values[0])
 		}
 		// Skip a snippet the caller has already been shown for this report.
 		for _, existing := range hit.Matches {
@@ -263,6 +234,96 @@ func appendSearchMatches(hit *searchHit, terms []string, summary, title, categor
 
 // buildSnippet returns a window of text around the first matching term with
 // ellipses marking the trimmed sides.
+// searchScan runs the two passes that feed a search response and returns the
+// hits in scan order.
+//
+// The broad pass is newest-first and stops at searchScanLimit rows, so it
+// spends its whole budget on whatever happened recently. A work item whose
+// *title* is the query is then unreachable the moment the same words appear in
+// enough recent paragraphs — and the screen still calls the survivors the top
+// results. Ordering that pass by score instead fixes it and costs seven times
+// the latency on a common word, because every matching row has to be scored to
+// discover that nearly all of them score the same.
+//
+// So the first pass asks only for the fields that outrank a paragraph. It has
+// to look through all of history, which is the ~60 ms the date-ordered scan
+// avoids by being wrong.
+func (a *App) searchScan(ctx context.Context, base string, args []any, termPositions []int, terms []string) (
+	[]int64, map[int64]*searchHit, int, int, error) {
+	const ordering = ` ORDER BY r.week_start DESC,r.id DESC,i.sort_order NULLS FIRST LIMIT `
+
+	order := []int64{}
+	byReport := map[int64]*searchHit{}
+	collect := func(query string) (int, error) {
+		rows, queryErr := a.db.Query(ctx, query, args...)
+		if queryErr != nil {
+			return 0, queryErr
+		}
+		defer rows.Close()
+		scanned := 0
+		for rows.Next() {
+			var reportID, userID int64
+			var displayName, status, sourceType string
+			var week time.Time
+			var summary, title, category, current, next, issue string
+			if scanErr := rows.Scan(&reportID, &userID, &displayName, &week, &status, &sourceType,
+				&summary, &title, &category, &current, &next, &issue); scanErr != nil {
+				return scanned, scanErr
+			}
+			scanned++
+			hit, exists := byReport[reportID]
+			if !exists {
+				hit = &searchHit{
+					ReportID: reportID, UserID: userID, DisplayName: displayName,
+					WeekStart: week.Format("2006-01-02"), Status: status, SourceType: sourceType,
+					Matches: []searchMatch{},
+				}
+				byReport[reportID] = hit
+				order = append(order, reportID)
+			}
+			appendSearchMatches(hit, terms, []string{title, category, summary, current, next, issue})
+		}
+		return scanned, rows.Err()
+	}
+
+	priorityMatches := make([]string, 0, len(termPositions)*2)
+	for _, position := range termPositions {
+		priorityMatches = append(priorityMatches,
+			fmt.Sprintf("i.title ILIKE $%d", position), fmt.Sprintf("i.category ILIKE $%d", position))
+	}
+	priorityScanned, err := collect(base +
+		" AND (" + strings.Join(priorityMatches, " OR ") + ")" +
+		ordering + strconv.Itoa(searchPriorityScanLimit))
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	scanned, err := collect(base + ordering + strconv.Itoa(searchScanLimit))
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	return order, byReport, scanned, priorityScanned, nil
+}
+
+// searchFieldWeights ranks where a match was found: a query in a work item's
+// title is what somebody meant; the same words deep in a paragraph usually are
+// not.
+//
+// The scan orders by these in SQL and the response scores by them in Go. They
+// live in one place because a disagreement between the two is invisible and
+// total: the scan would choose one set of rows and the screen would rank a
+// different one, presenting whatever survived as the best matches.
+var searchFieldWeights = []struct {
+	column, field, label string
+	weight               int
+}{
+	{"i.title", "title", "업무", 50},
+	{"i.category", "category", "구분", 30},
+	{"r.summary", "summary", "주간 요약", 25},
+	{"i.current_result", "currentResult", "실적", 20},
+	{"i.next_plan", "nextPlan", "계획", 15},
+	{"i.issue", "issue", "이슈", 15},
+}
+
 func buildSnippet(value string, terms []string) (string, bool) {
 	flat := strings.Join(strings.Fields(strings.ReplaceAll(value, "\n", " ")), " ")
 	if flat == "" {

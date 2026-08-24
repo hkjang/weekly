@@ -76,8 +76,9 @@ func TestBuildSnippetIsCaseInsensitiveAndReportsMisses(t *testing.T) {
 
 func TestAppendSearchMatchesRanksTitleHighest(t *testing.T) {
 	hit := &searchHit{Matches: []searchMatch{}}
-	appendSearchMatches(hit, []string{"게이트웨이"},
-		"주간 요약에는 없음", "AI 게이트웨이 구축", "플랫폼", "게이트웨이 성능 시험", "", "")
+	// searchFieldWeights order: title, category, summary, currentResult, nextPlan, issue.
+	appendSearchMatches(hit, []string{"게이트웨이"}, []string{
+		"AI 게이트웨이 구축", "플랫폼", "주간 요약에는 없음", "게이트웨이 성능 시험", "", ""})
 	if hit.Score != 50 {
 		t.Errorf("score = %d, want the title weight 50", hit.Score)
 	}
@@ -101,8 +102,8 @@ func TestAppendSearchMatchesRanksTitleHighest(t *testing.T) {
 
 func TestAppendSearchMatchesCapsSnippetsPerReport(t *testing.T) {
 	hit := &searchHit{Matches: []searchMatch{}}
-	appendSearchMatches(hit, []string{"공통"},
-		"공통 요약", "공통 업무", "공통 구분", "공통 실적", "공통 계획", "공통 이슈")
+	appendSearchMatches(hit, []string{"공통"}, []string{
+		"공통 업무", "공통 구분", "공통 요약", "공통 실적", "공통 계획", "공통 이슈"})
 	if len(hit.Matches) > searchSnippetPerHit {
 		t.Errorf("collected %d snippets, want at most %d", len(hit.Matches), searchSnippetPerHit)
 	}
