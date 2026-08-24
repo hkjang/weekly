@@ -511,6 +511,39 @@ func validateAIResult(result *aiWeeklyResult, contexts ...aiValidationContext) e
 	return nil
 }
 
+// uncoveredSlideListLimit caps how many slide numbers one warning spells out.
+// The count stays exact and only the list is shortened, so the warning can
+// never say that less went unreported than did.
+const uncoveredSlideListLimit = 20
+
+func uncoveredContentSlides(content map[int]bool, items []aiReportItem) []int {
+	if len(content) == 0 {
+		return nil
+	}
+	cited := make(map[int]bool, len(items))
+	for _, item := range items {
+		for _, slide := range item.SourceSlides {
+			cited[slide] = true
+		}
+	}
+	uncovered := make([]int, 0, len(content))
+	for slide := range content {
+		if !cited[slide] {
+			uncovered = append(uncovered, slide)
+		}
+	}
+	sort.Ints(uncovered)
+	return uncovered
+}
+
+func unreportedSlideWarning(uncovered []int) string {
+	if len(uncovered) <= uncoveredSlideListLimit {
+		return fmt.Sprintf("내용이 있는 슬라이드 %s번이 어느 업무 항목의 근거로도 쓰이지 않았습니다. 빠진 업무가 없는지 원본과 대조하세요.", joinImportSlideNumbers(uncovered))
+	}
+	return fmt.Sprintf("내용이 있는 슬라이드 %d장이 어느 업무 항목의 근거로도 쓰이지 않았습니다(%s번 외 %d장). 빠진 업무가 없는지 원본과 대조하세요.",
+		len(uncovered), joinImportSlideNumbers(uncovered[:uncoveredSlideListLimit]), len(uncovered)-uncoveredSlideListLimit)
+}
+
 func aiReportItemKey(category, title string) string {
 	category = strings.ToLower(strings.Join(strings.Fields(category), " "))
 	title = strings.ToLower(strings.Join(strings.Fields(title), " "))
@@ -565,6 +598,43 @@ func uniqueNonEmptyStrings(values []string) []string {
 }
 
 var pptxSlideHeadingPattern = regexp.MustCompile(`(?m)^=== SLIDE ([1-9][0-9]*)(?: \([^\r\n)]*\))? ===\s*$`)
+
+// pptxStructuralLinePattern matches the scaffolding normalizeExtractedSlides
+// writes around real text. A slide made only of these carried nothing.
+var pptxStructuralLinePattern = regexp.MustCompile(`^\[(?:SHAPE|TABLE|ROW|COL)\b[^\]]*\]$|^\[EMPTY\]$`)
+
+// pptxSlidesWithContent reports which input slides carry text a person could
+// have written a work item from. A truncation notice counts as content: that
+// slide had more than we sent, not less.
+func pptxSlidesWithContent(input string) map[int]bool {
+	result := map[int]bool{}
+	matches := pptxSlideHeadingPattern.FindAllStringSubmatchIndex(input, -1)
+	for index, match := range matches {
+		number, err := strconv.Atoi(input[match[2]:match[3]])
+		if err != nil || number <= 0 {
+			continue
+		}
+		end := len(input)
+		if index+1 < len(matches) {
+			end = matches[index+1][0]
+		}
+		if slideBodyHasText(input[match[1]:end]) {
+			result[number] = true
+		}
+	}
+	return result
+}
+
+func slideBodyHasText(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || pptxStructuralLinePattern.MatchString(line) {
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 func pptxSourceSlides(input string) map[int]bool {
 	result := map[int]bool{}

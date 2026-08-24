@@ -896,6 +896,21 @@ func finalizeImportedAIResult(result *aiWeeklyResult, detected detectedWeek, ext
 		result.Warnings = append(result.Warnings, fmt.Sprintf("AI 입력 한도로 슬라이드 %s의 일부 내용이 생략되었습니다. 원본과 대조하세요.", joinImportSlideNumbers(extracted.TruncatedSlides)))
 		decision.Status = "NEEDS_REVIEW"
 	}
+	// Everything else here checks what came back. This checks what did not: a
+	// slide carrying text that no item cites is either a slide with no work on
+	// it — a divider, a closing page — or work that vanished between the deck
+	// and the draft. Only a person looking at the original can tell those apart,
+	// and silence reads as the harmless one.
+	//
+	// It downgrades to NEEDS_REVIEW for the same reason truncation just above
+	// does. Losing part of one slide already earns a second look here; losing a
+	// whole slide is the heavier version of that, so it cannot earn less. The
+	// cost is that a deck ending in a "감사합니다" page asks for a click it does
+	// not need. With real decks to measure, that is the thing to refine.
+	if uncovered := uncoveredContentSlides(pptxSlidesWithContent(extracted.Normalized), result.ReportItems); len(uncovered) > 0 {
+		result.Warnings = append(result.Warnings, unreportedSlideWarning(uncovered))
+		decision.Status = "NEEDS_REVIEW"
+	}
 	if decision.WeekStart.IsZero() {
 		result.Warnings = append(result.Warnings, "보고 주차를 확인하지 못했습니다. 확정 전에 날짜를 입력하세요.")
 		decision.Status = "NEEDS_REVIEW"
