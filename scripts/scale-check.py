@@ -149,6 +149,8 @@ def main() -> int:
                         help="calls per endpoint; one call cannot show instability")
     parser.add_argument("--max-bytes", type=int, default=2_000_000)
     parser.add_argument("--max-ms", type=int, default=3000)
+    parser.add_argument("--settle", type=int, default=90,
+                        help="seconds to wait for the deployment to stop changing before measuring (0 to skip)")
     args = parser.parse_args()
 
     opener = urllib.request.build_opener(
@@ -172,7 +174,34 @@ def main() -> int:
         print(f"로그인 실패 {status}: {body[:200].decode('utf-8', 'replace')}", file=sys.stderr)
         return 2
 
+    # Wait for the deployment to stop moving before measuring it.
+    #
+    # A freshly started service backfills work item links over every stored
+    # report, and while that runs the derived lists genuinely change between
+    # calls. Measuring then reports "호출마다 다름" for an endpoint that is
+    # perfectly stable ten minutes later. That happened twice in one sitting,
+    # and a tool that reports a defect which is not there is worse than one that
+    # says nothing — it spends somebody's afternoon.
     findings, complete = [], []
+    settle_path = "/api/v1/work-items?scope=TEAM&limit=1"
+    if args.settle > 0:
+        deadline = time.time() + args.settle
+        previous, settled = None, False
+        while time.time() < deadline:
+            status, body, _ = call("GET", settle_path)
+            if status != 200:
+                break
+            current = normalise(body)
+            if previous is not None and current == previous:
+                settled = True
+                break
+            previous = current
+            time.sleep(3)
+        if not settled and status == 200:
+            print(f"아직 안정되지 않았습니다: {args.settle}초 동안 {settle_path} 의 답이 계속 바뀝니다.\n"
+                  f"기동 직후라면 적재가 끝나기를 기다리십시오. 계속 진행하지만 아래 결과는 움직이는 대상을 잰 것입니다.\n",
+                  file=sys.stderr)
+
     print(f"{'상태':>4} {'크기':>12} {'지연':>9}  경로")
     for template in PATHS:
         path = template.format(year=args.year)

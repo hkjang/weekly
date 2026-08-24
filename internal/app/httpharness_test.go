@@ -122,10 +122,20 @@ func (s *testServer) request(method, path string, body any, cookie *http.Cookie)
 
 // createOrganization adds an organisation and returns its id.
 func (s *testServer) createOrganization(name, code string) int64 {
+	return s.createChildOrganization(name, code, nil)
+}
+
+// createChildOrganization hangs an organisation under another, which is how a
+// real deployment is shaped and how the visibility predicate's recursive lookup
+// gets more than one level to walk.
+func (s *testServer) createChildOrganization(name, code string, parent *int64) int64 {
 	s.t.Helper()
 	unique := fmt.Sprintf("%s%d", code, harnessAccounts.Add(1))
-	w := s.request(http.MethodPost, "/api/v1/admin/organizations",
-		map[string]any{"name": name, "code": unique}, s.admin)
+	body := map[string]any{"name": name, "code": unique}
+	if parent != nil {
+		body["parentId"] = *parent
+	}
+	w := s.request(http.MethodPost, "/api/v1/admin/organizations", body, s.admin)
 	if w.Code != http.StatusOK && w.Code != http.StatusCreated {
 		s.t.Fatalf("create organisation %s: %d %s", unique, w.Code, w.Body.String())
 	}

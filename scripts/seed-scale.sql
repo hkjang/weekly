@@ -26,18 +26,39 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO organizations(name, code, parent_id)
-SELECT '본부 ' || g, 'HQ' || g, NULL FROM generate_series(1, 8) g;
+-- Four levels, not two.
+--
+-- The visibility predicate walks this tree with a recursive lookup, and the
+-- earlier fixture was a root plus one row of children — so every scale run
+-- exercised exactly one hop and "a manager sees the whole subtree beneath them"
+-- was never measured at the shape a real deployment has
+-- (회사 → 본부 → 실 → 팀).
+INSERT INTO organizations(name, code, parent_id) VALUES ('회사', 'CORP', NULL);
 
 INSERT INTO organizations(name, code, parent_id)
-SELECT '팀 ' || g, 'TM' || g, (SELECT id FROM organizations WHERE code = 'HQ' || (1 + (g % 8)))
+SELECT '본부 ' || g, 'HQ' || g, (SELECT id FROM organizations WHERE code = 'CORP')
+FROM generate_series(1, 4) g;
+
+INSERT INTO organizations(name, code, parent_id)
+SELECT '실 ' || g, 'OF' || g, (SELECT id FROM organizations WHERE code = 'HQ' || (1 + (g % 4)))
+FROM generate_series(1, 8) g;
+
+INSERT INTO organizations(name, code, parent_id)
+SELECT '팀 ' || g, 'TM' || g, (SELECT id FROM organizations WHERE code = 'OF' || (1 + (g % 8)))
 FROM generate_series(1, 32) g;
 
+-- Leaders sit at every level, so a scale run has somebody whose scope is one
+-- team and somebody whose scope is a quarter of the company.
 INSERT INTO users(username, display_name, role, organization_id)
 SELECT 'u' || g, '사용자 ' || g,
        CASE WHEN g % 25 = 0 THEN 'TEAM_LEADER' ELSE 'USER' END,
        (SELECT id FROM organizations WHERE code = 'TM' || (1 + (g % 32)))
 FROM generate_series(1, 300) g;
+
+INSERT INTO users(username, display_name, role, organization_id)
+SELECT 'hq' || g, '본부장 ' || g, 'ORG_MANAGER',
+       (SELECT id FROM organizations WHERE code = 'HQ' || g)
+FROM generate_series(1, 4) g;
 
 -- 52 weeks ending on the week the application calls current.
 --
