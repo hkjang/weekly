@@ -782,6 +782,21 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
 <p>쓰레기가 아니라 <strong>문서화되지 않은 API 표면</strong>입니다. 전부 <code>docs/openapi.yaml</code>에 뜻과 함께 적었고, 가드는 <code>types.ts</code>를 빼고 보되 문서를 함께 보도록 고쳤습니다.</p>
 <p>되돌려서 확인했습니다. 문서에서 인사이트 여섯 줄을 지우면 새 가드가 실패합니다. 그리고 <strong>옛 가드로 되돌리면 문서를 통째로 지워도 통과합니다</strong> — 19개를 애초에 잡을 수 없었다는 증거입니다.</p>
 <p>원칙으로 남깁니다. <strong>"어딘가에 그 이름이 있다"는 사용의 증거가 아닙니다.</strong> 그리고 소비자가 화면 하나뿐이라고 가정하면, API를 가진 제품에서는 살아 있는 것을 죽었다고 부르게 됩니다.</p>
+<p>#### 3.10.32 v0.78.0에서 완료 — 바뀐 본문에 남아 있던 승인 도장</p>
+<p>v0.77에서 <code>reviewedAt</code>을 문서에 적으면서 이렇게 썼습니다.</p>
+<blockquote>검토자가 승인 또는 반려한 시각. <strong>작성자가 내용을 고치면 다시 <code>null</code>이 됩니다.</strong></blockquote>
+<p>문서에 적고 나니 확인해야 할 것이 생겼습니다. PPTX Import로 내용을 바꾸는 것도 작성자가 내용을 고치는 것입니다. 그때도 그런가?</p>
+<p><strong>아니었습니다.</strong></p>
+<div class="phase-box">승인된 보고서를 PPTX로 통째로 교체한 뒤
+  summary      = &quot;PPTX에서 가져온 내용&quot;   ← 본문은 완전히 바뀜
+  reviewedAt   = 2026-08-24 17:02:30      ← 그대로
+  reviewed_by  = 1                        ← 그대로</div>
+<p>이전 문장을 승인한 사람이, 자기가 본 적 없는 문장의 검토자로 남습니다. 편집기로 고치면(<code>updateReport</code>) 둘 다 지워집니다. Import 경로만 빠져 있었습니다. 병합도 같습니다 — 아무도 검토하지 않은 문단을 승인된 보고서에 더하면서 도장은 유지했습니다.</p>
+<p>두 곳 다 <code>reviewed_at=NULL, reviewed_by=NULL</code>을 넣었고, 각각 독립적으로 되돌려 두 테스트가 따로 실패하는 것을 확인했습니다.</p>
+<p><strong>같은 종류가 더 있는지 전수로 봤습니다.</strong> <code>UPDATE weekly_reports SET</code>은 여섯 곳입니다.</p>
+<table><thead><tr><th>위치</th><th>하는 일</th><th>검토 도장</th></tr></thead><tbody><tr><td><code>reports.go</code> 제출</td><td>DRAFT → SUBMITTED</td><td>지움 ✓</td></tr><tr><td><code>reports.go</code> 검토</td><td>SUBMITTED → APPROVED/반려</td><td>찍음 ✓</td></tr><tr><td><code>reports.go</code> 수정</td><td>본문 변경</td><td>지움 ✓</td></tr><tr><td><code>imports.go</code> REPLACE</td><td>본문 교체</td><td><strong>안 지움 → 고침</strong></td></tr><tr><td><code>imports.go</code> MERGE</td><td>본문 추가</td><td><strong>안 지움 → 고침</strong></td></tr><tr><td><code>confluence_handlers.go</code></td><td>자동 초안 수락</td><td><code>DRAFT</code>/<code>REVISION_REQUESTED</code>에서만 동작하고 본문은 편집기 저장으로 들어옴 — 해당 없음</td></tr></tbody></table>
+<p><strong>문서를 적은 것이 결함을 찾아냈습니다.</strong> v0.77에서 19개 필드에 뜻을 붙인 것은 문서화 작업이었는데, 그중 한 줄이 검증 가능한 약속이 되면서 코드가 그 약속을 어기고 있다는 것이 드러났습니다.</p>
+<p>원칙으로 남깁니다. <strong>행동을 문장으로 적으면 그 문장이 시험이 됩니다.</strong> 적을 수 없다면 아직 정하지 않은 것이고, 적었는데 다르다면 둘 중 하나가 틀린 것입니다.</p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>

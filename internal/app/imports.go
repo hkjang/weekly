@@ -513,7 +513,13 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "기존 보고서를 확인할 수 없습니다.")
 			return
 		} else if file.Strategy == "REPLACE" {
-			_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,status='CLOSED',source_type='PPTX_IMPORT',source_ref=$2,version=version+1,updated_at=now() WHERE id=$3 AND user_id=$4`, trimRunes(file.Summary, 10000), strconv.FormatInt(file.ID, 10), reportID, p.ID)
+			// The review stamp goes with the text it was given for. Replacing a
+			// report from a PPTX is the author changing the content by another
+			// route, and updateReport already clears these when they do it in
+			// the editor; leaving them here reported an approval of paragraphs
+			// that no longer exist.
+			_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,status='CLOSED',source_type='PPTX_IMPORT',source_ref=$2,
+				reviewed_at=NULL,reviewed_by=NULL,version=version+1,updated_at=now() WHERE id=$3 AND user_id=$4`, trimRunes(file.Summary, 10000), strconv.FormatInt(file.ID, 10), reportID, p.ID)
 			if err == nil {
 				_, err = tx.Exec(r.Context(), `DELETE FROM report_items WHERE report_id=$1`, reportID)
 			}
@@ -523,7 +529,10 @@ func (a *App) confirmImportJob(w http.ResponseWriter, r *http.Request) {
 		} else {
 			err = mergeImportedItems(r.Context(), tx, reportID, p.ID, items, sources)
 			if err == nil {
-				_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,status='CLOSED',source_type='PPTX_IMPORT',source_ref=$2,version=version+1,updated_at=now() WHERE id=$3`,
+				// Merging adds text nobody reviewed, so the stamp goes for the
+				// same reason it does on a replacement.
+				_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,status='CLOSED',source_type='PPTX_IMPORT',source_ref=$2,
+					reviewed_at=NULL,reviewed_by=NULL,version=version+1,updated_at=now() WHERE id=$3`,
 					trimRunes(mergeText(existingSummary, file.Summary), 10000), strconv.FormatInt(file.ID, 10), reportID)
 			}
 		}
