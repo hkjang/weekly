@@ -759,6 +759,16 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
 <table><thead><tr><th></th><th>v0.74.0</th><th>v0.75.0</th></tr></thead><tbody><tr><td>구문 커버리지</td><td>41.5%</td><td>45.6%</td></tr><tr><td>커버리지 0%인 함수</td><td>251개</td><td>214개</td></tr><tr><td>가드</td><td>30개</td><td>34개</td></tr></tbody></table>
 <p>네 개의 테스트가 37개 함수를 새로 덮었습니다 — 인증, 로그인, 로그인 제한, CSRF 미들웨어 전체가 여기 들어 있습니다. 값은 이 네 테스트가 아니라 <strong>장치</strong>에 있습니다. 지금까지 이 반복에서 찾은 결함 상당수가 이것이 먼저 있었다면 애초에 잡혔을 것입니다.</p>
 <p>원칙으로 남깁니다. <strong>"그건 구조적으로 못 한다"는 말은 대개 "아직 안 했다"입니다.</strong> 두 번은 다르게 취급해야 합니다.</p>
+<p>#### 3.10.30 v0.76.0에서 완료 — 검토 워크플로 전체가 한 번도 지나간 적 없었습니다</p>
+<p>v0.75의 장치를 처음으로 제대로 써 봤습니다. 대상은 <strong>검토 워크플로</strong> — 제출·승인·반려·재수정입니다. 이 제품이 "주간보고 플랫폼"인 이유의 절반이 여기 있고, 커버리지는 0%였습니다.</p>
+<p><strong>전부 옳았습니다.</strong> 다섯 가지 규칙을 핸들러로 확인했고 모두 맞습니다.</p>
+<table><thead><tr><th>규칙</th><th>결과</th></tr></thead><tbody><tr><td>자기 보고서는 자기가 승인 못 함 — <strong>관리자도</strong></td><td>403</td></tr><tr><td>USER는 누구 것도 검토 못 함</td><td>403</td></tr><tr><td>팀장은 자기 조직만, 다른 조직은 못 함</td><td>200 / 403</td></tr><tr><td>검토는 <code>SUBMITTED</code>에서만, 두 번은 안 됨</td><td>409 <code>INVALID_STATUS</code></td></tr><tr><td>반려에는 사유가 필요하고, 없으면 상태도 안 움직임</td><td>400</td></tr></tbody></table>
+<p>가장 확인하고 싶었던 것은 <strong>승인된 보고서를 작성자가 고칠 수 있는가</strong>였습니다. 고칠 수 있고, 고치면 <code>DRAFT</code>로 되돌아가며 <code>reviewed_by</code>가 지워지고 이력에 *"작성자가 제출·승인 후 내용을 수정하여 재검토 상태로 전환"*이 남습니다. 승인이 내용보다 오래 살지 않습니다.</p>
+<p>읽어서 맞는 것과 강제 경로로 확인한 것은 다르므로, 세 가지를 되돌려 전부 실패하는 것을 봤습니다 — 본인 검토 차단 제거, <code>AND status='SUBMITTED'</code> 제거, 승인 뒤 수정 시 상태 유지. 마지막 변이에서는 이력 행도 함께 사라져 두 단언이 동시에 터집니다.</p>
+<p><strong>검사기가 또 저를 잡았습니다.</strong> <code>canReviewReport=100</code>을 걸었더니 50%였습니다. 빠진 절반이 <strong>팀장이 자기 조직원을 검토하는 정상 경로</strong> — 이 제품에서 가장 흔한 검토 — 였습니다. 조직을 만들어 채웠습니다.</p>
+<p>나머지 절반은 <code>p.Role == "USER"</code> 분기인데, 승인 라우트가 이미 <code>requireRole</code>로 USER를 막으므로 <strong>요청으로는 닿을 수 없는 방어선</strong>입니다. 100%를 요구하면 그 함수를 직접 부르는 테스트를 쓰게 되고, 그건 라우트가 아니라 함수를 시험하는 것입니다. 임계값을 내리고 그 이유를 주석으로 적었습니다 — 다음 사람이 "왜 여기만 100%가 아니지"를 다시 묻지 않도록.</p>
+<table><thead><tr><th></th><th>v0.75.0</th><th>v0.76.0</th></tr></thead><tbody><tr><td>구문 커버리지</td><td>45.6%</td><td>46.7%</td></tr><tr><td>커버리지 0%인 함수</td><td>214개</td><td>207개</td></tr><tr><td>가드</td><td>34개</td><td>39개</td></tr></tbody></table>
+<p>원칙으로 남깁니다. <strong>모든 규칙에 100%를 요구하면 규칙이 아니라 함수를 시험하게 됩니다.</strong> 요구를 낮출 때는 낮춘 이유를 남깁니다.</p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>

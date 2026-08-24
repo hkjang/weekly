@@ -118,6 +118,24 @@ func (s *testServer) request(method, path string, body any, cookie *http.Cookie)
 	return w
 }
 
+// createOrganization adds an organisation and returns its id.
+func (s *testServer) createOrganization(name, code string) int64 {
+	s.t.Helper()
+	unique := fmt.Sprintf("%s%d", code, harnessAccounts.Add(1))
+	w := s.request(http.MethodPost, "/api/v1/admin/organizations",
+		map[string]any{"name": name, "code": unique}, s.admin)
+	if w.Code != http.StatusOK && w.Code != http.StatusCreated {
+		s.t.Fatalf("create organisation %s: %d %s", unique, w.Code, w.Body.String())
+	}
+	id, _ := decodeData(s.t, w)["id"].(float64)
+	if id == 0 {
+		s.t.Fatalf("organisation %s has no id: %s", unique, w.Body.String())
+	}
+	return int64(id)
+}
+
+func (s *testServer) ctx() context.Context { return context.Background() }
+
 func (s *testServer) signIn(username, password string) *http.Cookie {
 	s.t.Helper()
 	w := s.request(http.MethodPost, "/api/v1/auth/login",
