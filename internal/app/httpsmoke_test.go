@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -98,13 +99,59 @@ func TestAWriteFromAnotherOriginIsRefused(t *testing.T) {
 		t.Errorf("the refusal is coded %q, not CSRF_REJECTED", code)
 	}
 
-	// An API key is not a browser and carries no origin, so the check must not
-	// apply to it — otherwise every integration breaks.
+	// A session with no origin at all is refused for the same reason: the check
+	// is on the header, not on its absence being harmless.
 	bare := httptest.NewRequest(http.MethodPost, "/api/v1/reports", nil)
 	bare.AddCookie(author)
 	blank := httptest.NewRecorder()
 	server.app.mux.ServeHTTP(blank, bare)
 	if blank.Code != http.StatusForbidden {
 		t.Errorf("a session write with no origin answered %d, want 403", blank.Code)
+	}
+
+	// This test used to carry a comment saying an API key must be exempt from
+	// the origin check "otherwise every integration breaks". Checking it showed
+	// the comment was wrong in a way worth recording: a personal API key cannot
+	// write at all, so widening the CSRF condition could not break an
+	// integration — there are none to break. The condition is defence in depth,
+	// like the USER branch inside canReviewReport.
+	//
+	// The rule that does hold, and had nothing watching it, is this one.
+	created := server.request(http.MethodPost, "/api/v1/keys",
+		map[string]any{"name": "조회 전용 연동", "expiresInDays": 7}, author)
+	if created.Code != http.StatusCreated && created.Code != http.StatusOK {
+		t.Fatalf("create a key: %d %s", created.Code, created.Body.String())
+	}
+	token, _ := decodeData(t, created)["token"].(string)
+	if token == "" {
+		t.Fatalf("the key came back without a token: %s", created.Body.String())
+	}
+
+	// Positive control: the key reads.
+	if read := server.bearer(http.MethodGet, "/api/v1/reports", token); read.Code != http.StatusOK {
+		t.Fatalf("the key cannot even read: %d %s", read.Code, read.Body.String())
+	}
+
+	// Every write shape is refused, with or without an origin, and always with
+	// the code that names the reason rather than one that looks like a bug.
+	for _, item := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/reports"},
+		{http.MethodPut, "/api/v1/reports/1"},
+		{http.MethodDelete, "/api/v1/reports/1"},
+		{http.MethodPost, "/api/v1/admin/settings"},
+	} {
+		write := httptest.NewRequest(item.method, item.path, strings.NewReader(`{}`))
+		write.Header.Set("Content-Type", "application/json")
+		write.Header.Set("Authorization", "Bearer "+token)
+		recorder := httptest.NewRecorder()
+		server.app.mux.ServeHTTP(recorder, write)
+		if recorder.Code == http.StatusOK || recorder.Code == http.StatusCreated || recorder.Code == http.StatusNoContent {
+			t.Errorf("%s %s: a read-only key wrote — %s", item.method, item.path, recorder.Body.String())
+			continue
+		}
+		if recorder.Code == http.StatusForbidden && errorCode(recorder) != "API_KEY_SCOPE_DENIED" {
+			t.Errorf("%s %s: refused as %q, which does not tell the integrator that keys are read-only",
+				item.method, item.path, errorCode(recorder))
+		}
 	}
 }

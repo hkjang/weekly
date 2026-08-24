@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -137,15 +138,28 @@ func (s *testServer) createOrganization(name, code string) int64 {
 
 // upload posts one file as multipart/form-data through the mux.
 func (s *testServer) upload(path, field, filename string, body []byte, cookie *http.Cookie) *httptest.ResponseRecorder {
+	return s.uploadMany(path, field, map[string][]byte{filename: body}, cookie)
+}
+
+// uploadMany posts several files in one request, in sorted name order so a
+// failure names the same file every run.
+func (s *testServer) uploadMany(path, field string, files map[string][]byte, cookie *http.Cookie) *httptest.ResponseRecorder {
 	s.t.Helper()
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	var buffer bytes.Buffer
 	writer := multipart.NewWriter(&buffer)
-	part, err := writer.CreateFormFile(field, filename)
-	if err != nil {
-		s.t.Fatal(err)
-	}
-	if _, err := part.Write(body); err != nil {
-		s.t.Fatal(err)
+	for _, name := range names {
+		part, err := writer.CreateFormFile(field, name)
+		if err != nil {
+			s.t.Fatal(err)
+		}
+		if _, err := part.Write(files[name]); err != nil {
+			s.t.Fatal(err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		s.t.Fatal(err)
