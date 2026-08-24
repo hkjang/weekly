@@ -703,3 +703,148 @@ func TestOrganizationTemplateWalksUpToTheNearestOwner(t *testing.T) {
 		t.Errorf("the team exports %q but the screen names %q", path, teamInfo.OriginalName)
 	}
 }
+
+// An obstacle's length is the run of weeks it was actually reported, and the
+// run stops at the first week it was not.
+//
+// A task that reported a problem in March, went quiet, and reported a different
+// one in August has had two obstacles, not a five-month one. Counting across
+// the gap would inflate every figure built on this table, and the whole reason
+// for the table is that the figure be trustworthy.
+func TestIssueEpisodeStopsAtTheFirstWeekWithoutOne(t *testing.T) {
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	_ = application
+
+	clean := func() { db.Exec(context.Background(), `DELETE FROM users WHERE username='issue-episode'`) }
+	clean()
+	defer clean()
+
+	var userID int64
+	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('issue-episode','Issue Episode','USER') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	var workItemID int64
+	if err := db.QueryRow(ctx, `INSERT INTO work_items(user_id,title,normalized_key,category)
+		VALUES($1,'장애물 추적','장애물추적','개발') RETURNING id`, userID).Scan(&workItemID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 07-06 issue, 07-13 none, then three consecutive weeks of the same
+	// obstacle, then the week it goes blank.
+	weeks := []struct {
+		week  string
+		issue string
+	}{
+		{"2026-07-06", "예전에 막혔던 것"},
+		{"2026-07-13", ""},
+		{"2026-07-20", "보안팀 승인 대기"},
+		{"2026-07-27", "보안팀 승인 대기"},
+		{"2026-08-03", "보안팀 승인 대기"},
+	}
+	for _, entry := range weeks {
+		var reportID int64
+		if err := db.QueryRow(ctx, `INSERT INTO weekly_reports(user_id,week_start,summary) VALUES($1,$2,'') RETURNING id`,
+			userID, entry.week).Scan(&reportID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,progress,sort_order)
+			VALUES($1,$2,'개발','장애물 추적','진행','계속',$3,30,0)`, reportID, workItemID, entry.issue); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+
+	episode, ran, err := lastIssueEpisode(ctx, tx, workItemID, "2026-08-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Fatal("three consecutive weeks of an issue should count as an episode")
+	}
+	if episode.Weeks != 3 {
+		t.Errorf("weeks=%d want=3 — the run before the 07-13 gap is a different obstacle", episode.Weeks)
+	}
+	if episode.StartedWeek != "2026-07-20" {
+		t.Errorf("startedWeek=%s want=2026-07-20", episode.StartedWeek)
+	}
+	if episode.Text != "보안팀 승인 대기" {
+		t.Errorf("text=%q want the wording it ended with", episode.Text)
+	}
+
+	// The week after a blank one has nothing running, so there is nothing to
+	// record and no ending to invent.
+	none, ran, err := lastIssueEpisode(ctx, tx, workItemID, "2026-07-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Errorf("07-13 reported no issue, so nothing was running into it: %+v", none)
+	}
+}
+
+// Saving the same report twice is ordinary. Recording the same resolution twice
+// would double every count built on this table.
+func TestIssueOutcomeIsRecordedOncePerWeek(t *testing.T) {
+	dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	db, err := openDatabase(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	clean := func() { db.Exec(context.Background(), `DELETE FROM users WHERE username='issue-once'`) }
+	clean()
+	defer clean()
+
+	var userID int64
+	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('issue-once','Issue Once','USER') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	var workItemID int64
+	if err := db.QueryRow(ctx, `INSERT INTO work_items(user_id,title,normalized_key,category)
+		VALUES($1,'중복 방지','중복방지','개발') RETURNING id`, userID).Scan(&workItemID); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+
+	episode := issueEpisode{StartedWeek: "2026-07-20", Weeks: 3, Text: "보안팀 승인 대기"}
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := saveIssueOutcome(ctx, tx, workItemID, "2026-08-10", episode, issueOutcomeResolved, userID); err != nil {
+			t.Fatalf("attempt %d: %v", attempt, err)
+		}
+	}
+	var rows, weeks int
+	if err := tx.QueryRow(ctx, `SELECT count(*), coalesce(max(weeks),0) FROM work_item_issue_outcomes WHERE work_item_id=$1`, workItemID).Scan(&rows, &weeks); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Errorf("three saves left %d rows, want 1", rows)
+	}
+	if weeks != 3 {
+		t.Errorf("weeks=%d want=3", weeks)
+	}
+}

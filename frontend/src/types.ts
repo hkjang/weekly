@@ -12,7 +12,9 @@ export interface EvidenceUse {
   category: string; displayName: string; organizationName: string; detail?: string
 }
 export interface EvidenceUseView { kind: string; reference: string; title?: string; uses: EvidenceUse[]; total: number; limit: number }
-export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number; sources?: ItemSource[] }
+/** What happened to last week's issue, answered once when this week's is blank. */
+export type IssueOutcome = 'RESOLVED'
+export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number; sources?: ItemSource[]; issueOutcome?: IssueOutcome }
 export interface PreviousPlanItem { workItemId?: number; category: string; title: string; matchKey: string; nextPlan: string; issue: string; progress: number; carryOver: boolean }
 export interface PreviousPlan { reportId: number; weekStart: string; status: ReportStatus; items: PreviousPlanItem[] }
 export interface ReportComment { id: number; userId: number; displayName: string; content: string; createdAt: string }
@@ -199,6 +201,7 @@ export interface Rollup {
   kind: PeriodKind; period: string; label: string; start: string; end: string
   scope: RollupScope; scopeLabel: string; summary: string
   insights: RollupInsights; highlights: RollupHighlight[]; items: RollupItem[]
+  issueClearance: { resolved: number; medianWeeks: number; longestWeeks: number; longestTitle?: string }
   categories: RollupCategory[]; contributors: RollupContributor[]; trend: RollupWeekPoint[]
   weeks: string[]
   decisions: Decision[]; decisionTotal: number; openDecisions: number; decisionLimit: number

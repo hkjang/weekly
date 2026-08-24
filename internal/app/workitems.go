@@ -444,6 +444,13 @@ func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, owner
 	}
 
 	kept := map[int64]bool{}
+	// Endings reported by the author on this save, collected here and written
+	// after the rows are in place so the episode walk reads a settled week.
+	type endedIssue struct {
+		workItemID int64
+		outcome    string
+	}
+	endings := []endedIssue{}
 	for index, item := range items {
 		stored, isExisting := existing[item.ID]
 		// A pinned snapshot carries an identity its author chose by hand, so the
@@ -471,6 +478,9 @@ func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, owner
 				item.Issue, item.ManagementAsk, item.Progress, index, pinned, item.ID, reportID); err != nil {
 				return err
 			}
+			if workItemID != nil && validIssueOutcome(item.IssueOutcome) {
+				endings = append(endings, endedIssue{workItemID: *workItemID, outcome: item.IssueOutcome})
+			}
 			kept[item.ID] = true
 			continue
 		}
@@ -492,6 +502,9 @@ func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, owner
 		if sourceErr != nil {
 			return sourceErr
 		}
+		if workItemID != nil && validIssueOutcome(item.IssueOutcome) {
+			endings = append(endings, endedIssue{workItemID: *workItemID, outcome: item.IssueOutcome})
+		}
 		kept[inserted] = true
 	}
 
@@ -501,6 +514,30 @@ func (a *App) persistReportItems(ctx context.Context, tx pgx.Tx, reportID, owner
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM report_items WHERE id=$1 AND report_id=$2`, id, reportID); err != nil {
 			return err
+		}
+	}
+
+	// An obstacle's ending, written only where the weekly rows agree one was
+	// running. An outcome for a week with nothing before it would be a claim
+	// about work nobody reported, and this record is only worth keeping if
+	// every row in it is derived from something that was.
+	if len(endings) > 0 {
+		var week time.Time
+		if err := tx.QueryRow(ctx, `SELECT week_start FROM weekly_reports WHERE id=$1`, reportID).Scan(&week); err != nil {
+			return err
+		}
+		endedWeek := week.Format("2006-01-02")
+		for _, ending := range endings {
+			episode, ran, err := lastIssueEpisode(ctx, tx, ending.workItemID, endedWeek)
+			if err != nil {
+				return err
+			}
+			if !ran {
+				continue
+			}
+			if err := saveIssueOutcome(ctx, tx, ending.workItemID, endedWeek, episode, ending.outcome, ownerID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

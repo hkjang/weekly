@@ -207,6 +207,13 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 	view.DecisionTotal = decisionTotal
 	view.OpenDecisions = openDecisions
 	view.DecisionLimit = rollupDecisionLimit
+	// How long obstacles took to clear in this period. A failure here is not
+	// worth losing the report over — it is one line of context beside the work.
+	if clearance, clearErr := a.issueClearanceFor(ctx, period.Start, period.End, ownerWhere, ownerArgs); clearErr == nil {
+		view.IssueClearance = clearance
+	} else {
+		a.logger.Warn("issue clearance", "error", clearErr)
+	}
 	view.GeneratedAt = time.Now().In(a.serviceLocation(ctx))
 	return view, nil
 }

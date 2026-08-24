@@ -195,3 +195,10 @@
 .due-agreed p{margin:6px 0 0;font-size:13px;color:#334155}
 .search-inline{padding:6px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px;font-size:13px}
 .forecast-split{margin:12px 0 10px;border:0;border-top:1px solid var(--line)}
+
+/* Asking how an obstacle ended, at the only week anybody knows. Quiet on purpose: it is a question, not a warning, and a report full of alarms stops being read. */
+.issue-ended{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:10px 0 0;padding:10px 12px;border-radius:9px;background:#fffbeb;border:1px solid #fde68a}
+.issue-ended strong{font-size:13px}
+.issue-ended p{margin:4px 0 0;font-size:13px;color:#334155}
+.issue-ended-actions{display:flex;gap:8px;flex-shrink:0}
+.issue-ended-done{font-size:13px;color:var(--state-stalled-ink);flex-shrink:0}

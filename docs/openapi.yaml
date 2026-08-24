@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.60.0
+  version: 0.61.0
   description: 주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API
 servers:
   - url: /api/v1
@@ -850,6 +850,15 @@ paths:
         최대 50건이며 `decisionTotal`로 전체 건수를, `openDecisions`로 후속 조치가 남은
         수를, `decisionLimit`으로 상한을 함께 반환한다. 업무별 전체 이력은
         `/work-items/{id}/decisions`에 있다.
+
+        `issueClearance`는 이 기간에 **해소로 기록된** 이슈의 건수와 지속 주 수(중앙값·최장)다.
+        주차별 행은 이슈가 몇 주 이어졌는지는 알지만 어떻게 끝났는지는 모른다 — 해결된 것과
+        포기한 것이 데이터에서 같아 보인다. 그래서 이슈란이 비는 주에 작성자에게 한 번 묻고,
+        그 답만 저장한다. 아무도 답한 적이 없으면 resolved 가 0이며, 화면은 0을 측정값처럼
+        보여 주지 않고 아직 없음으로 적는다.
+
+        평균이 아니라 중앙값이다. 1년 끌던 장애물 하나가 평균을 실제 장애물이 서 있지 않은
+        곳으로 끌고 가는데, 이 숫자가 답하려는 질문은 보통 얼마나 걸리는가이기 때문이다.
 
         각 항목의 `periodOutlook`은 보고된 속도를 **이 보고서의 기간 말까지** 이어 붙인 결과다.
         마감일 입력이 필요 없다 — 경계는 요청에 이미 들어 있다. kind 는 NONE, LANDS, SPLIT,

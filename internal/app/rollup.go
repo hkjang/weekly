@@ -186,6 +186,9 @@ type rollupView struct {
 	DecisionTotal int            `json:"decisionTotal"`
 	OpenDecisions int            `json:"openDecisions"`
 	DecisionLimit int            `json:"decisionLimit"`
+	// IssueClearance is what the recorded endings say about how long obstacles
+	// take to clear. Absent until somebody has answered the question.
+	IssueClearance issueClearance `json:"issueClearance"`
 	// TimelineItems is how many of Items carry their weekly series. The rest
 	// are table rows and arrive without it.
 	TimelineItems int       `json:"timelineItems"`

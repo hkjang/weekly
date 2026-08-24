@@ -30,8 +30,13 @@ type reportItem struct {
 	// deliberately separate from Issue: an issue states what is wrong, an ask
 	// states what is needed from above.
 	ManagementAsk string `json:"managementAsk"`
-	Progress      int    `json:"progress"`
-	SortOrder     int    `json:"sortOrder"`
+	// IssueOutcome answers what happened to last week's issue when this week's
+	// field is empty. Only a person knows whether a blank means the obstacle
+	// cleared or that they stopped writing it down, so the editor asks once and
+	// sends the answer with the save. Empty for every other line.
+	IssueOutcome string `json:"issueOutcome,omitempty"`
+	Progress     int    `json:"progress"`
+	SortOrder    int    `json:"sortOrder"`
 	// Sources is where this line came from, when the system knows. Empty means
 	// nobody recorded an origin — typed by hand, or written before the lineage
 	// model existed — and never that the line is unsupported.
