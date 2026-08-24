@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -41,18 +42,32 @@ func (a *App) bootstrapAdmin(ctx context.Context, username, password string) err
 	return err
 }
 
+// errNoSession means the caller genuinely is not signed in: no cookie, an
+// unusable token, or credentials the database looked at and did not recognise.
+//
+// Anything else authenticate returns is a failure to find out — most often that
+// the database is unreachable — and the two must not be answered the same way.
+// They were. A database outage reached every user as "로그인이 필요합니다",
+// which sends them to do the one thing that cannot help; and because the screen
+// treats 401 as a lost session, it also offered them a fresh login tab. Anybody
+// who took it lost the report they were part-way through writing.
+var errNoSession = errors.New("not authenticated")
+
 func (a *App) authenticate(r *http.Request) (*principal, error) {
 	ctx := r.Context()
 	if authorization := r.Header.Get("Authorization"); strings.HasPrefix(authorization, "Bearer ") {
 		token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 		if !strings.HasPrefix(token, "wky_") {
-			return nil, errors.New("unsupported bearer token")
+			return nil, fmt.Errorf("%w: unsupported bearer token", errNoSession)
 		}
 		p := &principal{AuthType: "api_key"}
 		err := a.db.QueryRow(ctx, `SELECT u.id,u.username,u.display_name,coalesce(u.email,''),u.role,u.organization_id,u.key_version,k.scopes
 			FROM personal_api_keys k JOIN users u ON u.id=k.user_id
 			WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND u.active=true AND k.key_version=u.key_version`, tokenHash(token)).
 			Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion, &p.Scopes)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: no such api key", errNoSession)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -61,13 +76,16 @@ func (a *App) authenticate(r *http.Request) (*principal, error) {
 	}
 	cookie, err := r.Cookie(sessionCookie)
 	if err != nil || cookie.Value == "" {
-		return nil, errors.New("session not found")
+		return nil, fmt.Errorf("%w: no session cookie", errNoSession)
 	}
 	p := &principal{AuthType: "session"}
 	err = a.db.QueryRow(ctx, `SELECT u.id,u.username,u.display_name,coalesce(u.email,''),u.role,u.organization_id,u.key_version
 		FROM user_sessions s JOIN users u ON u.id=s.user_id
 		WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true`, tokenHash(cookie.Value)).
 		Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: session expired or revoked", errNoSession)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -98,9 +116,31 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	p := principal{AuthType: "session"}
 	var passwordHash *string
-	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,coalesce(email,''),role,organization_id,key_version,password_hash
+	// Bounded, because a database that has gone away otherwise leaves the
+	// person who pressed 로그인 watching a spinner. Five seconds is far beyond a
+	// lookup on an indexed column and well short of giving up on the product.
+	lookupCtx, cancelLookup := context.WithTimeout(r.Context(), 5*time.Second)
+	err := a.db.QueryRow(lookupCtx, `SELECT id,username,display_name,coalesce(email,''),role,organization_id,key_version,password_hash
 		FROM users WHERE lower(username)=lower($1) AND active=true`, username).
 		Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion, &passwordHash)
+	cancelLookup()
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// Not knowing whether the password is right is not the same as knowing
+		// it is wrong. This branch used to fall through to
+		// "아이디 또는 비밀번호가 올바르지 않습니다", so a database outage told
+		// everybody their password had stopped working — and each retry counted
+		// against the throttle, so the people who tried hardest got locked out
+		// of a service that was never rejecting them.
+		//
+		// Answering the same way for every caller costs nothing here: the store
+		// being unreachable says nothing about whether an account exists, so
+		// this reveals no more than the outage already does. Nothing is recorded
+		// against the account either.
+		a.logger.Error("login lookup", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE",
+			"지금 서버가 데이터베이스에 연결하지 못했습니다. 아이디와 비밀번호 문제가 아니니 잠시 후 다시 시도하세요.")
+		return
+	}
 	if err != nil || passwordHash == nil || !verifyPassword(*passwordHash, input.Password) {
 		a.recordLoginFailure(r.Context(), username, address)
 		// Recounted after recording so this attempt is included: the delay has
@@ -359,7 +399,23 @@ func claimStrings(claims map[string]any, key string) []string {
 	return nil
 }
 
+// settingWait bounds one settings read.
+//
+// A setting already has an answer for when the read fails — the caller passes
+// the fallback. What it did not have was a bound on how long to wait before
+// using it, so a database that had gone away made each read sit out the full
+// dial timeout. Handlers read several settings apiece: the login screen reads
+// four, which turned a five second outage into twenty seconds of a spinning
+// button with nothing said.
+//
+// One second, because this is a lookup that normally takes under a millisecond
+// and whose failure mode is already handled. The readiness probe in app.go
+// bounds its own database call the same way and for the same reason.
+const settingWait = time.Second
+
 func (a *App) setting(ctx context.Context, key, fallback string) string {
+	ctx, cancel := context.WithTimeout(ctx, settingWait)
+	defer cancel()
 	var value string
 	if err := a.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE key=$1 AND secret=false`, key).Scan(&value); err != nil {
 		return fallback

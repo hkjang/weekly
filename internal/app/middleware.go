@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -107,6 +108,17 @@ func (a *App) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, err := a.authenticate(r)
 		if err != nil {
+			if !errors.Is(err, errNoSession) {
+				// The session could not be looked up, which is not the same as
+				// there being no session. Answering 401 here told everybody
+				// their login had expired during a database outage and offered
+				// them a fresh login tab; taking it lost whatever report they
+				// were part-way through writing.
+				a.logger.Error("authenticate", "error", err, "trace", traceIDFromContext(r.Context()))
+				writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE",
+					"지금 서버가 데이터베이스에 연결하지 못했습니다. 로그인은 그대로 유효하고 작성 중인 내용도 남아 있으니, 잠시 후 다시 시도하세요.")
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "로그인이 필요합니다.")
 			return
 		}

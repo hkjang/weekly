@@ -50,6 +50,13 @@ func (a *App) loginThrottleFor(ctx context.Context, username, address string) lo
 	}
 	window := time.Duration(minutes) * time.Minute
 
+	// Bounded like every other call on the sign-in path. Each of these already
+	// has an answer for when it fails — proceed, and log — but no answer for how
+	// long to wait first, so a database that had gone away made pressing 로그인
+	// hang instead of saying anything.
+	ctx, cancel := context.WithTimeout(ctx, throttleWait)
+	defer cancel()
+
 	var accountFailures, addressFailures int
 	var oldest *time.Time
 	err := a.db.QueryRow(ctx, `SELECT
@@ -82,7 +89,14 @@ func (a *App) loginThrottleFor(ctx context.Context, username, address string) lo
 	return result
 }
 
+// throttleWait bounds one throttle query. Counting recent attempts touches a
+// small, indexed table; if it has not answered in two seconds the store is not
+// answering at all, and the caller already knows what to do about that.
+const throttleWait = 2 * time.Second
+
 func (a *App) recordLoginFailure(ctx context.Context, username, address string) {
+	ctx, cancel := context.WithTimeout(ctx, throttleWait)
+	defer cancel()
 	var ip *string
 	if address != "" {
 		ip = &address
@@ -94,6 +108,8 @@ func (a *App) recordLoginFailure(ctx context.Context, username, address string) 
 }
 
 func (a *App) clearLoginFailures(ctx context.Context, username string) {
+	ctx, cancel := context.WithTimeout(ctx, throttleWait)
+	defer cancel()
 	if _, err := a.db.Exec(ctx, `DELETE FROM login_attempts WHERE lower(username)=lower($1)`, username); err != nil {
 		a.logger.Warn("clear login failures", "error", err)
 	}

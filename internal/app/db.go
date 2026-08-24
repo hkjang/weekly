@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,6 +22,21 @@ func openDatabase(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	}
 	config.MaxConns = 20
 	config.MinConns = 2
+	// How long a request waits for a connection that cannot be made.
+	//
+	// Without this, a database that has gone away does not fail — it hangs. The
+	// pool keeps trying to dial a host that is dropping packets, the handler
+	// waits on it, and the person who pressed 로그인 or 저장 watches a spinner
+	// with no message and no idea whether to wait or start over. Five seconds
+	// turns that into the answer the middleware already knows how to give:
+	// the store is unreachable, your work is still here, try again shortly.
+	//
+	// This bounds only the dialling. A query on a connection the pool already
+	// holds is untouched, so a legitimately slow request — a year-wide rollup,
+	// an AI draft that may run for minutes — is unaffected.
+	if config.ConnConfig.ConnectTimeout == 0 {
+		config.ConnConfig.ConnectTimeout = 5 * time.Second
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL: %w", err)
