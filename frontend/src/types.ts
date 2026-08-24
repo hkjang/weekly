@@ -107,7 +107,7 @@ export interface OrganizationAnalyticsRow {
 export interface OrganizationAnalytics { start: string; end: string; weeks: number; organizations: OrganizationAnalyticsRow[] }
 export interface ParticipationWeek {
   weekStart: string; activeUsers: number; reports: number; submitted: number
-  onTime: number; late: number; submissionRate: number; onTimeRate: number
+  onTime: number; late: number; submissionRate: number; onTimeRate: number; open: boolean
 }
 export interface MissingReporter { userId: number; displayName: string; username: string; organization: string; missedWeeks: number; lastWeek: string }
 export interface DeadlineRule { days: number; hour: number; timezone: string; label: string }

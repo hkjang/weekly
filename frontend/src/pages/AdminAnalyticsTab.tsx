@@ -48,6 +48,13 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
     .slice(0, 40).filter(term => term.delta > 0)
     .sort((a, b) => b.delta - a.delta).slice(0, 8), [keywords, hasBaseline])
 
+  // The headline rates have to come from a week that is over. The week in
+  // progress is a count so far and belongs beside them, not among them.
+  const closedWeek = [...(participation?.trend ?? [])].reverse().find(week => !week.open)
+  // A generous deadline leaves more than one week still open at a time. Naming
+  // only the newest would quietly imply the one before it had closed.
+  const openWeeks = (participation?.trend ?? []).filter(week => week.open)
+
   return <>
     <div className="analytics-controls">
       <div className="tabs rollup-tabs">
@@ -122,14 +129,17 @@ export default function AdminAnalyticsTab({ notify }: { notify: (message: string
           }))} />
           <div className="metric-grid analytics-metrics">
             <Card><span className="metric-label">활성 사용자</span><strong className="metric-value">{participation.activeUsers}</strong><small>보고 대상 인원</small></Card>
-            <Card><span className="metric-label">최근 주 제출률</span><strong className="metric-value">
-              {(participation.trend[participation.trend.length - 1]?.submissionRate ?? 0).toFixed(0)}%</strong>
-              <small>{participation.trend[participation.trend.length - 1]?.submitted ?? 0}명 제출</small></Card>
+            <Card><span className="metric-label">최근 마감된 주 제출률</span><strong className="metric-value">
+              {(closedWeek?.submissionRate ?? 0).toFixed(0)}%</strong>
+              <small>{closedWeek ? `${closedWeek.weekStart} · ${closedWeek.submitted}명 제출` : '마감된 주차가 없습니다'}</small></Card>
             <Card><span className="metric-label">기한 내 제출</span><strong className="metric-value">
-              {(participation.trend[participation.trend.length - 1]?.onTimeRate ?? 0).toFixed(0)}%</strong>
+              {(closedWeek?.onTimeRate ?? 0).toFixed(0)}%</strong>
               <small>{participation.deadline?.label ?? '기준 미설정'}</small></Card>
-            <Card><span className="metric-label">미제출 인원</span><strong className="metric-value">{participation.missingTotal}</strong><small>기간 내 1회 이상 누락</small></Card>
+            <Card><span className="metric-label">미제출 인원</span><strong className="metric-value">{participation.missingTotal}</strong><small>마감이 지난 주차를 1회 이상 누락</small></Card>
           </div>
+          {/* Counted so far, not a result. Shown apart from the finished weeks
+              so a Monday morning does not read as a collapse. */}
+          {openWeeks.length > 0 && <p className="muted">아직 마감 전인 주차는 미제출 집계에 넣지 않았습니다 — {openWeeks.map(week => `${week.weekStart} 현재 ${week.submitted}명(${week.submissionRate.toFixed(0)}%)`).join(', ')}.</p>}
         </>}
       </Card>
 

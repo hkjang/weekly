@@ -249,6 +249,17 @@ type participationWeek struct {
 	Late           int     `json:"late"`
 	SubmissionRate float64 `json:"submissionRate"`
 	OnTimeRate     float64 `json:"onTimeRate"`
+	// Open marks a week whose deadline has not passed. Its submission rate is a
+	// count so far, not a result, and reading it beside finished weeks turns
+	// every Monday morning into a collapse.
+	Open bool `json:"open"`
+}
+
+// deadlineInstant is when a week's report stops being on time, in the service
+// timezone. Hour 24 means midnight at the end of that day.
+func (rule deadlineRule) instant(weekStart time.Time, location *time.Location) time.Time {
+	day := time.Date(weekStart.Year(), weekStart.Month(), weekStart.Day(), 0, 0, 0, 0, location)
+	return day.AddDate(0, 0, rule.Days).Add(time.Duration(rule.Hour) * time.Hour)
 }
 
 // missingReporterLimit is how many of the worst offenders the screen lists.
@@ -265,6 +276,31 @@ type missingReporter struct {
 	MissedWeeks  int    `json:"missedWeeks"`
 	LastWeek     string `json:"lastWeek"`
 }
+
+// expectedFromWeek is the earliest week a person can be held to: the earlier of
+// when their account appeared and the first week they actually filed.
+//
+// created_at alone does not survive a migration. A deployment that imported its
+// past reports gives every account the go-live date, so every historical week
+// would precede it and the participation figure would silently read zero
+// missing, forever.
+//
+// $3 is the service timezone. It is a fragment rather than a copy in two places
+// because the list and the total have to agree; a person named in one and
+// absent from the other is worse than either number alone.
+const expectedFromWeek = `least(
+		(u.created_at AT TIME ZONE $3)::date,
+		coalesce((SELECT min(r2.week_start) FROM weekly_reports r2
+		          WHERE r2.user_id=u.id AND r2.status <> 'DRAFT'), 'infinity'::date))`
+
+// deadlinePassed is true for a week that is over. $3 timezone, $4 days, $5 hour.
+const deadlinePassed = `(week.day::date + make_interval(days => $4, hours => $5)) AT TIME ZONE $3 <= now()`
+
+// weekIsOwed combines the two: this week counted against this person, and it is
+// no longer open.
+const weekIsOwed = `week.day::date >= ` + expectedFromWeek + ` AND ` + deadlinePassed + `
+		AND NOT EXISTS (SELECT 1 FROM weekly_reports r
+			WHERE r.user_id=u.id AND r.week_start=week.day::date AND r.status <> 'DRAFT')`
 
 // analyticsParticipation reports whether the reporting habit is holding, which
 // is the first thing to check before trusting any other number.
@@ -309,6 +345,8 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 		byWeek[item.WeekStart] = item
 	}
 
+	location := a.serviceLocation(r.Context())
+	now := time.Now()
 	trend := []participationWeek{}
 	for cursor := start; !cursor.After(end); cursor = cursor.AddDate(0, 0, 7) {
 		key := cursor.Format("2006-01-02")
@@ -317,6 +355,7 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 			item = participationWeek{WeekStart: key}
 		}
 		item.ActiveUsers = activeUsers
+		item.Open = deadline.instant(cursor, location).After(now)
 		if activeUsers > 0 {
 			item.SubmissionRate = round1(float64(item.Submitted) * 100 / float64(activeUsers))
 		}
@@ -327,15 +366,26 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Who is behind, ranked by how many of the recent weeks they missed.
+	//
+	// A week only counts against somebody who could have been expected to file
+	// it: after they were here, and after the deadline passed. Without those two
+	// conditions this list is headed by whoever joined most recently, and every
+	// Monday it names everybody — which is the same as naming nobody.
+	//
+	// "After they were here" cannot be created_at alone. A deployment that
+	// imported its past reports gives every account the go-live date, so every
+	// historical week would precede it and the whole metric would silently read
+	// zero. The earlier of created_at and their first filed week is the evidence
+	// that actually survives a migration.
 	missingRows, err := a.db.Query(r.Context(), `
 		SELECT u.id, u.display_name, u.username, coalesce(o.name,''),
 		  (SELECT count(*) FROM generate_series($1::date, $2::date, interval '7 day') AS week(day)
-		     WHERE NOT EXISTS (SELECT 1 FROM weekly_reports r
-		       WHERE r.user_id=u.id AND r.week_start=week.day::date AND r.status <> 'DRAFT')),
+		     WHERE `+weekIsOwed+`),
 		  coalesce((SELECT max(r.week_start)::text FROM weekly_reports r WHERE r.user_id=u.id AND r.status <> 'DRAFT'), '')
 		FROM users u LEFT JOIN organizations o ON o.id=u.organization_id
 		WHERE u.active=true
-		ORDER BY 5 DESC, u.display_name LIMIT $3`, start, end, missingReporterLimit)
+		ORDER BY 5 DESC, u.display_name LIMIT $6`,
+		start, end, deadline.Timezone, deadline.Days, deadline.Hour, missingReporterLimit)
 	if err != nil {
 		a.logger.Error("missing reporters", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "미제출자를 조회할 수 없습니다.")
@@ -356,9 +406,8 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 	missingTotal := 0
 	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users u WHERE u.active=true
 		AND (SELECT count(*) FROM generate_series($1::date, $2::date, interval '7 day') AS week(day)
-			WHERE NOT EXISTS (SELECT 1 FROM weekly_reports r
-				WHERE r.user_id=u.id AND r.week_start=week.day::date AND r.status <> 'DRAFT')) > 0`,
-		start, end).Scan(&missingTotal); err != nil {
+			WHERE `+weekIsOwed+`) > 0`,
+		start, end, deadline.Timezone, deadline.Days, deadline.Hour).Scan(&missingTotal); err != nil {
 		a.logger.Error("missing reporter total", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "미제출자를 조회할 수 없습니다.")
 		return
@@ -393,10 +442,13 @@ func (a *App) deadlineRule(ctx context.Context) deadlineRule {
 		Hour:     a.settingInt(ctx, "workflow.deadline_hour", 24),
 		Timezone: a.setting(ctx, "service.timezone", "Asia/Seoul"),
 	}
+	// "N일째 되는 날 자정" reads two ways — the midnight that starts that day or
+	// the one that ends it — and the two are a full day apart. The rule itself is
+	// unchanged; only the sentence describing it now says which one.
 	if rule.Hour == 24 {
-		rule.Label = fmt.Sprintf("주차 시작일로부터 %d일째 되는 날 자정까지 (%s)", rule.Days, rule.Timezone)
+		rule.Label = fmt.Sprintf("주차 시작일로부터 %d일 뒤, 그날이 끝나는 자정까지 (%s)", rule.Days, rule.Timezone)
 	} else {
-		rule.Label = fmt.Sprintf("주차 시작일로부터 %d일째 되는 날 %d시까지 (%s)", rule.Days, rule.Hour, rule.Timezone)
+		rule.Label = fmt.Sprintf("주차 시작일로부터 %d일 뒤 %d시까지 (%s)", rule.Days, rule.Hour, rule.Timezone)
 	}
 	return rule
 }
