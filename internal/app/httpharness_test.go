@@ -161,6 +161,24 @@ func (s *testServer) upload(path, field, filename string, body []byte, cookie *h
 	return w
 }
 
+// attemptLogin posts credentials and returns the response without asserting.
+func (s *testServer) attemptLogin(username, password string) *httptest.ResponseRecorder {
+	s.t.Helper()
+	return s.request(http.MethodPost, "/api/v1/auth/login",
+		map[string]string{"username": username, "password": password}, nil)
+}
+
+// bearer issues a request authenticated by a personal API key rather than a
+// session, which is the other way into every read endpoint.
+func (s *testServer) bearer(method, path, token string) *httptest.ResponseRecorder {
+	s.t.Helper()
+	r := httptest.NewRequest(method, path, nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	s.app.mux.ServeHTTP(w, r)
+	return w
+}
+
 func (s *testServer) ctx() context.Context { return context.Background() }
 
 func (s *testServer) signIn(username, password string) *http.Cookie {

@@ -832,6 +832,18 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {</div>
 <p><code>guard-check.py</code>는 이걸 못 잡습니다 — 두 테스트 모두 대상 함수를 <strong>실행하긴 했기</strong> 때문입니다. v0.73에서 "단언이 강한지는 보지 않는다"고 적어 둔 한계가 그대로 나타났고, 되돌려 보는 절차가 여전히 진짜 검사인 이유입니다.</p>
 <p>고쳤습니다. 검색은 <strong>매치되는 오타</strong>(<code>확장업는</code>)를 쓰고, 확장이 켜진 상태에서 <code>fuzzy</code>가 <code>true</code>인 것을 먼저 확인한 뒤 끕니다. AI는 <strong>설정은 되어 있고 꺼져만 있는</strong> 상태로 만듭니다. 이제 둘 다 되돌리면 실패합니다.</p>
 <p>원칙으로 남깁니다. <strong>없는 것을 확인하는 테스트는 있는 것으로 먼저 확인해야 합니다.</strong> 꺼진 상태만 보면, 애초에 켜도 안 되는 것과 구분되지 않습니다.</p>
+<p>#### 3.10.36 v0.82.0에서 완료 — 틀린 비밀번호가 통과해도 아무도 몰랐습니다</p>
+<p>v0.73이 *"테스트가 대상을 실행했는가"*를 기계화했고, v0.81이 그것으로 부족하다는 것을 보여 줬습니다. 실행하고도 물지 못하는 테스트는 커버리지로 구분되지 않습니다. <strong>코드를 실제로 망가뜨려 보는 것</strong>으로만 구분됩니다.</p>
+<p><code>scripts/mutation-check.py</code>를 만들었습니다. <code>// guards: F</code> 마커가 이미 짝을 알고 있으니, F 안에서만 비교 연산자를 뒤집고 <code>&amp;&amp;</code>↔<code>||</code>를 바꾸고 반환 상수를 돌린 뒤 그 테스트를 돌립니다.</p>
+<p><strong>첫 실행에서 도구 자체의 결함이 나왔습니다.</strong> 살아남은 변이를 그대로 보고했더니, <code>canReviewReport</code>의 어떤 변이는 자기 가드는 놓치지만 <strong>다른 테스트가 잡습니다.</strong> 둘을 섞으면 멀쩡한 곳을 구멍이라 부르게 됩니다. 살아남을 때마다 전체 스위트를 한 번 더 돌려 둘로 나누게 했습니다.</p>
+<table><thead><tr><th></th><th>건수</th></tr></thead><tbody><tr><td>적용한 변이</td><td>204 (컴파일 불가 11건 제외)</td></tr><tr><td>지목된 가드가 잡음</td><td>97</td></tr><tr><td>다른 테스트가 잡음 — 마커가 엉뚱한 곳을 가리킴</td><td>43</td></tr><tr><td><strong>아무도 못 잡음</strong></td><td><strong>64</strong></td></tr></tbody></table>
+<p>64건 중 둘이 즉시 눈에 띄었고, 둘 다 인증입니다.</p>
+<p><strong><code>login</code>의 <code>||</code>를 <code>&amp;&amp;</code>로 바꾸면 틀린 비밀번호로 로그인됩니다.</strong> 전체 스위트가 통과합니다. 이 제품에서 가장 중요한 단언 — *틀린 비밀번호는 통과하지 못한다* — 이 한 번도 검증된 적이 없었습니다. 기존 로그인 테스트는 전부 <strong>올바른</strong> 비밀번호로 들어가거나 저장소 장애를 다뤘습니다.</p>
+<p><strong>API 키 SQL의 <code>expires_at&gt;now()</code>를 <code>&lt;</code>로 뒤집으면 만료된 키가 통과하고 살아 있는 키가 거부됩니다.</strong> 개인 API 키 경로에 테스트가 하나도 없었습니다 — 이 제품이 MCP 서버와 연동을 노출하는 바로 그 경로입니다.</p>
+<p>둘 다 테스트를 썼고, v0.81의 교훈대로 <strong>긍정 대조를 먼저</strong> 둡니다: 올바른 비밀번호가 통과하는 것, 갓 발급한 키가 동작하는 것을 확인한 뒤에 거부를 확인합니다. 덤으로 폐기된 키와 발급된 적 없는 토큰도 막습니다. 없는 계정과 틀린 비밀번호가 <strong>같은 오류 코드</strong>인 것도 고정했습니다 — 다르면 그 차이가 어떤 아이디가 실재하는지 알려 줍니다.</p>
+<p>세 변이를 되돌려 전부 실패하는 것을 확인했습니다.</p>
+<p><strong>남은 62건은 목록으로 둡니다.</strong> 상당수는 의미상 무해할 것이고, 판별에는 사람의 판단이 필요합니다. <code>python3 -u scripts/mutation-check.py</code>가 언제든 다시 만들어 냅니다. 도구는 CI 단계가 아닙니다 — 한 번 도는 데 40분 넘게 걸리고, <code>scale-check.py</code>처럼 필요할 때 돌리는 물건입니다.</p>
+<p>원칙으로 남깁니다. <strong>테스트가 통과한다는 것은 코드가 옳다는 뜻이 아니라, 이 테스트가 이 코드를 틀리게 만들 방법을 모른다는 뜻입니다.</strong></p>
 <h3>3.11 v0.21 — Source-to-Report Agent</h3>
 <ul>
 <li>커밋·결재·Jira에서 사용자 동의 아래 근거를 수집해 WorkItem 후보와 출처 링크를 생성합니다. v0.17의 provenance 모델을 전제합니다.</li>
