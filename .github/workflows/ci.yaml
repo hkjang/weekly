@@ -47,4 +47,9 @@ jobs:
       - run: python3 scripts/guard-check.py
       - run: npm ci && npm run build
         working-directory: frontend
+      # Half the product is the frontend and none of it had executable
+      # verification. presentSlides decides what a presenter puts on a screen in
+      # a meeting — the same deliverable the PPTX export is.
+      - run: npm test
+        working-directory: frontend
       - run: docker build --build-arg VERSION=ci --build-arg COMMIT=${{ github.sha }} --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t weekly:ci .
