@@ -51,6 +51,7 @@ jobs:
       # being told to trust.
       - run: sh scripts/backup-check.sh
       - run: sh scripts/version-check.sh
+      - run: python3 scripts/openapi-check.py
       - run: npm ci && npm run build
         working-directory: frontend
       # Half the product is the frontend and none of it had executable
