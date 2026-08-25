@@ -49,14 +49,14 @@ export default function App() {
   const [params, setParams] = useState<Record<string, string>>(() => parseRoute()?.params ?? {})
   const [profileOpen, setProfileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error' }>()
+  const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error'; id: number }>()
   const [sessionExpired, setSessionExpired] = useState(false)
   // On a phone the navigation is a strip that scrolls, so the screen you are on
   // has to be brought into view; otherwise the later entries look missing.
   const navRef = useRef<HTMLElement>(null)
   const [signedOut, setSignedOut] = useState(false)
 
-  const notify = (message: string, kind: 'success' | 'error' = 'success') => setToast({ message, kind })
+  const notify = (message: string, kind: 'success' | 'error' = 'success') => setToast(previous => ({ message, kind, id: (previous?.id ?? 0) + 1 }))
   const refreshSession = async () => { const value = await api<SessionInfo>('/api/v1/me'); setSession(value) }
   useEffect(() => {
     Promise.all([api<Providers>('/api/v1/auth/providers'), api<SessionInfo>('/api/v1/me').catch(() => undefined)])
@@ -191,7 +191,7 @@ export default function App() {
     <Login providers={providers} notify={notify}
       notice={signedOut ? '세션이 만료되어 로그아웃됐습니다. 다시 로그인해 주세요.' : undefined}
       onLogin={async () => { setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
-    {toast && <Toast {...toast} onClose={() => setToast(undefined)} />}
+    {toast && <Toast key={toast.id} {...toast} onClose={() => setToast(undefined)} />}
   </>
 
   const canTeam = session.user.role !== 'USER'

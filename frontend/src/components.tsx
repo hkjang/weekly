@@ -103,6 +103,19 @@ export function Modal({ onClose, beforeClose, label, className = '', children }:
 export function Spinner() { return <div className="spinner-wrap"><span className="spinner"/><span>불러오는 중…</span></div> }
 
 export function Toast({ message, kind = 'success', onClose }: { message: string; kind?: 'success' | 'error'; onClose: () => void }) {
+  // A toast used to stay until something replaced it. It sits at the bottom
+  // right with a z-index above the page, so on the import screen it settled on
+  // top of the confirm button and stayed there — a click aimed at the button
+  // landed on the message instead. A success has said all it has to say; an
+  // error may need reading twice, so that one waits for the reader. Either way
+  // the message no longer swallows clicks meant for what is underneath it.
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    if (kind === 'error') return
+    const timer = window.setTimeout(() => close.current(), 5000)
+    return () => window.clearTimeout(timer)
+  }, [kind])
   return <div className={`toast ${kind}`} role="status">{message}<button onClick={onClose} aria-label="닫기">×</button></div>
 }
 

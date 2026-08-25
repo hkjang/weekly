@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorText, api, post } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner, formatDate } from '../components'
+import { registerUnsavedGuard } from '../unsavedGuard'
 import type { AIReportItem, ImportFile, ImportJob, ImportJobListView } from '../types'
 
 interface ImportDraft {
@@ -19,12 +20,19 @@ export default function ImportPage({ aiEnabled, currentWeekStart, notify }: { ai
   const [detail, setDetail] = useState<ImportJob>()
   const [files, setFiles] = useState<File[]>([])
   const [drafts, setDrafts] = useState<Record<number, ImportDraft>>({})
+  // What the analysis produced, before anyone touched it. Reviewing an import
+  // means correcting a machine's reading of a deck, and those corrections live
+  // only in this tab until the import is confirmed. A stray file drop was
+  // already guarded below; leaving the page was not.
+  const draftBaseline = useRef<Record<number, string>>({})
+  const draftsRef = useRef(drafts)
+  draftsRef.current = drafts
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const processing = detail?.status === 'PENDING' || detail?.status === 'PROCESSING'
 
   const loadHistory = async () => { const page = await api<ImportJobListView>('/api/v1/import/history'); setJobs(page.items); setJobTotal(page.total); if (!selectedID && page.items.length) setSelectedID(page.items[0].id) }
-  const loadDetail = async (id: number) => { const value = await api<ImportJob>(`/api/v1/import/${id}`); setDetail(value); setDrafts(previous => { const next = { ...previous }; const jobFileIDs = new Set((value.files ?? []).map(file => file.id)); for (const file of value.files ?? []) { if ((file.status === 'READY' || file.status === 'NEEDS_REVIEW') && file.result && !next[file.id]) { const weekStart = file.detectedWeekStart || file.result.weekStart; const sameWeekSelected = Object.values(next).some(draft => jobFileIDs.has(draft.id) && draft.id !== file.id && draft.weekStart === weekStart && draft.selected && draft.strategy !== 'SKIP'); next[file.id] = draftFromFile(file, sameWeekSelected) } } return next }) }
+  const loadDetail = async (id: number) => { const value = await api<ImportJob>(`/api/v1/import/${id}`); setDetail(value); setDrafts(previous => { const next = { ...previous }; const jobFileIDs = new Set((value.files ?? []).map(file => file.id)); for (const file of value.files ?? []) { if ((file.status === 'READY' || file.status === 'NEEDS_REVIEW') && file.result && !next[file.id]) { const weekStart = file.detectedWeekStart || file.result.weekStart; const sameWeekSelected = Object.values(next).some(draft => jobFileIDs.has(draft.id) && draft.id !== file.id && draft.weekStart === weekStart && draft.selected && draft.strategy !== 'SKIP'); const created = draftFromFile(file, sameWeekSelected); draftBaseline.current[file.id] = JSON.stringify(created); next[file.id] = created } } return next }) }
   useEffect(() => { loadHistory().catch(() => setJobs([])) }, [])
   // Dropping a file anywhere outside the drop zone would make the browser open
   // it and navigate away from the page, discarding the review in progress.
@@ -33,6 +41,13 @@ export default function ImportPage({ aiEnabled, currentWeekStart, notify }: { ai
     window.addEventListener('dragover', swallow)
     window.addEventListener('drop', swallow)
     return () => { window.removeEventListener('dragover', swallow); window.removeEventListener('drop', swallow) }
+  }, [])
+  useEffect(() => {
+    registerUnsavedGuard(() => Object.entries(draftsRef.current).some(([id, draft]) => {
+      const original = draftBaseline.current[Number(id)]
+      return original !== undefined && JSON.stringify(draft) !== original
+    }))
+    return () => registerUnsavedGuard(null)
   }, [])
   useEffect(() => { if (selectedID) loadDetail(selectedID) }, [selectedID])
   useEffect(() => { if (!processing || !selectedID) return; const timer = window.setInterval(() => { void Promise.all([loadHistory(), loadDetail(selectedID)]).catch(() => undefined) }, 2500); return () => window.clearInterval(timer) }, [processing, selectedID])
@@ -66,9 +81,9 @@ export default function ImportPage({ aiEnabled, currentWeekStart, notify }: { ai
 
   const upload = async () => { if (!files.length) return; setBusy(true); try { const body = new FormData(); files.forEach(file => body.append('files', file)); const result = await api<{ id: number }>('/api/v1/import/pptx', { method: 'POST', body }); setFiles([]); setSelectedID(result.id); await Promise.all([loadHistory(), loadDetail(result.id)]); notify(`${files.length}개 PPTX Import 분석을 시작했습니다.`) } catch (error) { notify(errorText(error, 'PPTX를 업로드할 수 없습니다.'), 'error') } finally { setBusy(false) } }
   const retry = async () => { if (!detail) return; setBusy(true); try { await post(`/api/v1/import/${detail.id}/analyze`); await loadDetail(detail.id); notify('실패한 파일의 재분석을 시작했습니다.') } catch (error) { notify(errorText(error, '재분석할 수 없습니다.'), 'error') } finally { setBusy(false) } }
-  const reanalyzeFile = async (fileID: number) => { if (!detail || !confirm('현재 분석 편집값을 버리고 최신 파서와 AI로 다시 분석하시겠습니까?')) return; setBusy(true); try { setDrafts(current => { const next = { ...current }; delete next[fileID]; return next }); await post(`/api/v1/import/${detail.id}/analyze`, { fileIds: [fileID] }); await Promise.all([loadHistory(), loadDetail(detail.id)]); notify('선택한 PPTX를 최신 분석 파이프라인으로 다시 처리합니다.') } catch (error) { notify(errorText(error, '파일을 재분석할 수 없습니다.'), 'error') } finally { setBusy(false) } }
+  const reanalyzeFile = async (fileID: number) => { if (!detail || !confirm('현재 분석 편집값을 버리고 최신 파서와 AI로 다시 분석하시겠습니까?')) return; setBusy(true); try { setDrafts(current => { const next = { ...current }; delete next[fileID]; return next }); delete draftBaseline.current[fileID]; await post(`/api/v1/import/${detail.id}/analyze`, { fileIds: [fileID] }); await Promise.all([loadHistory(), loadDetail(detail.id)]); notify('선택한 PPTX를 최신 분석 파이프라인으로 다시 처리합니다.') } catch (error) { notify(errorText(error, '파일을 재분석할 수 없습니다.'), 'error') } finally { setBusy(false) } }
   const selectedDrafts = useMemo(() => Object.values(drafts).filter(draft => draft.selected && (detail?.files ?? []).some(file => file.id === draft.id && (file.status === 'READY' || file.status === 'NEEDS_REVIEW'))), [drafts, detail])
-  const confirmImport = async () => { if (!detail || !selectedDrafts.length) { notify('확정할 파일을 선택하세요.', 'error'); return } if (selectedDrafts.some(draft => draft.strategy !== 'SKIP' && (!draft.weekStart || !draft.items.some(item => item.title.trim())))) { notify('주차와 업무 항목 제목을 확인하세요.', 'error'); return } if (selectedDrafts.some(draft => draft.strategy !== 'SKIP' && !sameWeekday(draft.weekStart, currentWeekStart))) { notify(`보고 주차는 관리자 기준 ${weekdayName(currentWeekStart)}요일로 선택하세요.`, 'error'); return } if (!confirm(`${selectedDrafts.length}개 과거 보고서를 저장하시겠습니까?`)) return; const files = selectedDrafts.map(draft => ({ id: draft.id, weekStart: draft.weekStart, summary: draft.summary, strategy: draft.strategy, items: draft.items.map(item => ({ category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, progress: item.progress, confidence: item.confidence , sourceSlides: item.sourceSlides ?? []})) })); setBusy(true); try { await post(`/api/v1/import/${detail.id}/confirm`, { files }); await Promise.all([loadHistory(), loadDetail(detail.id)]); notify('선택한 과거 주간보고를 저장했습니다.') } catch (error) { notify(errorText(error, 'Import를 확정할 수 없습니다.'), 'error') } finally { setBusy(false) } }
+  const confirmImport = async () => { if (!detail || !selectedDrafts.length) { notify('확정할 파일을 선택하세요.', 'error'); return } if (selectedDrafts.some(draft => draft.strategy !== 'SKIP' && (!draft.weekStart || !draft.items.some(item => item.title.trim())))) { notify('주차와 업무 항목 제목을 확인하세요.', 'error'); return } if (selectedDrafts.some(draft => draft.strategy !== 'SKIP' && !sameWeekday(draft.weekStart, currentWeekStart))) { notify(`보고 주차는 관리자 기준 ${weekdayName(currentWeekStart)}요일로 선택하세요.`, 'error'); return } if (!confirm(`${selectedDrafts.length}개 과거 보고서를 저장하시겠습니까?`)) return; const files = selectedDrafts.map(draft => ({ id: draft.id, weekStart: draft.weekStart, summary: draft.summary, strategy: draft.strategy, items: draft.items.map(item => ({ category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, progress: item.progress, confidence: item.confidence , sourceSlides: item.sourceSlides ?? []})) })); setBusy(true); try { await post(`/api/v1/import/${detail.id}/confirm`, { files }); for (const draft of selectedDrafts) draftBaseline.current[draft.id] = JSON.stringify(draft); await Promise.all([loadHistory(), loadDetail(detail.id)]); notify('선택한 과거 주간보고를 저장했습니다.') } catch (error) { notify(errorText(error, 'Import를 확정할 수 없습니다.'), 'error') } finally { setBusy(false) } }
   const updateDraft = (id: number, patch: Partial<ImportDraft>) => setDrafts(current => ({ ...current, [id]: { ...current[id], ...patch } }))
   const updateItem = (fileID: number, index: number, patch: Partial<AIReportItem>) => { const draft = drafts[fileID]; if (!draft) return; updateDraft(fileID, { items: draft.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) }) }
 
