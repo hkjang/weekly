@@ -472,8 +472,25 @@ func (a *App) settingInt(ctx context.Context, key string, fallback int) int {
 	return value
 }
 
+// audit records what happened. It is called before the response is written, so
+// the action it describes has already committed by the time this runs: if the
+// insert is dropped, the deployment keeps the change and loses the only record
+// of who made it, and the administrator reading 감사 로그 has no way to tell
+// that a row is missing. Two things follow.
+//
+// The write does not ride on the request context. A client that walks away
+// mid-request would cancel it, and the audit trail would develop holes exactly
+// when someone closes the tab after acting.
+//
+// And a failure is logged. It stays best-effort — refusing a completed action
+// because its bookkeeping failed would be worse — but a gap nobody can find is
+// not a gap anybody will fix.
 func (a *App) audit(r *http.Request, p *principal, action, resourceType, resourceID string, detail any) {
-	encoded, _ := json.Marshal(detail)
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		a.logger.Warn("audit detail could not be encoded", "error", err, "action", action, "resource", resourceType)
+		encoded = []byte("{}")
+	}
 	var actor any
 	if p != nil {
 		actor = p.ID
@@ -482,7 +499,12 @@ func (a *App) audit(r *http.Request, p *principal, action, resourceType, resourc
 	if host := remoteHost(r); host != "" {
 		ip = host
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_logs(actor_id,action,resource_type,resource_id,detail,ip_address) VALUES($1,$2,$3,$4,$5,$6)`, actor, action, resourceType, resourceID, encoded, ip)
+	ctx := context.WithoutCancel(r.Context())
+	if _, err := a.db.Exec(ctx, `INSERT INTO audit_logs(actor_id,action,resource_type,resource_id,detail,ip_address) VALUES($1,$2,$3,$4,$5,$6)`, actor, action, resourceType, resourceID, encoded, ip); err != nil {
+		a.logger.Error("audit record was not written", "error", err, "action", action,
+			"resource_type", resourceType, "resource_id", resourceID, "actor_id", actor,
+			"trace", traceIDFromContext(r.Context()))
+	}
 }
 
 func remoteHost(r *http.Request) string {

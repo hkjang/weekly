@@ -838,7 +838,17 @@ func nullableInteger(value int) any {
 	return value
 }
 
+// auditSystem is the background counterpart of audit. Same rule: a record that
+// fails to land is still a hole in the trail, and one nobody can see is one
+// nobody will fix.
 func (a *App) auditSystem(ctx context.Context, action, resourceType, resourceID string, detail any) {
-	encoded, _ := json.Marshal(detail)
-	_, _ = a.db.Exec(ctx, `INSERT INTO audit_logs(actor_id,action,resource_type,resource_id,detail) VALUES(NULL,$1,$2,$3,$4)`, action, resourceType, resourceID, encoded)
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		a.logger.Warn("audit detail could not be encoded", "error", err, "action", action, "resource", resourceType)
+		encoded = []byte("{}")
+	}
+	if _, err := a.db.Exec(ctx, `INSERT INTO audit_logs(actor_id,action,resource_type,resource_id,detail) VALUES(NULL,$1,$2,$3,$4)`, action, resourceType, resourceID, encoded); err != nil {
+		a.logger.Error("audit record was not written", "error", err, "action", action,
+			"resource_type", resourceType, "resource_id", resourceID)
+	}
 }

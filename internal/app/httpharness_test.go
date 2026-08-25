@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -34,6 +35,21 @@ type testServer struct {
 	// admin is the bootstrap administrator's session cookie.
 	admin     *http.Cookie
 	adminName string
+	// logs holds everything the app wrote while the test ran. Some behaviour is
+	// only visible here: work the product does on its own, and failures it
+	// deliberately survives rather than reporting to the caller.
+	logs *bytes.Buffer
+}
+
+// logged reports whether any line written so far contains every fragment.
+func (s *testServer) logged(fragments ...string) bool {
+	text := s.logs.String()
+	for _, fragment := range fragments {
+		if !strings.Contains(text, fragment) {
+			return false
+		}
+	}
+	return true
 }
 
 // harnessRun makes every account this file creates unique to one `go test`, so
@@ -78,8 +94,9 @@ func newTestServer(t *testing.T) *testServer {
 	t.Setenv("WEEKLY_ALLOW_SECRET_RESET", "true")
 
 	ctx, cancel := context.WithCancel(context.Background())
+	logs := &bytes.Buffer{}
 	app, err := New(ctx, Options{
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger: slog.New(slog.NewTextHandler(logs, nil)),
 		Web:    fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html>")}},
 		Build:  BuildInfo{Version: "test"},
 	})
@@ -89,7 +106,7 @@ func newTestServer(t *testing.T) *testServer {
 	}
 	t.Cleanup(func() { cancel(); app.Close() })
 
-	server := &testServer{t: t, app: app}
+	server := &testServer{t: t, app: app, logs: logs}
 	server.adminName = adminName
 	server.admin = server.signIn(adminName, "HarnessAdmin1234")
 	return server
