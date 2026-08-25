@@ -46,6 +46,10 @@ jobs:
       # Three releases in a row shipped one before this check existed.
       - run: python3 scripts/guard-check.py
       - run: python3 scripts/modal-close-check.py
+      # Every release note since v0.15 tells operators to back up before
+      # upgrading. Until this step, nothing had ever run the script they were
+      # being told to trust.
+      - run: sh scripts/backup-check.sh
       - run: npm ci && npm run build
         working-directory: frontend
       # Half the product is the frontend and none of it had executable

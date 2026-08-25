@@ -1079,6 +1079,25 @@ count(*) FILTER (WHERE r.submitted_at &gt;= deadline.at)   -- 지각</div>
 </ul>
 <p>고친 뒤 같은 자리를 다시 재니 <code>그 자리에서 잡히는 것: button primary</code> 로 바뀌었고, 20초 뒤에는 토스트가 없습니다. 가져오기를 끝까지 돌려 <code>PPTX_IMPORT</code> 보고서가 제가 고친 문장을 담고 저장되는 것까지 확인했습니다.</p>
 <p>두 가지를 적어 둡니다. <strong>알림은 화면 위에 얹는 것이므로, 무엇을 덮는지가 알림 자신의 책임입니다.</strong> 그리고 <code>docker build -q ... &gt;/dev/null 2&gt;&amp;1</code> 로 빌드 실패를 삼킨 뒤 없는 태그로 컨테이너를 띄우려 한 일이 있었습니다. <strong>조용히 만들면 실패도 조용합니다.</strong></p>
+<p>#### 3.10.54 v0.100.0에서 완료 — 사고 나는 날 처음 돌려 보는 코드</p>
+<p>가져오기 화면을 더 파 보려다 두 가지를 의심했고, <strong>둘 다 틀렸습니다.</strong> 저장된 보고서의 주차가 스텁이 감지한 주차와 달랐는데, 파서가 덱에서 읽은 날짜가 모델이 말한 날짜보다 우선하기 때문이었습니다 — 맞는 순서입니다. 새 초안이 꺼진 채로 온 것도 <code>NEEDS_REVIEW</code> 상태여서였고, 화면이 그 이유를 이미 적어 두고 있었습니다. 추측을 코드로 확인하면 대개 이렇게 끝납니다.</p>
+<p>그래서 한 번도 돌아 본 적 없는 것을 찾았습니다. <code>scripts/weekly-backup.sh</code> 는 <strong>v0.15부터 모든 릴리즈 노트의 업그레이드 1단계</strong>로 안내됩니다. 219줄이고, CI에도 테스트에도 없습니다. 복구 스크립트는 한 해 중 가장 나쁜 날에 처음 실행되는 종류의 소프트웨어입니다.</p>
+<p>문서에 적힌 방식 그대로 돌렸습니다. 상태 볼륨을 붙인 배포를 새로 띄우고, 첨부 세 건을 올렸습니다 — 그중 둘은 바이트가 같아서 파일 하나로 합쳐집니다. 스크립트의 회계가 정확히 이 차이를 다루므로 꼭 필요한 조건이었습니다.</p>
+<div class="phase-box">attachments: 2 files for 2 referenced paths — complete
+attachment_rows=3
+attachment_files_expected=2</div>
+<p>백업·검증·복구가 모두 통과했고, 빈 데이터베이스와 빈 볼륨에 복구한 뒤 앱을 띄우니 <code>attachment files verified: 3</code> 이 뜨고 첨부 세 건이 모두 HTTP 200 으로 열렸으며 <strong>바이트가 원본과 같았습니다.</strong> 매니페스트는 비밀번호를 가립니다. 결함은 없었습니다.</p>
+<p>없다는 것을 확인한 것으로 끝내면, 다음에 누가 이 스크립트를 고칠 때 다시 아무도 안 보는 상태로 돌아갑니다. <code>scripts/backup-check.sh</code> 를 만들어 CI에 넣었습니다. 임시 데이터베이스 둘을 만들고, 저장소의 마이그레이션을 psql 로 적용하고, 중복 업로드를 포함한 첨부를 심고, 백업 → 검증 → 복구를 왕복시킨 뒤 행 수와 <strong>파일 바이트</strong>를 비교합니다.</p>
+<p>세 가지를 더 봅니다.</p>
+<ul>
+<li><strong>복구는 남은 파일을 지웁니다.</strong> 백업에 없던 파일이 복구된 데이터인 척 남아 있으면 안 됩니다.</li>
+<li><strong>매니페스트가 비밀번호를 가립니다.</strong> 복구하는 사람이 읽는 파일이고, 그 사람에게 자격 증명을 건네줄 이유는 없습니다.</li>
+<li><strong>빠진 첨부는 실패로 보고해야 합니다.</strong> 이게 핵심입니다 — 깨진 복구 지점을 성공으로 적으면 백업이 없는 것보다 나쁩니다. 믿게 되기 때문입니다.</li>
+</ul>
+<p>검사가 실제로 무는지 백업 스크립트를 세 가지로 훼손해서 확인했습니다.</p>
+<table><thead><tr><th>훼손</th><th>검사가 한 말</th></tr></thead><tbody><tr><td>복구 때 기존 파일 정리를 없앰</td><td><code>restore left a stale file behind</code></td></tr><tr><td>첨부 개수 비교를 항상 참으로</td><td><code>backup reported success while an attachment file was missing</code></td></tr><tr><td>상태 볼륨에서 첨부를 빼고 압축</td><td><code>backup exited non-zero on a complete deployment</code></td></tr></tbody></table>
+<p>셋 다 정확한 자리를 짚습니다.</p>
+<p>원칙으로 남깁니다. <strong>문서가 믿으라고 말하는 것은 CI가 돌려 봐야 합니다.</strong> 릴리즈 노트 열 번이 넘게 "먼저 백업하고 verify 가 통과하는지 확인하십시오" 라고 적어 왔는데, 그 문장을 뒷받침하는 실행은 한 번도 없었습니다.</p>
 </div>
 </body>
 </html>
