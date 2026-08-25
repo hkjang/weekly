@@ -201,7 +201,7 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	workflow := a.settingBool(r.Context(), "workflow.enabled", false)
 	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
-	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "currentWeekStart": week.Format("2006-01-02"), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "accountNotice": accountNotice(p), "build": a.build})
+	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "currentWeekStart": week.Format("2006-01-02"), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "accountNotice": accountNotice(p, workflow), "build": a.build})
 }
 
 // accountNotice describes a state of this account that makes the product answer
@@ -215,16 +215,24 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 //
 // The service-wide notice is separate on purpose: that one is for everybody and
 // this one is about you.
-func accountNotice(p *principal) string {
-	if p == nil {
+func accountNotice(p *principal, workflowEnabled bool) string {
+	if p == nil || p.OrganizationID != nil {
 		return ""
 	}
-	if (p.Role == "TEAM_LEADER" || p.Role == "ORG_MANAGER") && p.OrganizationID == nil {
+	switch p.Role {
+	case "TEAM_LEADER", "ORG_MANAGER":
 		return "이 계정에 소속 조직이 지정되어 있지 않습니다. 팀 주간보고·대시보드·인수인계가 모두 비어 보이며, 관리자가 소속 조직을 지정하면 해결됩니다."
+	case "USER":
+		// Measured: this account's report is absent from every leader's team
+		// list, so with the workflow on it is submitted into a queue no
+		// reviewer can open. The writer does the work, submits it and waits.
+		if workflowEnabled {
+			return "이 계정에 소속 조직이 지정되어 있지 않습니다. 작성한 주간보고가 어느 팀장에게도 보이지 않아, 제출해도 검토 대기 상태로 남습니다. 관리자가 소속 조직을 지정하면 해결됩니다."
+		}
+		return "이 계정에 소속 조직이 지정되어 있지 않습니다. 작성한 주간보고가 어느 팀장의 팀 주간보고에도 나타나지 않으며, 관리자가 소속 조직을 지정하면 해결됩니다."
 	}
 	return ""
 }
-
 func (a *App) authProviders(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{
 		"local":  a.settingBool(r.Context(), "auth.local_enabled", true),

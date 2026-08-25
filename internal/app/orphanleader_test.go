@@ -119,27 +119,38 @@ func itoa(value int64) string { return strconv.FormatInt(value, 10) }
 // roster are empty for the same reason and say nothing. Rather than glue an
 // explanation to each screen and forget the next one, the session carries it —
 // so it appears wherever the reader is, and stops when the account is fixed.
-func TestOnlyALeaderWithNoOrganisationIsWarnedAboutTheirAccount(t *testing.T) {
+//
+// This test used to assert that a writer with no organisation needs no warning,
+// on the grounds that "a plain user's own reports do not depend on an
+// organisation". Measured on a running deployment, that premise is false. An
+// organisation-less writer submitted a report and the team leader's review
+// queue stayed at zero; the leader's team list held only the writer who has an
+// organisation. The submission is real, and no reviewer can open it. Their own
+// reports depend on an organisation after all — not to write, but to be read.
+func TestAnAccountThatCannotBeReachedIsToldWhy(t *testing.T) {
 	organisation := int64(7)
 	cases := []struct {
-		name string
-		who  *principal
-		want bool
+		name     string
+		who      *principal
+		workflow bool
+		want     bool
 	}{
-		{"소속 없는 팀장", &principal{Role: "TEAM_LEADER"}, true},
-		{"소속 없는 조직장", &principal{Role: "ORG_MANAGER"}, true},
+		{"소속 없는 팀장", &principal{Role: "TEAM_LEADER"}, true, true},
+		{"소속 없는 조직장", &principal{Role: "ORG_MANAGER"}, true, true},
+		// Submitted into a queue no leader can open.
+		{"소속 없는 작성자 · 결재 켬", &principal{Role: "USER"}, true, true},
+		// No review step, but still absent from every team list and rollup.
+		{"소속 없는 작성자 · 결재 끔", &principal{Role: "USER"}, false, true},
 
-		{"소속 있는 팀장", &principal{Role: "TEAM_LEADER", OrganizationID: &organisation}, false},
-		{"소속 있는 조직장", &principal{Role: "ORG_MANAGER", OrganizationID: &organisation}, false},
+		{"소속 있는 팀장", &principal{Role: "TEAM_LEADER", OrganizationID: &organisation}, true, false},
+		{"소속 있는 조직장", &principal{Role: "ORG_MANAGER", OrganizationID: &organisation}, true, false},
+		{"소속 있는 작성자", &principal{Role: "USER", OrganizationID: &organisation}, true, false},
 		// An administrator sees everything regardless, so nothing is wrong.
-		{"소속 없는 관리자", &principal{Role: "ADMIN"}, false},
-		// A plain user's own reports do not depend on an organisation, and the
-		// org-scoped screens are not theirs to open.
-		{"소속 없는 일반 사용자", &principal{Role: "USER"}, false},
-		{"로그인 전", nil, false},
+		{"소속 없는 관리자", &principal{Role: "ADMIN"}, true, false},
+		{"로그인 전", nil, true, false},
 	}
 	for _, item := range cases {
-		notice := accountNotice(item.who)
+		notice := accountNotice(item.who, item.workflow)
 		if (notice != "") != item.want {
 			t.Errorf("%s: accountNotice=%q, want warned=%v", item.name, notice, item.want)
 		}
