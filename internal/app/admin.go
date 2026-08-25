@@ -299,6 +299,15 @@ type userListView struct {
 	Offset int        `json:"offset"`
 	Query  string     `json:"query,omitempty"`
 	Roles  []string   `json:"roles,omitempty"`
+	// Unassigned counts every account with no organisation, whatever the
+	// current search is. Those accounts are invisible to every team leader, so
+	// the number is a property of the deployment rather than of this page, and
+	// an administrator has no other way to learn it: the directory has no
+	// filter for a blank column, and reading one by eye means paging through
+	// everybody.
+	Unassigned int `json:"unassigned"`
+	// Only string here so an empty filter stays out of the payload.
+	Organization string `json:"organization,omitempty"`
 }
 
 const (
@@ -346,6 +355,13 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 		args = append(args, roles)
 		conditions = append(conditions, fmt.Sprintf(`role = ANY($%d)`, len(args)))
 	}
+	organization := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("organization")))
+	if organization != "none" {
+		organization = ""
+	}
+	if organization == "none" {
+		conditions = append(conditions, `organization_id IS NULL`)
+	}
 	if len(conditions) > 0 {
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -376,7 +392,12 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
 		return
 	}
-	writeData(w, 200, userListView{Items: result, Total: total, Limit: limit, Offset: offset, Query: query, Roles: roles})
+	var unassigned int
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users WHERE organization_id IS NULL`).Scan(&unassigned); err != nil {
+		a.logger.Warn("count accounts without an organisation", "error", err)
+	}
+	writeData(w, 200, userListView{Items: result, Total: total, Limit: limit, Offset: offset, Query: query, Roles: roles,
+		Unassigned: unassigned, Organization: organization})
 }
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{2,120}$`)

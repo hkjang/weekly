@@ -25,7 +25,7 @@ export interface AnalyticsOverview { weekStart: string; totalUsers: number; subm
 export interface KeyView { id: number; name: string; prefix: string; keyVersion: number; scopes: string[]; lastUsedAt?: string; expiresAt?: string; createdAt: string }
 export interface AdminUser extends User { managerId?: number; active: boolean; lastLoginAt?: string; createdAt: string }
 /** A page of accounts with the size of the directory it came from. */
-export interface AdminUserPage { items: AdminUser[]; total: number; limit: number; offset: number; query?: string; roles?: string[] }
+export interface AdminUserPage { items: AdminUser[]; total: number; limit: number; offset: number; query?: string; roles?: string[]; unassigned: number; organization?: string }
 export interface Organization { id: number; parentId?: number; name: string; code: string; userCount: number }
 export interface Setting { key: string; value?: string; secret: boolean; configured: boolean; available: boolean; updatedAt: string }
 export type AIReportItem = {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.104.0
+  version: 0.105.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1562,11 +1562,17 @@ paths:
         `q` 는 로그인 아이디·표시 이름·이메일을 함께 본다. 관리자는 셋 중 무엇을 들고
         올지 모르기 때문이다.
 
+        `unassigned` 는 소속 조직이 지정되지 않은 계정의 **전체 개수**이며 `q`·`role`·
+        `organization` 과 무관하다. 그 계정의 주간보고는 어느 팀장에게도 보이지 않아
+        결재를 쓰는 곳에서는 제출해도 검토 대기 상태로 남는데, 관리자에게는 그런 계정이
+        있다는 사실을 알 방법이 없었다 — 빈 칸을 찾아 전원을 넘겨 보는 것 말고는.
+
         `role` 은 쉼표로 구분한 역할 목록이다. 검토 책임자 선택기가 이것을 쓴다. 표의 한
         페이지에서 만들면 조직이 커질수록 검토자가 조용히 목록에서 빠지고, 보는 사람은
         그 이름이 자격이 없어서 없는 것인지 페이지 밖이라서 없는 것인지 알 수 없다.
       parameters:
         - { name: q, in: query, schema: { type: string }, description: 아이디·이름·이메일 부분 일치 }
+        - { name: organization, in: query, schema: { type: string, enum: [none] }, description: "none 이면 소속 조직이 지정되지 않은 계정만 반환한다. 인식하지 못한 값은 무시한다 — 오타가 목록을 조용히 비우면 배포에 계정이 없다고 읽게 된다." }
         - { name: role, in: query, schema: { type: string }, description: "쉼표 구분, 예: TEAM_LEADER,ORG_MANAGER,ADMIN" }
         - { name: limit, in: query, schema: { type: integer, default: 100, minimum: 1, maximum: 500 } }
         - { name: offset, in: query, schema: { type: integer, default: 0, minimum: 0 } }
