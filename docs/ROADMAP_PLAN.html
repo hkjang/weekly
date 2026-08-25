@@ -1310,6 +1310,25 @@ A test that never runs its subject passes whatever the subject does.</div>
 <div class="phase-box">- README.md 에 &#x27;weekly-v0.116.0.tar.gz&#x27; 이(가) 없습니다</div>
 <p>원칙으로 남깁니다. <strong>검사가 틀린 단서를 주면, 없는 것보다 나쁩니다.</strong> 사람이 그 단서를 따라 시간을 씁니다.</p>
 <p>변이 검사는 계속 돌고 있고, <code>TestNobodyExportsSomebodyElsesDeck</code> 이 자기 함수의 변이를 여섯 개 중 하나도 못 잡는다는 중간 결과가 나왔습니다. 제품은 확인해 보니 옳습니다 — 남의 덱은 양방향 403 이고 자기 것은 200 입니다. 그러니 볼 자리는 시험입니다. 그 시험은 <strong>상태 코드만</strong> 보고 작성자가 실제로 덱을 받았는지, 그리고 타인의 거부가 거부인지 고장인지(500 도 통과합니다)를 보지 않습니다. 변이 검사가 끝나면 그것부터 손봅니다.</p>
+<p>#### 3.10.72 v0.117.0에서 완료 — 권한 검사를 통째로 지워도 통과하던 시험</p>
+<p>변이 검사를 38/78 에서 멈췄습니다. Go 를 네 회차째 피하는 값이 남은 절반의 값보다 커졌고, 부분 결과가 이미 따라갈 단서를 줬기 때문입니다. 부분 결과는 남겨 뒀고, 필요하면 <code>--test</code> 로 좁혀 다시 돌릴 수 있습니다.</p>
+<p>단서는 이것이었습니다.</p>
+<div class="phase-box">TestNobodyExportsSomebodyElsesDeck — exportReportPPTX: caught 0, survived 6</div>
+<p>제품부터 확인했습니다. 남의 덱은 양방향 403, 자기 것은 200 — <strong>제품은 옳습니다.</strong> 그러니 볼 자리는 시험이고, 그 시험은 <strong>상태 코드만</strong> 봅니다. 작성자가 받은 것이 실제 덱인지 보지 않고, 타인의 거부가 거부인지 고장인지도 보지 않습니다. 400 이든 500 이든 "200 이 아님" 이면 통과합니다.</p>
+<p>둘 다 못 박고 확인했습니다.</p>
+<div class="phase-box">옛 시험 + 거부가 500 으로 바뀜 → ok
+새 시험 + 같은 훼손           → FAIL</div>
+<p>그다음 같은 약점을 다른 곳에서 찾다가 <strong>훨씬 나쁜 것</strong>을 봤습니다. <code>TestOnePersonsReportIsNotAnothersToRead</code> 는 읽기는 <code>403 또는 404</code> 로 제대로 확인하는데, 수정과 삭제는 "200 이 아님" 만 봅니다. 그래서 그 조건을 강화했더니 <strong>제품에 대해 실패했습니다</strong> — 400 이 돌아옵니다.</p>
+<p>제품 결함인 줄 알고 물어봤습니다.</p>
+<div class="phase-box">버전 없이 수정: 400 VERSION_REQUIRED 보고서 버전이 필요합니다
+버전 넣고 수정: 403 FORBIDDEN 본인의 보고서만 수정할 수 있습니다
+버전 넣고 삭제: 403 FORBIDDEN 본인의 보고서만 삭제할 수 있습니다</div>
+<p>제품은 옳습니다. <strong>시험이 헛돌고 있었습니다.</strong> 버전 없는 요청은 권한을 따지기 전에 형식으로 거절되므로, 그 시험은 언제나 거절을 받았고 그 이유는 한 번도 권한이 아니었습니다.</p>
+<p>증명했습니다.</p>
+<div class="phase-box">새 시험 + 수정 소유권 검사 제거 → FAIL
+옛 시험 + 같은 훼손            → ok</div>
+<p><strong><code>if ownerID != p.ID</code> 를 통째로 지워도 옛 시험은 통과합니다.</strong> "남의 보고서는 남의 것" 이라는 이름을 달고 있는 시험이, 그 규칙의 쓰기 절반을 한 번도 시험하지 않았습니다.</p>
+<p>원칙으로 남깁니다. <strong>거절을 확인할 때는 거절당한 이유까지 확인해야 합니다.</strong> "성공하지 않았다" 는 권한이 지켜졌다는 뜻이 아니라, 무슨 이유로든 막혔다는 뜻일 뿐입니다. 형식 오류로 막힌 요청은 권한을 시험하지 않습니다 — 그리고 그런 시험은 초록색인 채로 규칙이 사라지는 것을 지켜봅니다.</p>
 </div>
 </body>
 </html>

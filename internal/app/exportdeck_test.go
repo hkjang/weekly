@@ -277,9 +277,24 @@ func TestNobodyExportsSomebodyElsesDeck(t *testing.T) {
 	if own.Code != http.StatusOK {
 		t.Fatalf("the author cannot export their own report: %d %s", own.Code, own.Body.String())
 	}
+	// 200 was the whole assertion once, and a 200 carrying nothing would have
+	// passed it. The author has to receive a deck, not a status line.
+	if !bytes.HasPrefix(own.Body.Bytes(), []byte("PK\x03\x04")) {
+		t.Fatalf("the author's export is not a PPTX (%d bytes, starts %q)", own.Body.Len(), own.Body.Bytes()[:min(8, own.Body.Len())])
+	}
+
 	other := server.request(http.MethodGet, fmt.Sprintf("/api/v1/reports/%d/export.pptx", id), nil, stranger)
 	if other.Code == http.StatusOK {
 		t.Errorf("a stranger downloaded somebody else's deck (%d bytes)", other.Body.Len())
+	}
+	// "not 200" also accepts a crash, and a crash is not a decision: if this
+	// path started failing on every cross-user request the old assertion would
+	// have stayed green while the endpoint was broken for everyone.
+	if other.Code >= 500 {
+		t.Errorf("refusing a stranger should be a decision, not a failure: %d %s", other.Code, other.Body.String())
+	}
+	if bytes.HasPrefix(other.Body.Bytes(), []byte("PK\x03\x04")) {
+		t.Errorf("the refusal carried a PPTX anyway (%d bytes)", other.Body.Len())
 	}
 }
 

@@ -50,13 +50,29 @@ func TestOnePersonsReportIsNotAnothersToRead(t *testing.T) {
 	if other.Code != http.StatusNotFound && other.Code != http.StatusForbidden {
 		t.Errorf("reading somebody else's report answered %d, want 403 or 404", other.Code)
 	}
-	// Editing is the same boundary from the other side.
-	edited := server.request(http.MethodPut, path, map[string]any{"summary": "고쳐 버림"}, stranger)
+	// Editing is the same boundary from the other side — and it has to be asked
+	// properly to be asked at all. Without a version this request is refused as
+	// 400 VERSION_REQUIRED before ownership is ever consulted, so the assertion
+	// below used to hold no matter who was allowed to edit what. Measured: with
+	// the version present the answer is 403 본인의 보고서만 수정할 수 있습니다.
+	version, _ := decodeData(t, created)["version"].(float64)
+	if version == 0 {
+		version = 1
+	}
+	edited := server.request(http.MethodPut, path,
+		map[string]any{"summary": "고쳐 버림", "version": int(version), "items": []any{}}, stranger)
 	if edited.Code == http.StatusOK {
 		t.Errorf("a stranger edited somebody else's report: %s", edited.Body.String())
 	}
-	if removed := server.request(http.MethodDelete, path, nil, stranger); removed.Code == http.StatusOK {
+	if edited.Code != http.StatusNotFound && edited.Code != http.StatusForbidden {
+		t.Errorf("editing somebody else's report answered %d, want 403 or 404", edited.Code)
+	}
+	removed := server.request(http.MethodDelete, fmt.Sprintf("%s?version=%d", path, int(version)), nil, stranger)
+	if removed.Code == http.StatusOK {
 		t.Errorf("a stranger deleted somebody else's report: %s", removed.Body.String())
+	}
+	if removed.Code != http.StatusNotFound && removed.Code != http.StatusForbidden {
+		t.Errorf("deleting somebody else's report answered %d, want 403 or 404", removed.Code)
 	}
 }
 
