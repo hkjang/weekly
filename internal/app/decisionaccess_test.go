@@ -134,3 +134,21 @@ func TestOnlyTheRecorderOrAnAdministratorChangesADecision(t *testing.T) {
 		t.Fatalf("the recorder cannot delete their own decision: %d %s", own.Code, own.Body.String())
 	}
 }
+
+// guards: suggestDecisions
+func TestDecisionSuggestionsStayInsideTheReadersScope(t *testing.T) {
+	server := newTestServer(t)
+	mine := server.createOrganization("제안 내 조직", "SUGMINE")
+	theirs := server.createOrganization("제안 남의 조직", "SUGTHEIRS")
+	author := server.createUser("suggest_author", "USER", &mine)
+	outsider := server.createUser("suggest_outsider", "USER", &theirs)
+
+	workItemID := workItemOf(t, server, author, "2026-08-24", "제안을 붙일 업무")
+	path := fmt.Sprintf("/api/v1/work-items/%d/decisions/suggest", workItemID)
+
+	// The scope check has to run before the feature check. An AI gateway that is
+	// switched off must not become the reason a stranger is turned away, because
+	// then switching it on would open the door.
+	refused(t, "asking for decision suggestions on another organisation's work",
+		server.request(http.MethodPost, path, map[string]any{}, outsider))
+}
