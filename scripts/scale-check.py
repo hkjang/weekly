@@ -30,6 +30,7 @@ Usage:
 Exit code is 1 when something is reported, so it can gate a release.
 """
 import argparse
+import hashlib
 import http.cookiejar
 import json
 import re
@@ -82,6 +83,8 @@ PATHS = [
     "/api/v1/rollups?kind=QUARTER&period={year}-Q1&scope=TEAM",
     "/api/v1/rollups?kind=MONTH&period={year}-03&scope=TEAM",
     "/api/v1/rollups/export.csv?kind=YEAR&period={year}&scope=TEAM",
+    "/api/v1/rollups/export.pptx?kind=YEAR&period={year}&scope=TEAM",
+    "/api/v1/rollups/export.pptx?kind=MONTH&period={year}-03&scope=TEAM",
     "/api/v1/team/reports",
     "/api/v1/team/members",
     "/api/v1/reports",
@@ -108,7 +111,11 @@ def normalise(body: bytes) -> str:
     try:
         parsed = json.loads(body)
     except ValueError:
-        return body.decode("utf-8", "replace")
+        # CSV and PPTX come through here. Decoding a .pptx as UTF-8 with
+        # "replace" turns every byte it cannot read into the same character, so
+        # two different decks could compare equal. A digest compares what was
+        # actually sent.
+        return hashlib.sha256(body).hexdigest()
     if isinstance(parsed, dict):
         parsed.pop("traceId", None)
     text = json.dumps(parsed, sort_keys=True, ensure_ascii=False)
