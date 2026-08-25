@@ -45,6 +45,7 @@ jobs:
       # A guard that never runs its subject passes whatever the subject does.
       # Three releases in a row shipped one before this check existed.
       - run: python3 scripts/guard-check.py
+      - run: python3 scripts/modal-close-check.py
       - run: npm ci && npm run build
         working-directory: frontend
       # Half the product is the frontend and none of it had executable
