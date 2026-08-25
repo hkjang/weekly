@@ -131,3 +131,22 @@ export function matchScore(query: string, label: string, keywords: string[] = []
   }
   return best
 }
+
+/**
+ * Whether this app should handle a click on one of its own links itself.
+ *
+ * Navigation items are anchors so that middle click, ctrl+click and "링크 주소
+ * 복사" work — but a plain left click has to stay inside the app, both to avoid
+ * a full reload and because leaving a page with unsaved edits must ask first.
+ *
+ * A modified click is left to the browser on purpose: it opens a new tab, and
+ * nothing is being abandoned in this one.
+ */
+export function appHandlesClick(event: {
+  defaultPrevented: boolean; button: number
+  metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean
+}): boolean {
+  if (event.defaultPrevented) return false
+  if (event.button !== 0) return false
+  return !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+}

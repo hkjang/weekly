@@ -3,7 +3,7 @@ import { errorText, api, post } from './api'
 import { Button, Spinner, Toast } from './components'
 import CommandPalette, { periodCommands } from './CommandPalette'
 import type { Command } from './CommandPalette'
-import { navigateTo, parseRoute, replaceRoute, routeHash } from './router'
+import { appHandlesClick, navigateTo, parseRoute, replaceRoute, routeHash } from './router'
 import { confirmDiscard, hasUnsavedWork } from './unsavedGuard'
 import { onSessionLost } from './session'
 import { popLayer, pushLayer } from './layers'
@@ -236,16 +236,16 @@ export default function App() {
       <div className="brand"><span className="brand-mark small">W</span><div><strong>{session.serviceName}</strong><small>Weekly reports</small></div></div>
       <nav ref={navRef}>
         <span className="nav-label">개인</span>
-        <Nav active={page === 'dashboard'} icon="⌂" onClick={() => navigate('dashboard')}>대시보드</Nav>
-        <Nav active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>
-        <Nav active={page === 'history'} icon="◷" onClick={() => navigate('history')}>과거 보고</Nav>
-        <Nav active={page === 'work'} icon="◎" onClick={() => navigate('work')}>업무 추적</Nav>
-        <Nav active={page === 'meeting'} icon="◍" onClick={() => navigate('meeting')}>회의 모드</Nav>
-        <Nav active={page === 'handover'} icon="⇄" onClick={() => navigate('handover')}>인수인계</Nav>
-        <Nav active={page === 'rollup'} icon="▤" onClick={() => navigate('rollup')}>기간 업무보고</Nav>
-        <Nav active={page === 'import'} icon="⇧" onClick={() => navigate('import')}>PPTX 가져오기</Nav>
-        {canTeam && <><span className="nav-label">조직</span><Nav active={page === 'team'} icon="♙" onClick={() => navigate('team')}>팀 주간보고</Nav><Nav active={page === 'analytics'} icon="▥" onClick={() => navigate('analytics')}>보고 분석</Nav><Nav active={page === 'digest'} icon="★" onClick={() => navigate('digest')}>경영 요약</Nav><Nav active={page === 'insights'} icon="⌘" onClick={() => navigate('insights')}>업무 인사이트</Nav></>}
-        {isAdmin && <><span className="nav-label">관리</span><Nav active={page === 'admin'} icon="⚙" onClick={() => navigate('admin')}>관리자 설정</Nav></>}
+        <Nav page='dashboard' active={page === 'dashboard'} icon="⌂" onClick={() => navigate('dashboard')}>대시보드</Nav>
+        <Nav page='current' active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>
+        <Nav page='history' active={page === 'history'} icon="◷" onClick={() => navigate('history')}>과거 보고</Nav>
+        <Nav page='work' active={page === 'work'} icon="◎" onClick={() => navigate('work')}>업무 추적</Nav>
+        <Nav page='meeting' active={page === 'meeting'} icon="◍" onClick={() => navigate('meeting')}>회의 모드</Nav>
+        <Nav page='handover' active={page === 'handover'} icon="⇄" onClick={() => navigate('handover')}>인수인계</Nav>
+        <Nav page='rollup' active={page === 'rollup'} icon="▤" onClick={() => navigate('rollup')}>기간 업무보고</Nav>
+        <Nav page='import' active={page === 'import'} icon="⇧" onClick={() => navigate('import')}>PPTX 가져오기</Nav>
+        {canTeam && <><span className="nav-label">조직</span><Nav page='team' active={page === 'team'} icon="♙" onClick={() => navigate('team')}>팀 주간보고</Nav><Nav page='analytics' active={page === 'analytics'} icon="▥" onClick={() => navigate('analytics')}>보고 분석</Nav><Nav page='digest' active={page === 'digest'} icon="★" onClick={() => navigate('digest')}>경영 요약</Nav><Nav page='insights' active={page === 'insights'} icon="⌘" onClick={() => navigate('insights')}>업무 인사이트</Nav></>}
+        {isAdmin && <><span className="nav-label">관리</span><Nav page='admin' active={page === 'admin'} icon="⚙" onClick={() => navigate('admin')}>관리자 설정</Nav></>}
       </nav>
       <div className="sidebar-foot">오프라인 운영 준비됨</div>
     </aside>
@@ -305,7 +305,30 @@ function shortcutLabel(): string {
   return mac ? '⌘K' : 'Ctrl K'
 }
 
-function Nav({ active, icon, children, onClick }: { active: boolean; icon: string; children: string; onClick: () => void }) { return <button className={active ? 'active' : ''} onClick={onClick}><i>{icon}</i>{children}</button> }
+/**
+ * A navigation item is a real link that this app happens to handle itself.
+ *
+ * It was a button, because leaving a page with unsaved edits has to ask first
+ * and a plain anchor would navigate before anything could ask. The cost was
+ * everything a link gives you for free: middle click, ctrl+click, "새 탭에서
+ * 열기", "링크 주소 복사". In a tool people keep open all day, comparing your
+ * own report against the team's in a second tab is an ordinary thing to want,
+ * and there was no way to do it.
+ *
+ * An anchor with an intercepted plain click keeps both. A modified click is
+ * left alone: it opens a new tab, and nothing is being left behind in this one.
+ */
+function Nav({ active, icon, children, page, onClick }: { active: boolean; icon: string; children: string; page: Page; onClick: () => void }) {
+  return <a
+    href={routeHash(page)}
+    className={active ? 'active' : ''}
+    onClick={event => {
+      if (!appHandlesClick(event)) return
+      event.preventDefault()
+      onClick()
+    }}
+  ><i>{icon}</i>{children}</a>
+}
 function roleName(role: string) { return ({ USER: '사용자', TEAM_LEADER: '팀장', ORG_MANAGER: '조직장', ADMIN: '관리자' } as Record<string, string>)[role] ?? role }
 
 function Login({ providers, onLogin, notify, notice }: { providers: Providers; onLogin: () => Promise<void>; notify: (message: string, kind?: 'success' | 'error') => void; notice?: string }) {
