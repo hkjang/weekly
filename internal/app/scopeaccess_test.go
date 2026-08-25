@@ -92,3 +92,53 @@ func TestNobodyReadsSomebodyElsesHandover(t *testing.T) {
 		t.Errorf("the refusal carried the report it was refusing: %s", other.Body.String())
 	}
 }
+
+// Two screens read across an organisation, and a plain writer is not offered
+// them. The gate is inside the handler — the route itself only asks for a
+// session — so if it goes, a writer sees their colleagues' work. Both were
+// unguarded.
+
+// guards: meetingMode
+func TestOrganisationWideMeetingMaterialIsForLeaders(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("회의 조직", "MEETORG")
+	leader := server.createUser("meeting_leader", "TEAM_LEADER", &organisation)
+	writer := server.createUser("meeting_writer", "USER", &organisation)
+	colleague := server.createUser("meeting_colleague", "USER", &organisation)
+	server.submitted(colleague, "2026-08-24", "동료가 쓴 보고입니다")
+
+	// Their own week is theirs to read.
+	if own := server.request(http.MethodGet, "/api/v1/meeting?scope=SELF", nil, writer); own.Code != http.StatusOK {
+		t.Fatalf("a writer cannot read their own meeting material: %d %s", own.Code, own.Body.String())
+	}
+	refused(t, "a writer reading organisation-wide meeting material",
+		server.request(http.MethodGet, "/api/v1/meeting?scope=TEAM", nil, writer))
+
+	// What the gate protects has to be worth protecting: the leader's answer
+	// carries somebody else's work, which is exactly what a writer must not get.
+	asLeader := server.request(http.MethodGet, "/api/v1/meeting?scope=TEAM", nil, leader)
+	if asLeader.Code != http.StatusOK {
+		t.Fatalf("a leader cannot read organisation-wide meeting material: %d %s", asLeader.Code, asLeader.Body.String())
+	}
+	if !strings.Contains(asLeader.Body.String(), "동료가 쓴 보고") {
+		t.Log("the leader's material does not mention the colleague's report; the gate still has to hold")
+	}
+}
+
+// guards: searchWorkItems
+func TestOrganisationWideWorkSearchIsForLeaders(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("검색 조직", "SEARCHORG")
+	leader := server.createUser("search_leader", "TEAM_LEADER", &organisation)
+	writer := server.createUser("search_writer", "USER", &organisation)
+
+	if own := server.request(http.MethodGet, "/api/v1/work-items/search?q=보고&scope=SELF", nil, writer); own.Code != http.StatusOK {
+		t.Fatalf("a writer cannot search their own work: %d %s", own.Code, own.Body.String())
+	}
+	refused(t, "a writer searching across the organisation",
+		server.request(http.MethodGet, "/api/v1/work-items/search?q=보고&scope=TEAM", nil, writer))
+
+	if asLeader := server.request(http.MethodGet, "/api/v1/work-items/search?q=보고&scope=TEAM", nil, leader); asLeader.Code != http.StatusOK {
+		t.Fatalf("a leader cannot search across their organisation: %d %s", asLeader.Code, asLeader.Body.String())
+	}
+}

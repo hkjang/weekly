@@ -26,17 +26,42 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "internal" / "app"
 REFUSAL = re.compile(r'writeError\(\s*w,\s*(?:http\.StatusForbidden|403)\s*,')
+HANDLER = re.compile(r'^func \(a \*App\) (\w+)\(')
+# A route wrapped in requireRole refuses before its handler runs, so a role
+# check inside that handler is a second layer. Removing it changes nothing
+# anybody can observe, and reporting that as "nobody is keeping this rule"
+# teaches the reader to distrust the tool — the same failure this project keeps
+# fixing in the product.
+ROUTER_GATE = re.compile(r'requireRole\(([^)]*)\)\(http\.HandlerFunc\(a\.(\w+)\)')
+
+
+def router_gated_handlers():
+    source = (ROOT / "internal" / "app" / "app.go").read_text(encoding="utf-8")
+    return {handler for _, handler in ROUTER_GATE.findall(source)}
+
+
+def enclosing_handler(lines, index):
+    for number in range(index, -1, -1):
+        match = HANDLER.match(lines[number])
+        if match:
+            return match.group(1)
+    return ""
 
 
 def sites():
     """Every refusal whose next statement is a bare return, in file order."""
-    found, skipped = [], []
+    gated = router_gated_handlers()
+    found, skipped, layered = [], [], []
     for path in sorted(PACKAGE.glob("*.go")):
         if path.name.endswith("_test.go"):
             continue
         lines = path.read_text(encoding="utf-8").split("\n")
         for index, line in enumerate(lines):
             if not REFUSAL.search(line):
+                continue
+            handler = enclosing_handler(lines, index)
+            if handler in gated:
+                layered.append((path, index, line.strip(), handler))
                 continue
             # The shape this can remove safely: the refusal, then a return. A
             # site that continues some other way is left alone and counted, so
@@ -45,7 +70,7 @@ def sites():
                 found.append((path, index, line.strip()))
             else:
                 skipped.append((path, index, line.strip()))
-    return found, skipped
+    return found, skipped, layered
 
 
 def run_suite(dsn_present):
@@ -60,13 +85,16 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="only the first N sites")
     args = parser.parse_args()
 
-    found, skipped = sites()
+    found, skipped, layered = sites()
     if args.limit:
         found = found[: args.limit]
     print(f"권한 거부 {len(found)}곳을 하나씩 없애 봅니다"
-          + (f" · {len(skipped)}곳은 모양이 달라 건너뜁니다" if skipped else ""))
+          + (f" · {len(skipped)}곳은 모양이 달라 건너뜁니다" if skipped else "")
+          + (f" · {len(layered)}곳은 라우터가 이미 막는 두 번째 층입니다" if layered else ""))
     for path, index, line in skipped:
         print(f"  건너뜀 {path.name}:{index + 1}  {line[:70]}")
+    for path, index, line, handler in layered:
+        print(f"  두 번째 층 {path.name}:{index + 1}  {handler}  {line[:52]}")
     print()
 
     ok, _ = run_suite(True)
