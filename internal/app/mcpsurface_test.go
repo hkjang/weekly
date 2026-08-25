@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -167,5 +169,58 @@ func TestMCPSearchReturnsOnlyTheCallersOwnOrganisation(t *testing.T) {
 		if report.Summary == "다른 조직 사람이 쓴 보고입니다" {
 			t.Fatalf("the search reached into another organisation: %s", body)
 		}
+	}
+}
+
+// createKey issues a personal API key with the given scopes and returns its
+// token. The token is shown once, which is the only chance a test has too.
+func createKey(t *testing.T, server *testServer, cookie *http.Cookie, name string, scopes []string) string {
+	t.Helper()
+	body := map[string]any{"name": name}
+	if scopes != nil {
+		body["scopes"] = scopes
+	}
+	w := server.request(http.MethodPost, "/api/v1/keys", body, cookie)
+	if w.Code != http.StatusOK && w.Code != http.StatusCreated {
+		t.Fatalf("create an API key: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || envelope.Data.Token == "" {
+		t.Fatalf("the key has no token: %s", w.Body.String())
+	}
+	return envelope.Data.Token
+}
+
+// guards: apiKeyRequestAllowed
+func TestAnAPIKeyWithoutTheMCPScopeCannotUseMCP(t *testing.T) {
+	server := newTestServer(t)
+	owner := server.createUser("mcp_key_owner", "USER", nil)
+
+	// A key is issued with every scope unless it asks for fewer. Asking for
+	// fewer is the whole point of scopes, and nothing checked that the narrower
+	// key was actually narrower.
+	narrow := createKey(t, server, owner, "보고서만 읽는 키", []string{"reports:read"})
+	wide := createKey(t, server, owner, "MCP 까지 읽는 키", []string{"reports:read", "mcp:read"})
+
+	call := func(token string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/mcp",
+			strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer "+token)
+		recorder := httptest.NewRecorder()
+		server.app.mux.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	if allowed := call(wide); allowed.Code != http.StatusOK {
+		t.Fatalf("a key holding mcp:read cannot use MCP: %d %s", allowed.Code, allowed.Body.String())
+	}
+	refused(t, "a key without mcp:read using MCP", call(narrow))
+	if body := call(narrow).Body.String(); strings.Contains(body, "tools") {
+		t.Errorf("the refusal listed the tools anyway: %s", body)
 	}
 }

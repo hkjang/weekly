@@ -142,3 +142,22 @@ func TestOrganisationWideWorkSearchIsForLeaders(t *testing.T) {
 		t.Fatalf("a leader cannot search across their organisation: %d %s", asLeader.Code, asLeader.Body.String())
 	}
 }
+
+// guards: weeklyChanges
+func TestOrganisationWideChangeSummaryIsForLeaders(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("변화 조직", "CHANGEORG")
+	leader := server.createUser("change_leader", "TEAM_LEADER", &organisation)
+	writer := server.createUser("change_writer", "USER", &organisation)
+
+	if own := server.request(http.MethodGet, "/api/v1/changes?scope=SELF", nil, writer); own.Code != http.StatusOK {
+		t.Fatalf("a writer cannot read their own changes: %d %s", own.Code, own.Body.String())
+	}
+	refused(t, "a writer reading organisation-wide changes",
+		server.request(http.MethodGet, "/api/v1/changes?scope=TEAM", nil, writer))
+
+	// The door has to open for the people it is meant for.
+	if asLeader := server.request(http.MethodGet, "/api/v1/changes?scope=TEAM", nil, leader); asLeader.Code != http.StatusOK {
+		t.Fatalf("a leader cannot read organisation-wide changes: %d %s", asLeader.Code, asLeader.Body.String())
+	}
+}

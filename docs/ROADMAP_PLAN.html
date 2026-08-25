@@ -1400,6 +1400,17 @@ GET /api/v1/work-items/search     requireAuth</div>
   두 번째 층 handover.go:355  workGraph  ...</div>
 <p>이번 창에서 반복해 배운 것을 도구에 적용한 것입니다. <strong>잘못 짚는 검사는 없는 것보다 나쁩니다</strong> — 사람이 그 단서를 따라 시간을 쓰고, 다음부터는 그 도구를 읽지 않습니다. 그러면 진짜 지적도 함께 묻힙니다.</p>
 <p>목록을 다 채웠으니 <code>authz-check</code> 를 다시 돌려 숫자가 실제로 줄었는지 재고 있습니다. <strong>고쳤다고 말하기 전에 다시 재는 것</strong>이 이 회차들의 방식이었습니다.</p>
+<p>#### 3.10.79 v0.124.0에서 완료 — 27에서 14로, 그리고 줄과 규칙의 차이</p>
+<p>목록을 다 채웠다고 말하기 전에 다시 쟀습니다.</p>
+<table><thead><tr><th></th><th>v0.120 처음</th><th>v0.124 재측정</th></tr></thead><tbody><tr><td>지워도 아무도 모르는 규칙</td><td>27곳</td><td><strong>14곳</strong></td></tr><tr><td>시험이 지키는 규칙</td><td>9곳</td><td><strong>21곳</strong></td></tr></tbody></table>
+<p>절반으로 줄었습니다. 이번 회차에는 둘을 더 채웠습니다 — 조직 단위 변화 요약(<code>weeklychange.go:236</code>), 그리고 <strong>API 키의 <code>mcp:read</code> 범위</strong>.</p>
+<p>두 번째가 이 회차의 배움이었습니다. 시험을 쓰고 <code>mcp.go:56</code> 을 지웠는데 <strong>잡히지 않았습니다.</strong> 미들웨어가 이미 막고 있었기 때문입니다.</p>
+<div class="phase-box">mcp.go:56 만 제거          → ok   (미들웨어가 막음)
+미들웨어 검사만 제거        → ok   (mcp.go:56 이 막음)
+두 층 모두 제거            → FAIL</div>
+<p>시험이 지키는 것은 <strong>줄이 아니라 규칙</strong>입니다 — 좁은 키는 MCP 를 쓸 수 없다는 것. 두 층 중 하나만 남아도 규칙은 지켜지고, 사용자에게는 아무 차이가 없습니다. <code>authz-check</code> 가 지적한 것은 그 줄이지 그 규칙이 아닙니다.</p>
+<p>그래서 가드 표식을 <code>mcp</code> 에서 <code>apiKeyRequestAllowed</code> 로 옮겼습니다. 시험이 실제로 실행하는 것이 그쪽이기 때문입니다. 그리고 도구 안에 이 판단을 적어 뒀습니다 — <strong>살아남은 거부를 볼 때 먼저 물을 것은 "다른 곳이 이미 막고 있지 않은가" 입니다.</strong> v0.115 의 동등한 변이와 같은 질문이고, 이번에는 미들웨어라는 다른 모양으로 나왔습니다.</p>
+<p>남은 열넷은 성격이 갈립니다. <code>workitemedit.go</code>·<code>workitemlinks.go</code>·<code>workitems.go</code> 의 여섯은 진짜 데이터 경계이고, <code>reports.go:323·408</code> 은 오류 경로이며, <code>auth.go</code> 의 둘은 로그인 설정, <code>mcp.go:48</code> 은 요청 출처입니다. 다음 회차는 여섯부터입니다.</p>
 </div>
 </body>
 </html>

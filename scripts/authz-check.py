@@ -27,6 +27,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "internal" / "app"
 REFUSAL = re.compile(r'writeError\(\s*w,\s*(?:http\.StatusForbidden|403)\s*,')
 HANDLER = re.compile(r'^func \(a \*App\) (\w+)\(')
+# A second layer can also live in middleware: apiKeyRequestAllowed turns an API
+# key away from /mcp before the handler's own scope check is reached, so that
+# check survives removal too. Detecting every such layer statically is not
+# worth the machinery — when a refusal survives, ask first whether anything
+# else already refuses, exactly as with an equivalent mutation.
+#
 # A route wrapped in requireRole refuses before its handler runs, so a role
 # check inside that handler is a second layer. Removing it changes nothing
 # anybody can observe, and reporting that as "nobody is keeping this rule"
