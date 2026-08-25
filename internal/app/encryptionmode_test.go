@@ -63,7 +63,6 @@ func TestAnAdministratorCanSeeWhetherALostVolumeCostsTheSecrets(t *testing.T) {
 	}
 }
 
-// guards: adminEncryption
 func TestTheEncryptionModeIsNotReadableWithoutBeingAnAdministrator(t *testing.T) {
 	server := newTestServer(t)
 	writer := server.createUser("keyreader", "USER", nil)

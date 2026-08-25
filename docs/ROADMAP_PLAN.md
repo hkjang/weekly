@@ -1897,3 +1897,33 @@ v0.105 에서 "문서가 하라고 시킨 일은 할 수 있어야 한다" 를 �
 시험 둘을 붙였습니다 — 비밀을 저장하면 위험 판정이 뒤집히는지, 그리고 작성자가 배포의 키 모드를 읽지 못하는지. 서버를 두 가지로 훼손해 둘 다 무는 것을 확인했습니다. 가드 72 → 74.
 
 원칙으로 남깁니다. **기동 로그는 지금 있는 사람에게만 하는 말입니다.** 나중에 물어볼 질문의 답은 나중에 볼 수 있는 곳에 있어야 합니다.
+
+#### 3.10.61 v0.106.1에서 완료 — 도구가 말한 것을 제가 읽고 넘어갔습니다
+
+v0.106.0 의 CI 가 떨어졌습니다. `guard-check` 가 제 시험 하나를 잡았습니다.
+
+```
+!  TestTheEncryptionModeIsNotReadableWithoutBeingAnAdministrator — never executed adminEncryption
+A test that never runs its subject passes whatever the subject does.
+```
+
+맞는 지적입니다. 그 시험은 작성자가 403 을 받는지 보는데, 403 은 `requireRole("ADMIN")` 이 **핸들러에 닿기 전에** 냅니다. 그러니 `adminEncryption` 은 한 줄도 실행되지 않습니다. 표식을 뗐습니다 — 시험 자체는 남습니다. 그 엔드포인트가 관리자 전용이라는 것은 여전히 지켜야 할 규칙이고, 다만 그것을 지키는 것은 라우터의 문지기이지 핸들러가 아닙니다.
+
+더 볼 것은 **왜 로컬에서 못 잡았는가** 입니다. 올리기 전에 `guard-check` 를 돌렸고 이렇게 나왔습니다.
+
+```
+40 guard(s) skipped and therefore unverified: ...
+34 guard(s) reached what they name.
+```
+
+도구는 말했습니다. 제가 마지막 줄만 보고 넘어갔습니다. 이유는 단순합니다 — **Bash 호출 사이에 환경변수가 유지되지 않습니다.** 앞 호출에서 `export WEEKLY_TEST_POSTGRES_DSN` 을 했고 다음 호출에서는 사라져 있었으며, 데이터베이스가 필요한 가드 40개가 조용히 건너뛰어졌습니다. 새로 넣은 시험이 정확히 그 40개 안에 있었습니다.
+
+마지막 줄을 고쳤습니다. 사람이 읽는 것은 마지막 줄이기 때문입니다.
+
+```
+34 guard(s) reached what they name — 39 were NOT checked. Set WEEKLY_TEST_POSTGRES_DSN to check them all.
+```
+
+전부 검사했을 때만 예전처럼 짧게 끝납니다.
+
+원칙으로 남깁니다. **"검증되지 않음" 은 각주가 아니라 조치할 일입니다.** 그리고 요약의 마지막 줄은 그 위에 무엇이 적혀 있든 혼자 읽힐 각오를 하고 써야 합니다.

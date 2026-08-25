@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: weekly
-          image: weekly:v0.106.0
+          image: weekly:v0.106.1
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:

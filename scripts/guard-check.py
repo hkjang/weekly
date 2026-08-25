@@ -162,7 +162,17 @@ def main():
     if skipped:
         print(f"{len(skipped)} guard(s) skipped and therefore unverified: {', '.join(skipped)}")
     if not findings:
-        print(f"{len(guards) - len(skipped)} guard(s) reached what they name.")
+        # The last line is the one people read. Saying "reached what they name"
+        # and stopping there reads as a clean run even when most of the suite
+        # never ran: a database-backed guard skips without WEEKLY_TEST_POSTGRES_DSN,
+        # and shell exports do not survive between commands. A mispointed marker
+        # shipped exactly that way — checked locally, caught in CI.
+        checked = len(guards) - len(skipped)
+        if skipped:
+            print(f"{checked} guard(s) reached what they name — "
+                  f"{len(skipped)} were NOT checked. Set WEEKLY_TEST_POSTGRES_DSN to check them all.")
+        else:
+            print(f"{checked} guard(s) reached what they name.")
         return 0
     print(f"{len(findings)} guard(s) cannot fail:\n")
     for guard, reason, detail in findings:
