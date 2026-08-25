@@ -1281,6 +1281,19 @@ A test that never runs its subject passes whatever the subject does.</div>
 <table><thead><tr><th>훼손한 자리</th><th>잡은 시험</th></tr></thead><tbody><tr><td>157행 · 도구 목록</td><td><code>TestMCPOffersOnlyTheToolsTheCallerCanUse</code></td></tr><tr><td>222행 · 관리자 도구 호출</td><td><code>TestMCPRefusesAnAdministratorToolAndSaysWhy</code></td></tr><tr><td>310행 · 검색 범위</td><td><code>TestMCPSearchReturnsOnlyTheCallersOwnOrganisation</code></td></tr></tbody></table>
 <p>세 번째는 처음에 <strong>안 잡혔습니다.</strong> 시험 셋을 먼저 쓰고 훼손해 보니 310행만 통과했고, 그 자리를 읽어 보니 <code>weekly_reports_search</code> 의 조직 범위였습니다. 훼손하면 팀장이 서비스 전체 보고서를 봅니다. 그래서 네 번째 시험을 썼습니다.</p>
 <p>원칙으로 남깁니다. <strong>시험을 쓴 뒤에 훼손해 보지 않으면, 무엇을 안 썼는지 알 수 없습니다.</strong> 세 개를 쓰고 만족했으면 가장 심각한 자리가 그대로 비어 있었을 것입니다. 가드는 74개에서 78개가 되었습니다.</p>
+<p>#### 3.10.69 v0.114.0에서 완료 — 모든 화면이 지나가는 층에 시험이 없었습니다</p>
+<p>v0.113 에서 배운 것을 넓히려고 <code>mutation-check.py</code> 를 다시 돌렸습니다. v0.82 에서 "아무도 못 잡는 변이 64건" 이었고 그 뒤로 시험이 많이 늘었으니 다시 잴 값이 있습니다. 오래 걸리므로 배경에 두고, 그동안 <strong>Go 시험 하네스를 건드리지 않는 자리</strong>를 봤습니다.</p>
+<p><code>api.ts</code> 였습니다. 화면 전부가 이 층을 지나가는데 시험이 <strong>하나도</strong> 없습니다. 프런트엔드 시험 다섯 파일은 날짜·슬라이드·라우팅·저장 가드를 덮고 있고, 그 아래 요청 층은 비어 있었습니다.</p>
+<p>여기에는 시험할 값이 있는 판단이 여럿 있습니다.</p>
+<ul>
+<li><strong>FormData 에는 Content-Type 을 붙이지 않습니다.</strong> multipart 는 경계 문자열이 필요하고 그것은 브라우저가 씁니다. 누가 헤더 로직을 "정리" 하면서 이 조건을 지우면 <strong>첨부와 PPTX 업로드가 전부</strong> 엉뚱한 오류로 실패합니다.</li>
+<li><strong>봉투가 <code>success:false</code> 면 200 이어도 실패입니다.</strong> 상태 줄이 아니라 봉투가 계약입니다.</li>
+<li><strong>401 은 던지기 전에 알립니다.</strong> <code>.catch</code> 를 잊은 화면이 정확히 영원히 도는 스피너가 되는 자리이고, v0.111 에서 실제로 그것을 고쳤습니다.</li>
+<li><strong>추적 ID 는 5xx 에만 붙습니다.</strong> 틀린 비밀번호에 추적 ID 를 붙여 봐야, 그것을 읽는 사람은 찾아볼 수 있는 사람이 아닙니다.</li>
+</ul>
+<p>열다섯 개를 붙이고 다섯 가지로 훼손해 전부 잡히는 것을 확인했습니다 — FormData 조건 제거, 401 알림 제거, 봉투 검사 제거, 추적 ID 조건 완화, 쿠키 전송 제거. 프런트엔드 시험은 여섯 파일 52개가 되었습니다.</p>
+<p>작업 순서에서 하나 배웠습니다. 변이 검사는 <strong>소스를 제자리에서 고칩니다.</strong> 도중에 <code>git status</code> 를 보니 <code>internal/app/auth.go</code> 가 수정 상태였습니다 — 그때 <code>git add -A</code> 를 했으면 변이가 커밋에 실려 갔을 것입니다. 이번 릴리즈는 경로를 명시해 커밋했고, Go 시험도 그동안 돌리지 않았습니다.</p>
+<p>도구 함정도 또 나왔습니다. 훼손 대상 문자열에 작은따옴표가 들어가자 쉘에 박은 파이썬이 깨졌고, <strong>적용되지 않은 변이가 "통과" 로 보였습니다.</strong> 이 세션에서 세 번째로 같은 모양입니다. 이제 훼손 스크립트는 파일로 씁니다.</p>
 </div>
 </body>
 </html>
