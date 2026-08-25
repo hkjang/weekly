@@ -29,9 +29,16 @@ export default function IssueDependency({ workItemId, notify }: {
   const [view, setView] = useState<WorkItemLinkView>()
   const [open, setOpen] = useState(false)
 
+  // A failed request used to become an empty answer, and an empty answer here
+  // is an invitation: "register a predecessor if this issue waits on one".
+  // Measured against a work item that already had one registered, the failed
+  // screen offered to register it again while saying nothing about the link
+  // that exists. The rule below already says what to do — say nothing until the
+  // answer is known — so a failure leaves the view unset rather than inventing
+  // one.
   const load = () => api<WorkItemLinkView>(`/api/v1/work-items/${workItemId}/links`)
     .then(setView)
-    .catch(() => setView({ blockers: [], blocking: [] }))
+    .catch(() => setView(undefined))
   useEffect(() => { void load() }, [workItemId])
 
   // Nothing is said until the answer is known. A prompt that flashes "waiting

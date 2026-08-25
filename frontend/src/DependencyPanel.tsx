@@ -37,7 +37,7 @@ export default function DependencyPanel({ workItemId, editable, notify, startAdd
 
   const load = () => api<WorkItemLinkView>(`/api/v1/work-items/${workItemId}/links`)
     .then(setView)
-    .catch(error => { setView({ blockers: [], blocking: [] }); notify(errorText(error, '의존 관계를 불러올 수 없습니다.'), 'error') })
+    .catch(error => { setView(undefined); notify(errorText(error, '의존 관계를 불러올 수 없습니다.'), 'error') })
   useEffect(() => { void load() }, [workItemId])
 
   // Across the whole deployment, which is the case this exists for: a
