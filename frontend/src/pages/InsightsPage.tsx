@@ -47,15 +47,21 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
   const [tab, setTab] = useState<TabKey>('DUPLICATE')
   const [view, setView] = useState<WorkGraphView>()
   const [showCollabTable, setShowCollabTable] = useState(false)
+  // A failed load used to be filled in with zeros, so every tab said the thing
+  // it says when the answer is genuinely nothing — "조직 간 중복으로 의심되는
+  // 업무가 없습니다" reads the same either way. Measured side by side: the
+  // visible text was identical, and the only difference was a toast the reader
+  // can dismiss. A screen must not assert an absence it did not establish.
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let stale = false
     setView(undefined)
     api<WorkGraphView>(`/api/v1/insights/work-graph?weeks=${weeks}`)
-      .then(value => { if (!stale) setView(value) })
+      .then(value => { if (!stale) { setView(value); setFailed(false) } })
       .catch(error => {
         if (stale) return
-        setView({ weeks, since: '', workItems: 0, similar: [], similarTotal: 0, duplicates: [], duplicateTotal: 0, collaboration: [], recurring: [], recurringTotal: 0, bottlenecks: [] })
+        setFailed(true)
         notify(errorText(error, '업무 인사이트를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
@@ -79,7 +85,8 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
       </button>)}
     </div>
 
-    {view === undefined ? <Spinner/> : <Card title={active.name} action={<span className="muted-chip">업무 {view.workItems}건 분석</span>}>
+    {failed ? <Card title={active.name}><Empty>업무 인사이트를 불러오지 못했습니다. ‘{active.name}’ 항목이 비어 있다는 뜻은 아니며, 화면을 다시 열어 보십시오.</Empty></Card>
+      : view === undefined ? <Spinner/> : <Card title={active.name} action={<span className="muted-chip">업무 {view.workItems}건 분석</span>}>
       <p className="muted">{active.hint}</p>
 
       {tab === 'DUPLICATE' && (view.duplicates.length === 0
