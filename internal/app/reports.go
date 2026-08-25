@@ -319,6 +319,9 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	var storedVersion int
 	var previousStatus string
 	err = tx.QueryRow(r.Context(), `SELECT user_id,version,status FROM weekly_reports WHERE id=$1 FOR UPDATE`, id).Scan(&ownerID, &storedVersion, &previousStatus)
+	// A report that does not exist is refused exactly as somebody else's is,
+	// down to the wording. Told apart, the two replies let anyone walk the
+	// identifiers and learn which reports exist and how many there are.
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
 		return
@@ -404,6 +407,7 @@ func (a *App) deleteReport(w http.ResponseWriter, r *http.Request) {
 	var status string
 	err = tx.QueryRow(r.Context(), `SELECT user_id,version,week_start,status FROM weekly_reports WHERE id=$1 FOR UPDATE`, id).
 		Scan(&ownerID, &storedVersion, &week, &status)
+	// Same rule as editing: a missing report and somebody else's answer alike.
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 삭제할 수 있습니다.")
 		return
