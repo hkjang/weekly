@@ -37,10 +37,20 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   const [presenting, setPresenting] = useState(false)
   // The baseline is what the server last confirmed. Anything that differs from
   // it is work that only exists in this tab.
+  // Last week's plan and the open follow-ups are how work crosses a week
+  // boundary. Both are drawn only when they have something, so a failed request
+  // does not say anything wrong — it simply removes the carry-over, and the
+  // writer starts the week believing they had nothing to carry.
+  //
+  // One flag for both was wrong and the browser said so: whichever request
+  // finished second decided the answer, and a successful previous-week fetch
+  // erased the follow-up failure that had just been recorded.
+  const [previousFailed, setPreviousFailed] = useState(false)
+  const [followUpsFailed, setFollowUpsFailed] = useState(false)
   const savedSnapshot = useRef('')
   const loadCandidates = () => api<ConfluenceCandidateResponse>('/api/v1/reports/current/candidates').then(setCandidateData)
-  const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(setPrevious).catch(() => setPrevious(null))
-  const loadFollowUps = () => api<OpenFollowUp[]>('/api/v1/decisions/open').then(setFollowUps).catch(() => setFollowUps([]))
+  const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(value => { setPrevious(value); setPreviousFailed(false) }).catch(() => { setPrevious(null); setPreviousFailed(true) })
+  const loadFollowUps = () => api<OpenFollowUp[]>('/api/v1/decisions/open').then(value => { setFollowUps(value); setFollowUpsFailed(false) }).catch(() => { setFollowUps([]); setFollowUpsFailed(true) })
   const load = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } savedSnapshot.current = snapshotOf(value?.summary ?? '', value?.items ?? []) }
   // Used when a save fails: the version and status have to catch up, but the
   // content on screen must not be replaced by the server's copy. Overwriting it
@@ -127,6 +137,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
       {aiResult && <div className="ai-preview"><div className="ai-preview-head"><div><strong>AI 분석 미리보기</strong><span>낮은 신뢰도 항목을 확인하고 직접 고친 뒤 적용하세요.</span></div><span className="confidence">날짜 신뢰도 {Math.round(aiResult.dateConfidence * 100)}%</span></div>{aiResult.warnings.length > 0 && <div className="import-warnings">{aiResult.warnings.map((warning, index) => <span key={index}>⚠ {warning}</span>)}</div>}<label className="ai-summary">추천 요약<textarea value={aiResult.summary} onChange={e => setAIResult({ ...aiResult, summary: e.target.value })}/></label><div className="ai-preview-list">{aiResult.reportItems.map((item, index) => <section key={index}><header><input value={item.category} onChange={e => changeAIItem(index, { category: e.target.value })} placeholder="구분"/><input value={item.title} onChange={e => changeAIItem(index, { title: e.target.value })} placeholder="업무 제목"/><span className={item.confidence < .6 ? 'confidence low' : 'confidence'}>신뢰도 {Math.round(item.confidence * 100)}%</span><button className="remove-button" onClick={() => setAIResult({ ...aiResult, reportItems: aiResult.reportItems.filter((_, i) => i !== index) })}>제외</button></header><div><label>금주 실적<textarea value={item.currentResult} onChange={e => changeAIItem(index, { currentResult: e.target.value })}/></label><label>차주 계획<textarea value={item.nextPlan} onChange={e => changeAIItem(index, { nextPlan: e.target.value })}/></label><label>이슈<textarea value={item.issue} onChange={e => changeAIItem(index, { issue: e.target.value })}/></label><label>진척도 <b>{item.progress}%</b><input type="range" min="0" max="100" step="5" value={item.progress} onChange={e => changeAIItem(index, { progress: Number(e.target.value) })}/></label></div></section>)}</div><div className="ai-apply-actions"><Button variant="secondary" onClick={() => setAIResult(undefined)}>미리보기 닫기</Button><Button variant="secondary" onClick={() => applyAI('replace')}>전체 교체</Button><Button onClick={() => applyAI('merge')}>기존 내용과 병합</Button></div></div>}
     </Card>}
     {report && (report.status === 'SUBMITTED' || report.status === 'APPROVED') && <div className="edit-notice">제출·승인된 보고서를 수정하면 기존 검토 결과가 해제되고 작성 중 상태로 돌아갑니다.</div>}
+    {(previousFailed || followUpsFailed) && <p className="capture-warning">{previousFailed && followUpsFailed ? '지난주 계획과 후속 조치를' : previousFailed ? '지난주 계획을' : '결정에 딸린 후속 조치를'} 불러오지 못했습니다. 이어받을 것이 없다는 뜻은 아니므로, 화면을 다시 열어 확인해 주십시오.</p>}
     <Card title="주간 요약"><textarea className="summary-input" placeholder="한 주의 핵심 성과와 맥락을 짧게 요약하세요." value={summary} onChange={e => setSummary(e.target.value)} disabled={!editable} maxLength={10000}/></Card>
     {quality && quality.findings.length > 0 && <Card title="보고 품질 점검" action={<span className="muted">{quality.checked}개 업무 확인</span>}>
       <p className="muted">제출 전에 작성자가 먼저 보는 점검입니다. 규칙으로만 판단하며 내용을 고치지 않습니다.</p>
