@@ -284,7 +284,7 @@ export default function App() {
         {page === 'insights' && canTeam && <InsightsPage notify={notify} />}
         {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
-        {page === 'analytics' && canTeam && <AnalyticsPage />}
+        {page === 'analytics' && canTeam && <AnalyticsPage isAdmin={session.user.role === 'ADMIN'} />}
         {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}
         {page === 'admin' && isAdmin && <AdminPage notify={notify} onSettingsChanged={refreshSession} />}
       </ErrorBoundary>
