@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Remove each authorisation refusal in turn and see whether anything notices.
+
+A test named after a rule is not the same as a test of that rule. v0.117 found
+one that had been guarding nothing for its whole life: it asked to edit somebody
+else's report without a version, was refused for the missing version, and
+concluded the ownership check worked. Deleting `if ownerID != p.ID` entirely
+left it green.
+
+That was found by hand. This asks the same question of every refusal at once:
+for each `writeError(..., 403, ...)` followed by a `return`, take both lines out
+so the handler carries on as though the caller were allowed, and run the whole
+suite. A refusal nobody misses is a rule nobody is keeping.
+
+Not part of CI: one full suite per site is far too slow. Run it when the
+authorisation surface changes.
+
+Run: WEEKLY_TEST_POSTGRES_DSN=... python3 scripts/authz-check.py [--limit N]
+"""
+import argparse
+import pathlib
+import re
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PACKAGE = ROOT / "internal" / "app"
+REFUSAL = re.compile(r'writeError\(\s*w,\s*(?:http\.StatusForbidden|403)\s*,')
+
+
+def sites():
+    """Every refusal whose next statement is a bare return, in file order."""
+    found, skipped = [], []
+    for path in sorted(PACKAGE.glob("*.go")):
+        if path.name.endswith("_test.go"):
+            continue
+        lines = path.read_text(encoding="utf-8").split("\n")
+        for index, line in enumerate(lines):
+            if not REFUSAL.search(line):
+                continue
+            # The shape this can remove safely: the refusal, then a return. A
+            # site that continues some other way is left alone and counted, so
+            # a partial sweep never reads as a complete one.
+            if index + 1 < len(lines) and lines[index + 1].strip() == "return":
+                found.append((path, index, line.strip()))
+            else:
+                skipped.append((path, index, line.strip()))
+    return found, skipped
+
+
+def run_suite(dsn_present):
+    result = subprocess.run(
+        ["go", "test", "./internal/app/", "-count=1"],
+        cwd=ROOT, capture_output=True, text=True)
+    return result.returncode == 0, result.stdout + result.stderr
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=0, help="only the first N sites")
+    args = parser.parse_args()
+
+    found, skipped = sites()
+    if args.limit:
+        found = found[: args.limit]
+    print(f"권한 거부 {len(found)}곳을 하나씩 없애 봅니다"
+          + (f" · {len(skipped)}곳은 모양이 달라 건너뜁니다" if skipped else ""))
+    for path, index, line in skipped:
+        print(f"  건너뜀 {path.name}:{index + 1}  {line[:70]}")
+    print()
+
+    ok, _ = run_suite(True)
+    if not ok:
+        print("먼저 손대지 않은 상태에서 시험이 통과해야 합니다.", file=sys.stderr)
+        return 2
+
+    unguarded = []
+    for number, (path, index, line) in enumerate(found, start=1):
+        original = path.read_text(encoding="utf-8")
+        lines = original.split("\n")
+        removed = lines[:index] + lines[index + 2:]
+        path.write_text("\n".join(removed), encoding="utf-8")
+        try:
+            passed, output = run_suite(True)
+        finally:
+            path.write_text(original, encoding="utf-8")
+        if passed:
+            unguarded.append((path, index, line))
+            mark = "!"
+        elif "build failed" in output or "cannot use" in output:
+            mark = "?"   # removing it did not compile; nothing was learned
+        else:
+            mark = "."
+        print(f"  {mark}  [{number}/{len(found)}] {path.name}:{index + 1}  {line[:66]}")
+
+    print()
+    if not unguarded:
+        print(f"권한 검사: {len(found)}곳 모두, 없애면 시험이 알아차립니다.")
+        return 0
+    print(f"{len(unguarded)}곳은 없애도 아무도 알아차리지 못합니다:")
+    for path, index, line in unguarded:
+        print(f"  {path.relative_to(ROOT)}:{index + 1}\n    {line}")
+    print("\n이름이 규칙을 말하는 시험이 있어도, 그 규칙을 시험하는 것은 아닙니다.")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
