@@ -201,7 +201,7 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	workflow := a.settingBool(r.Context(), "workflow.enabled", false)
 	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
-	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "currentWeekStart": week.Format("2006-01-02"), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "accountNotice": accountNotice(p, workflow), "build": a.build})
+	writeData(w, http.StatusOK, map[string]any{"user": p, "workflowEnabled": workflow, "aiEnabled": a.settingBool(r.Context(), "ai.enabled", false), "confluenceEnabled": a.settingBool(r.Context(), "confluence.enabled", false), "currentWeekStart": week.Format("2006-01-02"), "serviceName": a.setting(r.Context(), "service.name", "Weekly"), "notice": a.setting(r.Context(), "service.notice", ""), "accountNotice": accountNotice(p, workflow), "build": a.build})
 }
 
 // accountNotice describes a state of this account that makes the product answer

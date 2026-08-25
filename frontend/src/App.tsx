@@ -274,7 +274,7 @@ export default function App() {
       <div className="page-content">
       <ErrorBoundary onReset={() => go('dashboard')}>
         {page === 'dashboard' && <DashboardPage session={session} navigate={navigate} />}
-        {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} notify={notify} />}
+        {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} confluenceEnabled={session.confluenceEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} openReportId={Number(params.report) || undefined} notify={notify} />}
         {page === 'work' && <WorkItemsPage session={session} notify={notify} />}
         {page === 'rollup' && <RollupPage session={session} route={params} notify={notify} />}

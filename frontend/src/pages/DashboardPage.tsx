@@ -8,7 +8,13 @@ export default function DashboardPage({ session, navigate }: { session: SessionI
   const [report, setReport] = useState<Report | null>()
   const [analytics, setAnalytics] = useState<AnalyticsOverview>()
   const [changes, setChanges] = useState<ChangeSummary>()
-  useEffect(() => { api<Report | null>('/api/v1/reports/current').then(setReport); api<ChangeSummary>('/api/v1/changes').then(setChanges).catch(() => setChanges(undefined)); if (session.user.role !== 'USER') api<AnalyticsOverview>('/api/v1/analytics/overview').then(setAnalytics) }, [session.user.role])
+  // This is the screen every session opens on, and `report` stays undefined
+  // until the request answers — so a failure left it spinning for ever, with an
+  // uncaught rejection and nothing on screen. Measured on a large deployment:
+  // the exception fired before the writer had clicked anything.
+  const [loadFailed, setLoadFailed] = useState(false)
+  useEffect(() => { api<Report | null>('/api/v1/reports/current').then(value => { setReport(value); setLoadFailed(false) }).catch(() => setLoadFailed(true)); api<ChangeSummary>('/api/v1/changes').then(setChanges).catch(() => setChanges(undefined)); if (session.user.role !== 'USER') api<AnalyticsOverview>('/api/v1/analytics/overview').then(setAnalytics) }, [session.user.role])
+  if (loadFailed) return <Empty>이번 주 현황을 불러오지 못했습니다. 화면을 다시 열어 보십시오.</Empty>
   if (report === undefined) return <Spinner />
   const now = new Date(); const greeting = now.getHours() < 12 ? '좋은 아침입니다' : now.getHours() < 18 ? '좋은 오후입니다' : '수고 많으셨습니다'
   return <><PageHeader title={`${greeting}, ${session.user.displayName}님`} description="이번 주 업무 흐름과 팀 현황을 한눈에 확인하세요." />

@@ -10,7 +10,7 @@ import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, 
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
 
-export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }: { workflowEnabled: boolean; aiEnabled: boolean; notify: (message: string, kind?: 'success' | 'error') => void }) {
+export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenceEnabled, notify }: { workflowEnabled: boolean; aiEnabled: boolean; confluenceEnabled: boolean; notify: (message: string, kind?: 'success' | 'error') => void }) {
   // Straight at the API through an <a> meant an expired session replaced the
   // application with a JSON error page. Fetched, the failure is a toast.
   const saveExport = async (reportId: number) => {
@@ -47,16 +47,30 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
   // erased the follow-up failure that had just been recorded.
   const [previousFailed, setPreviousFailed] = useState(false)
   const [followUpsFailed, setFollowUpsFailed] = useState(false)
+  // Without this the screen spun for ever. `report` stays undefined until the
+  // request answers, and the render below shows a spinner while it is — so a
+  // failed request left a writer looking at a loading indicator with no editor,
+  // no message and nothing to retry. Measured: two page errors and a spinner
+  // that never resolved.
+  const [loadFailed, setLoadFailed] = useState(false)
   const savedSnapshot = useRef('')
-  const loadCandidates = () => api<ConfluenceCandidateResponse>('/api/v1/reports/current/candidates').then(setCandidateData)
+  // Confluence is optional, and a deployment without it answers this call with
+  // a configuration error every single time. Unhandled, that rejected the
+  // Promise.all below and threw on every visit to the screen people use most.
+  // The section only draws when it has candidates, so failing quietly here
+  // shows nothing — and an operator who has configured Confluence sees its
+  // health on the admin screen, which is where that belongs.
+  const loadCandidates = () => confluenceEnabled
+    ? api<ConfluenceCandidateResponse>('/api/v1/reports/current/candidates').then(setCandidateData).catch(() => setCandidateData(undefined))
+    : Promise.resolve()
   const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(value => { setPrevious(value); setPreviousFailed(false) }).catch(() => { setPrevious(null); setPreviousFailed(true) })
   const loadFollowUps = () => api<OpenFollowUp[]>('/api/v1/decisions/open').then(value => { setFollowUps(value); setFollowUpsFailed(false) }).catch(() => { setFollowUps([]); setFollowUpsFailed(true) })
-  const load = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } savedSnapshot.current = snapshotOf(value?.summary ?? '', value?.items ?? []) }
+  const load = async () => { try { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } savedSnapshot.current = snapshotOf(value?.summary ?? '', value?.items ?? []); setLoadFailed(false) } catch { setLoadFailed(true) } }
   // Used when a save fails: the version and status have to catch up, but the
   // content on screen must not be replaced by the server's copy. Overwriting it
   // here would destroy exactly the work the failed save was trying to keep.
   const refreshMeta = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value) }
-  useEffect(() => { Promise.all([load(), loadCandidates(), loadPrevious(), loadFollowUps()]) }, [])
+  useEffect(() => { void Promise.all([load(), loadCandidates(), loadPrevious(), loadFollowUps()]) }, [])
   // The screen people open every week put the caret nowhere, so writing began
   // with a hunt for a field. Scrolling is suppressed: moving the page under
   // someone who came back to a finished report would be worse than no focus.
@@ -95,6 +109,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, notify }:
     registerUnsavedGuard(() => snapshotOf(liveRef.current.summary, liveRef.current.items) !== savedSnapshot.current)
     return () => registerUnsavedGuard(null)
   }, [])
+  if (loadFailed) return <Empty>이번 주 보고서를 불러오지 못했습니다. 작성한 내용이 사라진 것은 아니며, 화면을 다시 열어 보십시오.</Empty>
   if (report === undefined) return <Spinner />
   const editable = true
   const changeItem = (index: number, patch: Partial<ReportItem>) => setItems(items.map((item, i) => i === index ? { ...item, ...patch } : item))

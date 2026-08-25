@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.110.0
+  version: 0.111.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -88,6 +88,15 @@ paths:
   /me:
     get:
       summary: 현재 사용자와 서비스 컨텍스트
+      description: |
+        `user` 와 함께 이 배포에서 무엇이 켜져 있는지를 돌려준다: `workflowEnabled`,
+        `aiEnabled`, `confluenceEnabled`. 화면은 이 값을 보고 **거부될 것이 확실한 요청을
+        보내지 않는다.** 편집기가 Confluence 후보를 매번 물어보던 시절, 연동을 쓰지 않는
+        배포는 방문마다 설정 오류를 돌려받았고 그것이 모든 사용자의 콘솔에 남았다.
+
+        `accountNotice` 는 이 계정이 제품을 정확하지만 쓸모없게 만드는 상태에 있을 때만
+        채워진다. 소속 조직이 없는 계정이 그렇다 — 그 사람의 주간보고는 어느 팀장에게도
+        보이지 않는다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /reports/current:
