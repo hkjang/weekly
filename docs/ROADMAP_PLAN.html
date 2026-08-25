@@ -1270,6 +1270,17 @@ A test that never runs its subject passes whatever the subject does.</div>
 새 방식(해시)로 구별: 예</div>
 <p>이론이 아니라 실제로 통과시킬 수 있었던 변화입니다. 이진 응답은 이제 SHA-256 으로 비교합니다.</p>
 <p>도구 함정을 하나 더 겪었습니다. <code>section input[type="text"]</code> 로 제목 칸을 세었더니 0개였습니다. <strong><code>type</code> 속성이 없는 입력은 그 선택자에 걸리지 않습니다</strong> — 이 세션에서 이미 적어 둔 함정인데 또 밟았습니다. 적어 두는 것과 몸에 붙는 것은 다릅니다.</p>
+<p>#### 3.10.68 v0.113.0에서 완료 — 에이전트가 들어오는 문에는 시험이 둘뿐이었습니다</p>
+<p>이 제품에는 MCP 인터페이스가 있습니다. 문서가 있고 분석 화면에 <code>MCP 제공</code> 배지도 있는데, 시험은 <strong>인자 파싱 두 개</strong>뿐이었습니다. 도구 넷이 노출되는데 실제로 호출해 본 시험이 없습니다.</p>
+<p>규모 배포에 대고 직접 걸었습니다. 네 도구 모두 동작하고, 검색은 이런 것을 붙여 돌려줍니다.</p>
+<blockquote>조건에 맞는 15594건 중 1번째부터 5건만 반환했습니다. 나머지는 offset=5으로 이어서 가져오세요. <strong>이 목록을 전체로 보고 요약하지 마세요.</strong></blockquote>
+<p>상한을 사람이 아니라 <strong>모델에게</strong> 알리는 문장입니다. 잘 만들어져 있습니다.</p>
+<p>권한도 확인했습니다. <code>weekly_endpoint_analysis</code> 는 REST 에서 관리자 전용인데(v0.101), MCP 라는 두 번째 문에서도 같습니다 — 팀장에게는 <code>isError: true, 관리자 권한이 필요합니다</code> 이고, 제출 현황은 302명이 아니라 자기 조직 9명으로 좁혀집니다. 개인 API 키로도 같고, 키로 쓰기를 시도하면 <code>개인 API 키는 조회 전용입니다</code> 로 막힙니다. <strong>팀장 키의 <code>tools/list</code> 는 도구를 셋만 돌려줍니다</strong> — 쓸 수 없는 도구를 목록에서 아예 빼는 쪽이 부르고 나서 거절하는 것보다 낫습니다. 에이전트는 목록을 "할 수 있는 일" 로 읽기 때문입니다.</p>
+<p><strong>결함은 없었고, 지키는 것도 없었습니다.</strong> 방금 손으로 확인한 성질이 전부 시험 밖에 있었습니다. 넷을 붙였습니다.</p>
+<p><code>mcp.go</code> 의 역할 관문 세 곳을 하나씩 훼손해 확인했습니다.</p>
+<table><thead><tr><th>훼손한 자리</th><th>잡은 시험</th></tr></thead><tbody><tr><td>157행 · 도구 목록</td><td><code>TestMCPOffersOnlyTheToolsTheCallerCanUse</code></td></tr><tr><td>222행 · 관리자 도구 호출</td><td><code>TestMCPRefusesAnAdministratorToolAndSaysWhy</code></td></tr><tr><td>310행 · 검색 범위</td><td><code>TestMCPSearchReturnsOnlyTheCallersOwnOrganisation</code></td></tr></tbody></table>
+<p>세 번째는 처음에 <strong>안 잡혔습니다.</strong> 시험 셋을 먼저 쓰고 훼손해 보니 310행만 통과했고, 그 자리를 읽어 보니 <code>weekly_reports_search</code> 의 조직 범위였습니다. 훼손하면 팀장이 서비스 전체 보고서를 봅니다. 그래서 네 번째 시험을 썼습니다.</p>
+<p>원칙으로 남깁니다. <strong>시험을 쓴 뒤에 훼손해 보지 않으면, 무엇을 안 썼는지 알 수 없습니다.</strong> 세 개를 쓰고 만족했으면 가장 심각한 자리가 그대로 비어 있었을 것입니다. 가드는 74개에서 78개가 되었습니다.</p>
 </div>
 </body>
 </html>
