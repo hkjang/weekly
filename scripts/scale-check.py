@@ -41,6 +41,37 @@ import urllib.request
 
 # Read paths worth measuring at scale. Endpoints that fold a whole organisation
 # into one answer come first, because those are the ones that have gone wrong.
+# Paths only an administrator may open. Running as anybody else used to report
+# each of these as a defect, five findings in a row that were the product doing
+# exactly what it should. A tool that cries wolf is one people stop reading, and
+# the role-by-role sweep is the very thing that found a real defect in v0.101.
+ADMIN_ONLY = (
+    "/api/v1/admin/",
+)
+
+# Paths a plain writer cannot open either: these read across an organisation.
+TEAM_ONLY = (
+    "scope=TEAM",
+    "/api/v1/team/",
+    "/api/v1/insights/",
+    "/api/v1/digest",
+    "/api/v1/meeting?scope=TEAM",
+    "/api/v1/rollups",
+    "/api/v1/analytics/",
+)
+
+
+def reachable(path, role):
+    """Whether this role is allowed to open this path at all."""
+    if role == "ADMIN":
+        return True
+    if any(marker in path for marker in ADMIN_ONLY):
+        return False
+    if role in ("TEAM_LEADER", "ORG_MANAGER"):
+        return True
+    return not any(marker in path for marker in TEAM_ONLY)
+
+
 PATHS = [
     "/api/v1/work-items?scope=TEAM",
     "/api/v1/work-items?scope=SELF",
@@ -174,6 +205,17 @@ def main() -> int:
         print(f"로그인 실패 {status}: {body[:200].decode('utf-8', 'replace')}", file=sys.stderr)
         return 2
 
+    # Ask the deployment who we are rather than being told. A --role flag would
+    # be one more thing to get wrong, and the session already knows.
+    status, body, _ = call("GET", "/api/v1/me")
+    role = "ADMIN"
+    if status == 200:
+        try:
+            role = json.loads(body)["data"]["user"]["role"]
+        except (KeyError, ValueError):
+            pass
+    print(f"역할 {role} 로 확인합니다.\n")
+
     # Wait for the deployment to stop moving before measuring it.
     #
     # A freshly started service backfills work item links over every stored
@@ -203,8 +245,12 @@ def main() -> int:
                   file=sys.stderr)
 
     print(f"{'상태':>4} {'크기':>12} {'지연':>9}  경로")
+    skipped = []
     for template in PATHS:
         path = template.format(year=args.year)
+        if not reachable(path, role):
+            skipped.append(path)
+            continue
         seen, status, body, worst = set(), None, b"", 0.0
         for _ in range(args.repeat):
             status, body, took = call("GET", path)
@@ -247,9 +293,16 @@ def main() -> int:
             print(f"  {line}")
         print()
     if not findings:
-        print(f"확인 {len(PATHS)}개 경로, 지적 사항 없음")
+        checked = len(PATHS) - len(skipped)
+        if skipped:
+            print(f"확인 {checked}개 경로, 지적 사항 없음 — {len(skipped)}개는 {role} 권한 밖이라 건너뜀: "
+                  + ", ".join(skipped))
+        else:
+            print(f"확인 {len(PATHS)}개 경로, 지적 사항 없음")
         return 0
-    print(f"지적 사항 {len(findings)}건")
+    if skipped:
+        print(f"{len(skipped)}개 경로는 {role} 권한 밖이라 건너뜀: " + ", ".join(skipped) + "\n")
+    print(f"지적 사항 {len(findings)}건 (확인 {len(PATHS) - len(skipped)}개 경로)")
     for path, notes in findings:
         print(f"  {path}")
         for note in notes:
