@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.105.0
+  version: 0.106.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1550,6 +1550,40 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "409": { $ref: "#/components/responses/Error" }
+  /admin/encryption:
+    get:
+      summary: 비밀 설정 암호화 키 상태
+      description: |
+        이 배포가 상태 볼륨을 잃으면 비밀 설정을 복구할 수 있는지 답한다.
+
+        `keySource` 가 `environment` 면 키가 `WEEKLY_ENCRYPTION_KEY` 에 있으므로 볼륨과
+        무관하게 복구된다. `state_volume` 이면 키의 유일한 사본이 볼륨 안 `instance.key`
+        이며, 저장된 비밀 설정이 하나라도 있으면 볼륨을 잃는 순간 함께 잃는다.
+
+        `storedSecrets` 는 요청 시점에 센다. 오늘 오후에 넣은 키가 바로 지금 위험한
+        것이기 때문에, 기동 시점의 값을 들고 있으면 답이 틀린다.
+
+        이 답은 원래 기동 로그 한 줄에만 있었다. 배포를 물려받은 사람이 몇 달 뒤에
+        묻는 질문인데, 그때 그 줄은 남아 있지 않다. README 는 이 구별이 백업 절차를
+        가른다고 적어 두고 있다.
+      tags: [Admin]
+      responses:
+        '200':
+          description: 키 출처와 위험 여부
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      keySource: { type: string, enum: [environment, state_volume] }
+                      storedSecrets: { type: integer }
+                      recoverable: { type: boolean, description: 볼륨을 잃어도 비밀 설정을 복구할 수 있는가 }
+                      stateDirectory: { type: string }
+        '403': { description: 관리자만 조회할 수 있다 }
   /admin/users:
     get:
       summary: 사용자 목록 (검색·페이지)

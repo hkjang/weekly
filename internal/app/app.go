@@ -40,6 +40,12 @@ type App struct {
 	web             fs.FS
 	build           BuildInfo
 	box             *secretBox
+	// keySource says where the secret encryption key came from — the
+	// environment, or instance.key inside the state volume. Until this was
+	// carried past startup it existed only in one boot log line, so a deployment
+	// could not answer the question the README tells operators to ask: does
+	// losing the volume lose the secrets?
+	keySource       string
 	mux             *http.ServeMux
 	defaultPPTX     []byte
 	defaultPPTXName string
@@ -117,7 +123,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
+	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
 	a.conditions = newConditionLog(logger)
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
@@ -223,6 +229,7 @@ func (a *App) routes() {
 	a.mux.Handle("DELETE /api/v1/keys/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.revokeKey))))
 
 	a.mux.Handle("GET /api/v1/admin/settings", a.requireRole("ADMIN")(http.HandlerFunc(a.adminSettings)))
+	a.mux.Handle("GET /api/v1/admin/encryption", a.requireRole("ADMIN")(http.HandlerFunc(a.adminEncryption)))
 	a.mux.Handle("PUT /api/v1/admin/settings", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateSettings))))
 	a.mux.Handle("POST /api/v1/admin/settings/oidc/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testOIDC))))
 	a.mux.Handle("POST /api/v1/admin/settings/ai/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testAI))))

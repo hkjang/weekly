@@ -335,3 +335,5 @@ export interface HandoverItem {
 }
 export interface HandoverView { userId: number; displayName: string; active: number; completed: number
   openDecisions: number; overdueDecisions: number; items: HandoverItem[] }
+
+export interface EncryptionStatus { keySource: string; storedSecrets: number; recoverable: boolean; stateDirectory: string }

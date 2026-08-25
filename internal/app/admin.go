@@ -753,3 +753,37 @@ func validTimezone(value string) bool {
 	_, err := time.LoadLocation(value)
 	return err == nil
 }
+
+// encryptionView answers a question the README poses and the product could not:
+// if this deployment loses its state volume, do the secret settings survive?
+//
+// The answer used to live in one line of the boot log. Months later, on a
+// deployment someone else installed, that line is gone and the administrator has
+// no way to tell which mode they are in — while the backup instructions depend
+// on knowing.
+type encryptionView struct {
+	// KeySource is "environment" or "state_volume".
+	KeySource string `json:"keySource"`
+	// StoredSecrets is counted now rather than at boot: a key added this
+	// afternoon is exactly the one at risk.
+	StoredSecrets int `json:"storedSecrets"`
+	// Recoverable is false when the only copy of the key is inside the volume
+	// and there is something encrypted with it.
+	Recoverable    bool   `json:"recoverable"`
+	StateDirectory string `json:"stateDirectory"`
+}
+
+func (a *App) adminEncryption(w http.ResponseWriter, r *http.Request) {
+	var stored int
+	if err := a.db.QueryRow(r.Context(),
+		`SELECT count(*) FROM app_settings WHERE secret AND value <> ''`).Scan(&stored); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "비밀 설정 상태를 조회할 수 없습니다.")
+		return
+	}
+	writeData(w, 200, encryptionView{
+		KeySource:      a.keySource,
+		StoredSecrets:  stored,
+		Recoverable:    a.keySource != "state_volume" || stored == 0,
+		StateDirectory: stateDirectory,
+	})
+}
