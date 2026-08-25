@@ -14,7 +14,11 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
   notify: (message: string, kind?: 'success' | 'error') => void
   onCountChange?: (count: number) => void
 }) {
-  const [items, setItems] = useState<ReportAttachment[]>()
+  // A failed load used to become an empty list, and an empty list here is a
+  // claim: readers were told the report has no captures, which is a different
+  // thing from not knowing. The captures were still on the server.
+  const [items, setItems] = useState<ReportAttachment[] | 'failed'>()
+  const loaded = Array.isArray(items) ? items : undefined
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -23,7 +27,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
     setItems(value)
     onCountChange?.(value.length)
   })
-  useEffect(() => { load().catch(() => setItems([])) }, [reportId])
+  useEffect(() => { load().catch(() => setItems('failed')) }, [reportId])
 
   const upload = async (files: File[]) => {
     const images = files.filter(file => file.type.startsWith('image/'))
@@ -72,14 +76,14 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
   }
 
   const change = async (item: ReportAttachment, values: Partial<ReportAttachment>) => {
-    setItems(current => current?.map(entry => entry.id === item.id ? { ...entry, ...values } : entry))
+    setItems(current => Array.isArray(current) ? current.map(entry => entry.id === item.id ? { ...entry, ...values } : entry) : current)
     try { await patch(`/api/v1/reports/${reportId}/attachments/${item.id}`, values) } catch (error) {
       notify(errorText(error, '이미지 정보를 저장할 수 없습니다.'), 'error')
       await load().catch(() => undefined)
     }
   }
   const move = async (item: ReportAttachment, direction: -1 | 1) => {
-    const peers = (items ?? []).filter(entry => entry.placement === item.placement)
+    const peers = (loaded ?? []).filter(entry => entry.placement === item.placement)
     const index = peers.findIndex(entry => entry.id === item.id)
     const target = peers[index + direction]
     if (!target) return
@@ -101,8 +105,8 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
     { placement: 'AFTER', name: '본문 뒤 슬라이드' },
   ]
 
-  const missing = (items ?? []).filter(item => item.available === false).length
-  return <Card title="이미지 캡처 슬라이드" action={items?.length ? <span className="muted-chip">{items.length}개 · 슬라이드로 추가됨</span> : undefined}>
+  const missing = (loaded ?? []).filter(item => item.available === false).length
+  return <Card title="이미지 캡처 슬라이드" action={loaded?.length ? <span className="muted-chip">{loaded.length}개 · 슬라이드로 추가됨</span> : undefined}>
     {missing > 0 && <p className="capture-warning">이미지 {missing}개의 파일을 서버에서 찾을 수 없습니다. 내보내기와 발표에서 제외되므로 다시 첨부해 주세요.
       관리자라면 <code>/var/lib/weekly</code>가 영속 볼륨으로 유지되고 있는지 확인이 필요합니다.</p>}
     <p className="muted">화면 캡처를 끌어다 놓거나 붙여넣으면 PPTX 내보내기에서 각 이미지가 한 장의 슬라이드가 됩니다. 본문 앞·뒤 위치와 순서를 지정할 수 있습니다.</p>
@@ -119,7 +123,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
     </div>}
     {/* The drop zone already says the list is empty, so the empty state is only
         for readers who cannot add anything. */}
-    {items === undefined ? null : !items.length ? (editable ? null : <Empty>첨부한 이미지가 없습니다.</Empty>) : <div className="capture-groups">
+    {items === undefined ? null : items === 'failed' ? <Empty>첨부를 불러오지 못했습니다. 이 보고서의 이미지가 없어진 것은 아니며, 화면을 다시 열어 보십시오.</Empty> : !items.length ? (editable ? null : <Empty>첨부한 이미지가 없습니다.</Empty>) : <div className="capture-groups">
       {groups.map(group => {
         const groupItems = items.filter(item => item.placement === group.placement)
         if (!groupItems.length) return null
@@ -134,7 +138,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
               : <img src={`/api/v1/reports/${reportId}/attachments/${item.id}`} alt={item.caption || item.filename} loading="lazy" />}
             <figcaption>
               {editable ? <input value={item.caption} maxLength={240} placeholder="슬라이드 제목 (비우면 파일명)"
-                onChange={event => setItems(current => current?.map(entry => entry.id === item.id ? { ...entry, caption: event.target.value } : entry))}
+                onChange={event => setItems(current => Array.isArray(current) ? current.map(entry => entry.id === item.id ? { ...entry, caption: event.target.value } : entry) : current)}
                 onBlur={event => change(item, { caption: event.target.value })} />
                 : <strong>{item.caption || item.filename}</strong>}
               <small>{item.width}×{item.height} · {(item.sizeBytes / 1024).toFixed(0)} KB</small>

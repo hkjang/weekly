@@ -29,7 +29,7 @@ export default function HandoverPage({ session, notify }: {
   // comes from the people this leader can open, inactive accounts included.
   useEffect(() => {
     if (!canPickPerson) return
-    api<TeamMember[]>('/api/v1/team/members').then(setPeople).catch(() => setPeople([]))
+    api<TeamMember[]>('/api/v1/team/members').then(setPeople).catch(() => { setPeople([]); notify('담당자 목록을 불러오지 못했습니다. 화면을 다시 열어 보십시오.', 'error') })
   }, [canPickPerson])
 
   useEffect(() => {
