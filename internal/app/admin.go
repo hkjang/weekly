@@ -476,7 +476,14 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 		OrganizationID, ManagerID          *int64
 		Active                             *bool
 	}
-	if !decodeJSON(w, r, &input) {
+	// Every column below is rewritten, so a caller who mentions only the field
+	// it means to change used to blank the rest. Resetting a password wiped the
+	// address, dropped the account out of its organisation — leaving it in the
+	// queue no team leader can open — and, because the flag defaulted to true,
+	// handed a disabled account its sign-in back. An omission must never move
+	// access in that direction.
+	sent, ok := decodeJSONFields(w, r, &input)
+	if !ok {
 		return
 	}
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
@@ -498,11 +505,11 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		passwordHash, _ = hashPassword(input.Password)
 	}
-	active := true
-	if input.Active != nil {
-		active = *input.Active
-	}
-	if id == currentPrincipal(r.Context()).ID && (!active || input.Role != "ADMIN") {
+	// A body that says nothing about activity leaves it alone, so an edit made
+	// for another reason cannot re-enable an account by silence.
+	setActive := sent["active"] && input.Active != nil
+	active := setActive && *input.Active
+	if id == currentPrincipal(r.Context()).ID && ((setActive && !active) || input.Role != "ADMIN") {
 		writeError(w, 400, "SELF_LOCKOUT", "현재 관리자 계정을 비활성화하거나 관리자 권한을 제거할 수 없습니다.")
 		return
 	}
@@ -512,7 +519,19 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	command, err := tx.Exec(r.Context(), `UPDATE users SET display_name=$1,email=$2,role=$3,organization_id=$4,manager_id=$5,active=$6,updated_at=now() WHERE id=$7`, input.DisplayName, strings.TrimSpace(input.Email), input.Role, input.OrganizationID, input.ManagerID, active, id)
+	command, err := tx.Exec(r.Context(), `UPDATE users SET display_name=$1,
+			email=CASE WHEN $2 THEN $3 ELSE email END,
+			role=$4,
+			organization_id=CASE WHEN $5 THEN $6 ELSE organization_id END,
+			manager_id=CASE WHEN $7 THEN $8 ELSE manager_id END,
+			active=CASE WHEN $9 THEN $10 ELSE active END,
+			updated_at=now() WHERE id=$11`,
+		input.DisplayName,
+		sent["email"], strings.TrimSpace(input.Email),
+		input.Role,
+		sent["organizationid"], input.OrganizationID,
+		sent["managerid"], input.ManagerID,
+		setActive, active, id)
 	if err != nil || command.RowsAffected() == 0 {
 		writeError(w, 404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
 		return

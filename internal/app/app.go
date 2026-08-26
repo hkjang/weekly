@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"mime"
@@ -349,6 +351,38 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 		return false
 	}
 	return true
+}
+
+// decodeJSONFields decodes the body the way decodeJSON does and additionally
+// reports which keys the caller actually sent, lowercased. An update that
+// rewrites every column needs the difference between "set this to nothing" and
+// "I did not mention this"; a struct decode cannot express it, because both
+// arrive as the zero value.
+func decodeJSONFields(w http.ResponseWriter, r *http.Request, target any) (map[string]bool, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "요청 형식이 올바르지 않습니다.")
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "요청 형식이 올바르지 않습니다.")
+		return nil, false
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "요청 형식이 올바르지 않습니다.")
+		return nil, false
+	}
+	// Go matches JSON keys to struct fields without regard to case, so the
+	// presence map has to answer the same way or the two disagree.
+	sent := make(map[string]bool, len(raw))
+	for key := range raw {
+		sent[strings.ToLower(key)] = true
+	}
+	return sent, true
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
