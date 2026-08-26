@@ -65,12 +65,14 @@
 
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
-확인은 두 번입니다. **반입 전에는 파일이 온전히 도착했는지**를 릴리스에 적힌 SHA-256으로, **적재 뒤에는 그것이 빌드된 이미지가 맞는지**를 이미지 ID로 봅니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 이미지 ID는 그대로이므로, 둘은 서로 다른 질문에 답합니다.
+확인은 두 번이고, 둘은 서로 다른 질문에 답합니다. **파일이 온전히 도착했는지**는 릴리스에 적힌 SHA-256으로, **그 파일이 담은 것이 빌드된 이미지가 맞는지**는 아카이브 안의 다이제스트로 봅니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 다이제스트는 그대로입니다.
+
+`docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.147.0.tar.gz
-gzip -dc weekly-v0.147.0.tar.gz | docker load
-docker image inspect weekly:v0.147.0 --format '{{.Id}}'
+sha256sum weekly-v0.148.0.tar.gz
+gzip -dc weekly-v0.148.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.148.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d

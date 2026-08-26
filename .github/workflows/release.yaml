@@ -62,15 +62,18 @@ jobs:
           cp "$notes_source" release/release-notes.md
           asset_name=$(basename "$OFFLINE_ASSET")
           asset_size=$(stat -c '%s' "$OFFLINE_ASSET")
-          image_id=$(docker image inspect "weekly:${GITHUB_REF_NAME}" --format '{{.Id}}')
+          identity_dir=$(mktemp -d)
+          gzip -dc "$OFFLINE_ASSET" | tar -x -C "$identity_dir" manifest.json
+          image_id="sha256:$(grep -o 'blobs/sha256/[0-9a-f]\{64\}' "$identity_dir/manifest.json" | head -1 | sed 's#.*/##')"
+          rm -rf "$identity_dir"
           {
             printf '\n## 오프라인 배포 자산\n\n'
             printf -- '- 파일: `%s`\n' "$asset_name"
             printf -- '- 크기: `%s bytes`\n' "$asset_size"
             printf -- '- SHA-256: `%s`\n' "$OFFLINE_SHA256"
-            printf -- '- 이미지 ID: `%s`\n' "$image_id"
-            printf '\n반입 전에는 파일이 온전히 도착했는지를, 적재 뒤에는 그것이 빌드된 이미지가 맞는지를 확인합니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 이미지 ID는 그대로입니다.\n'
-            printf '\n```bash\nsha256sum %s\ngzip -dc %s | docker load\ndocker image inspect weekly:%s --format "{{.Id}}"\n```\n' "$asset_name" "$asset_name" "${GITHUB_REF_NAME}"
+            printf -- '- 이미지 다이제스트: `%s`\n' "$image_id"
+            printf '\n반입 전에는 파일이 온전히 도착했는지를 SHA-256으로, 그 파일이 담은 것이 빌드된 이미지가 맞는지를 아카이브 안의 다이제스트로 확인합니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 다이제스트는 그대로입니다. `docker image inspect --format {{.Id}}` 는 이 값과 다를 수 있습니다 — Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.\n'
+            printf '\n```bash\nsha256sum %s\ngzip -dc %s | tar -xO manifest.json | grep -o "blobs/sha256/[0-9a-f]\\{64\\}" | head -1\ngzip -dc %s | docker load\n```\n' "$asset_name" "$asset_name" "$asset_name"
           } >> release/release-notes.md
           gh release create "${GITHUB_REF_NAME}" "$OFFLINE_ASSET" \
             --repo "$GITHUB_REPOSITORY" \

@@ -1725,6 +1725,22 @@ if item.Submitted &gt; 0 { item.OnTimeRate = ... }</div>
 <p>릴리스 본문과 <code>export-offline.sh</code> 와 README 세 곳이 이미지 ID 를 함께 싣도록 했습니다. <strong>두 확인은 서로 다른 질문에 답합니다</strong> — 반입 전에는 파일이 온전한지를, 적재 뒤에는 그것이 빌드된 이미지가 맞는지를.</p>
 <p>검증 절차를 문서에 싣기 전에 그 절차가 실제로 왕복을 견디는지 먼저 시험했습니다. <strong>검증하지 않은 검증 절차를 싣는 것은 확인이 아니라 안심입니다.</strong></p>
 <p>원칙으로 남깁니다. <strong>무엇을 확인하느냐보다 그것이 무엇에 답하느냐가 먼저입니다.</strong> 파일 해시는 전송을 확인하고 신원을 확인하지 않습니다. 둘을 같은 것으로 쓰면, 전송이 정상적으로 달라졌을 때 확인이 통째로 사라집니다.</p>
+<p>#### 3.10.103 v0.148.0에서 완료 — 바로 앞 릴리스가 실은 확인 명령이 틀렸습니다</p>
+<p>v0.147.0 은 오프라인 반입에 이미지 신원을 함께 싣고, 운영자에게 이렇게 확인하라고 적었습니다.</p>
+<div class="phase-box">docker image inspect weekly:v0.147.0 --format &#x27;{{.Id}}&#x27;</div>
+<p><strong>그 명령이 틀렸습니다.</strong> 릴리스를 내려받아 그대로 해 봤습니다.</p>
+<table><thead><tr><th></th><th>값</th></tr></thead><tbody><tr><td>파일 SHA-256</td><td>릴리스가 적은 값과 <strong>일치</strong></td></tr><tr><td><code>docker image inspect .Id</code></td><td><code>fcf4eb5d…</code></td></tr><tr><td>릴리스가 적은 값</td><td><strong><code>da567938…</code></strong></td></tr></tbody></table>
+<p>지시를 따른 운영자는 자기 이미지가 빌드된 것이 아니라고 결론지었을 것입니다. 맞는데도요.</p>
+<p>##### 왜 틀렸는가</p>
+<p>제가 v0.147.0 에서 한 검증은 <strong>양쪽 끝이 모두 "적재된 이미지"</strong> 였습니다. 아카이브를 적재하고, 저장하고, 다시 적재해서 ID 가 그대로인 것을 확인했습니다. 그런데 실제 여정은 <strong>CI에서 빌드 → 저장 → 반입 → 적재</strong> 이고, Docker 는 <strong>빌드한 이미지와 적재한 이미지에 다른 식별자를 매깁니다.</strong></p>
+<p>즉 저는 여정의 한 구간만 재고 전체를 잰 것처럼 적었습니다. 바로 앞 절에 "검증하지 않은 검증 절차를 싣는 것은 확인이 아니라 안심" 이라고 써 놓고서.</p>
+<p>##### 무엇이 실제로 견디는가</p>
+<p>아카이브 안의 <strong>설정 다이제스트</strong>입니다. 공개된 값 <code>da567938…</code> 이 바로 그것이고 — 즉 <strong>값은 처음부터 옳았고 읽는 방법만 틀렸습니다</strong> — 세 가지를 거쳐도 움직이지 않습니다.</p>
+<table><thead><tr><th></th><th>파일 해시</th><th>아카이브 다이제스트</th></tr></thead><tbody><tr><td>공개된 파일</td><td><code>2399169b…</code></td><td><code>da567938…</code></td></tr><tr><td>적재 후 다시 저장</td><td><code>aba6b907…</code></td><td><strong><code>da567938…</code></strong></td></tr><tr><td>풀었다 다시 묶음</td><td><code>a09fe7ff…</code></td><td><strong><code>da567938…</code></strong></td></tr></tbody></table>
+<p>Docker 에게 묻지 않고 아카이브에서 직접 읽도록 세 곳을 고쳤습니다.</p>
+<div class="phase-box">gzip -dc weekly-vX.tar.gz | tar -xO manifest.json | grep -o &quot;blobs/sha256/[0-9a-f]\{64\}&quot; | head -1</div>
+<p><code>docker image inspect --format '{{.Id}}'</code> 는 확인에 쓰지 말라고 명시했습니다. 값이 다른 것이 정상이기 때문입니다.</p>
+<p>원칙으로 남깁니다. <strong>여정의 한 구간을 재고 전체를 잰 것처럼 말하지 않습니다.</strong> 왕복이 견딘다는 것과 편도가 견딘다는 것은 다른 주장이고, 이번 경우에는 앞의 것만 참이었습니다.</p>
 </div>
 </body>
 </html>

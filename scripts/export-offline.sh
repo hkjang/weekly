@@ -29,6 +29,15 @@ sha256sum "$output"
 # different bytes and the same image inside. Docker rewrites its own
 # packaging metadata on a load-and-save round trip; the layer and config
 # digests do not move. So print the identity that survives the journey.
-printf "image id: "
-docker image inspect "$image" --format '{{.Id}}'
+# Read it out of the archive rather than asking Docker, because Docker does not
+# answer the same way on both ends: `docker image inspect --format {{.Id}}` on a
+# freshly built image and on the same image after a load give different values.
+# The digest written inside the archive does not move.
+identity_dir=$(mktemp -d)
+gzip -dc "$output" | tar -x -C "$identity_dir" manifest.json 2>/dev/null || true
+identity=$(grep -o 'blobs/sha256/[0-9a-f]\{64\}' "$identity_dir/manifest.json" 2>/dev/null | head -1)
+rm -rf "$identity_dir"
+if [ -n "$identity" ]; then
+  printf 'image digest: sha256:%s\n' "${identity##*/}"
+fi
 
