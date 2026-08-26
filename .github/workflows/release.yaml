@@ -51,6 +51,22 @@ jobs:
           go vet ./...
           npm --prefix frontend ci
           npm --prefix frontend run lint
+          # Half of what is being published is the frontend, and until now the
+          # release ran its linter but never its tests. CI ran them, which is
+          # the gate for merging — this is the gate for publishing, and the two
+          # came apart once already: v0.158.0 shipped while CI was red.
+          npm --prefix frontend test
+          # CI runs these too, but CI and this workflow start at the same moment
+          # on the same push: no check in CI can stop a publish. Anything that
+          # decides whether what is being published is correct has to run here.
+          #
+          # The deployment files carry the image tag an operator will pull, the
+          # documentation ships beside the archive, and the frontend invariant
+          # is about the same build. The slow test-quality checks stay in CI —
+          # they judge the tests, not the artefact.
+          sh scripts/version-check.sh
+          python3 scripts/openapi-check.py
+          python3 scripts/modal-close-check.py
       - uses: docker/setup-buildx-action@v4
       - name: Build offline image
         run: |
