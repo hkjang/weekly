@@ -2034,6 +2034,27 @@ if target == p.ID {          // != 로 뒤집어도 아무도 몰랐습니다
 <p>다섯 변이를 다시 넣으니 전부 떨어집니다.</p>
 <p>##### 이번 창에서 일곱 번째</p>
 <p>"거절은 시험하고 허용은 안 한다" 입니다. 403 을 확인하고 나면 일이 끝난 것처럼 보입니다. 옆에는 언제나 <strong>200 이 옳은 것을 담고 있는가</strong> 가 남아 있고, 이번에는 그 질문이 한 번에 다섯 자리를 열었습니다.</p>
+<p>#### 3.10.125 v0.170.0에서 완료 — 보내고 버리던 490KB</p>
+<p>씨앗이 채워진 배포에서 응답의 <strong>무게</strong>를 재 봤습니다. 화면을 보면 알 수 없고, 시간을 재도 알 수 없습니다 — 141ms 로 충분히 빨랐으니까요.</p>
+<table><thead><tr><th>화면 (관리자 · 전사 2,100건)</th><th>시간</th><th>크기</th><th>담긴 줄</th></tr></thead><tbody><tr><td>업무 목록</td><td>228ms</td><td>170KB</td><td>200 / 2,100</td></tr><tr><td>회의 자료</td><td>201ms</td><td>38KB</td><td>섹션당 40</td></tr><tr><td>업무 검색</td><td>284ms</td><td>14KB</td><td>25</td></tr><tr><td><strong>주간 변화</strong></td><td><strong>141ms</strong></td><td><strong>490KB</strong></td><td><strong>1,866 — 상한 없음</strong></td></tr></tbody></table>
+<p>진척 1,166줄, 정체 700줄. 한 응답에 담겨 나갑니다.</p>
+<p>##### 그런데 그 줄을 읽는 화면이 없습니다</p>
+<p>대시보드는 변화 막대를 <code>count</code> 하나로 그립니다. <code>entries</code> 는 타입에는 있지만 <strong>어느 컴포넌트도 건드리지 않습니다.</strong> 1,866줄을 직렬화해 보내고 브라우저가 통째로 버립니다. 제품이 처음 여는 화면에서입니다.</p>
+<p>##### 회의 안건이 이미 받은 처방</p>
+<p><code>meetingSectionLimit = 40</code> 과 <code>orderMeetingEntries</code> 가 v0.147 무렵 같은 문제를 이렇게 풀었습니다. 같은 처방을 그대로 씁니다.</p>
+<ul>
+<li><code>changeGroupLimit = 40</code></li>
+<li><code>orderChangeEntries</code> — 변화폭이 큰 것 먼저, 같으면 덜 끝난 것 먼저, 같으면 제목순(결정적)</li>
+<li><code>count</code> 는 <strong>진짜 개수를 그대로</strong> 유지합니다. 대시보드 막대가 달라지면 안 됩니다.</li>
+<li><code>limit</code> 을 새로 실어, 받은 쪽이 잘렸는지 알 수 있게 합니다.</li>
+</ul>
+<table><thead><tr><th></th><th>이전</th><th>지금</th></tr></thead><tbody><tr><td>크기</td><td>490,157 B</td><td><strong>21,604 B</strong> (23배)</td></tr><tr><td>진척</td><td>1,166줄</td><td>count 1,166 · entries 40</td></tr><tr><td>정체</td><td>700줄</td><td>count 700 · entries 40</td></tr></tbody></table>
+<p>##### 자르는 것보다 순서가 중요합니다</p>
+<p>상한만 넣으면 남는 40줄이 <strong>업무 번호가 낮은 것들</strong>입니다. 그래서 시험은 두 가지를 따로 봅니다. 가장 크게 움직인 업무를 <strong>목록 맨 끝에</strong> 만들어 두고, 상한을 없애면 "40줄을 넘었다" 로, 정렬을 없애면 "가장 크게 움직인 업무가 선두가 아니다" 로 떨어지는지 확인합니다. 둘 다 떨어집니다.</p>
+<p>##### 다음 걸음으로 남기는 것</p>
+<p>규모 배포에서 정렬을 눈으로 확인하려니 <strong>씨앗의 주간 변화폭이 전부 1~2%</strong> 라 모든 항목이 동률이었습니다. 그리고 변화 7종 가운데 <strong>다섯이 한 번도 나타나지 않습니다.</strong></p>
+<table><thead><tr><th>완료</th><th>신규</th><th>재개</th><th>진척</th><th>역행</th><th>정체</th><th>누락</th></tr></thead><tbody><tr><td>0</td><td>0</td><td>0</td><td>1,166</td><td><strong>0</strong></td><td>700</td><td>0</td></tr></tbody></table>
+<p>대시보드의 주 시각 요소가 일곱 칸 중 두 칸만 씁니다. 씨앗이 만들지 못하는 상태를 세는 일(v0.167)의 연장선이고, 다음 걸음입니다.</p>
 </div>
 </body>
 </html>

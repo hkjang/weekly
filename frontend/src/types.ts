@@ -88,7 +88,7 @@ export interface ChangeEntry {
   workItemId: number; title: string; category: string; displayName: string; organizationName: string
   kind: ChangeKind; note: string; detail: string; progress: number; progressDelta: number
 }
-export interface ChangeGroup { kind: ChangeKind; title: string; count: number; entries: ChangeEntry[] }
+export interface ChangeGroup { kind: ChangeKind; title: string; count: number; entries: ChangeEntry[]; limit: number }
 export interface ChangeSummary { week: string; previousWeek: string; scope: string; reported: number; changed: number; groups: ChangeGroup[] }
 
 export interface QualityFinding { rule: string; severity: 'WARN' | 'INFO'; title: string; message: string }

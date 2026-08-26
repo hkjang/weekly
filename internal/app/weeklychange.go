@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -154,6 +155,47 @@ type changeSummaryGroup struct {
 	Title   string               `json:"title"`
 	Count   int                  `json:"count"`
 	Entries []changeSummaryEntry `json:"entries"`
+	Limit   int                  `json:"limit"`
+}
+
+// changeGroupLimit is how many rows one group carries.
+//
+// The groups had no cap. Read across a 300 person organisation the summary
+// came back with 1,866 rows in one response — 진척 1,166 and 정체 700 — half a
+// megabyte on the screen the product opens on. The dashboard draws the bar
+// from count alone and never touches entries, so every one of those rows was
+// serialised, sent and thrown away.
+//
+// count still carries the true number, so the bar is unchanged; limit says how
+// many of them came with it.
+const changeGroupLimit = 40
+
+// orderChangeEntries puts the rows worth reading first, so cutting the tail
+// cuts the least important thing rather than the highest work item id.
+//
+// The same reasoning as the meeting agenda: the size of the movement decides,
+// because a task that jumped 40% and one that moved 1% are not equally worth
+// somebody's attention. Within a group the direction is already fixed, so what
+// is left is how far it moved, then how far it still has to go, then the title
+// so the order is total and the same week does not reshuffle between requests.
+func orderChangeEntries(entries []changeSummaryEntry) {
+	sort.SliceStable(entries, func(x, y int) bool {
+		left, right := entries[x], entries[y]
+		leftSize, rightSize := left.ProgressDelta, right.ProgressDelta
+		if leftSize < 0 {
+			leftSize = -leftSize
+		}
+		if rightSize < 0 {
+			rightSize = -rightSize
+		}
+		if leftSize != rightSize {
+			return leftSize > rightSize
+		}
+		if left.Progress != right.Progress {
+			return left.Progress < right.Progress
+		}
+		return left.Title < right.Title
+	})
 }
 
 type changeSummaryView struct {
@@ -214,8 +256,14 @@ func buildChangeSummary(items []workItemView, week string, cfg rollupConfig) cha
 		if entries == nil {
 			entries = []changeSummaryEntry{}
 		}
+		orderChangeEntries(entries)
+		total := len(entries)
+		if len(entries) > changeGroupLimit {
+			entries = entries[:changeGroupLimit]
+		}
 		view.Groups = append(view.Groups, changeSummaryGroup{
-			Kind: group.Kind, Title: group.Title, Count: len(entries), Entries: entries,
+			Kind: group.Kind, Title: group.Title, Count: total, Entries: entries,
+			Limit: changeGroupLimit,
 		})
 	}
 	return view
