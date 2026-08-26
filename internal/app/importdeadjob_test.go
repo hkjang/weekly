@@ -1,7 +1,9 @@
 package app
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -141,22 +143,36 @@ func TestAnImportOfRejectedAndAlreadySeenFilesIsPartial(t *testing.T) {
 		t.Fatalf("AI 를 켜지 못했습니다: %d %s", on.Code, on.Body.String())
 	}
 
-	// First upload: one file, accepted and queued.
+	// The already-seen file is registered directly rather than uploaded first.
+	// Uploading it raced the background worker: the worker picks the job up,
+	// finds no gateway behind it and marks the file FAILED, and a FAILED file
+	// is not a duplicate of anything. It passed here and failed in CI, which is
+	// what a fixture that depends on timing looks like.
 	seen := []byte("이미 한 번 올린 파일의 내용")
-	first := server.upload("/api/v1/import/pptx", "files", "이미본.pptx", seen, author)
-	if first.Code != http.StatusAccepted && first.Code != http.StatusOK && first.Code != http.StatusCreated {
-		t.Fatalf("첫 업로드: %d %s", first.Code, first.Body.String())
+	sum := sha256.Sum256(seen)
+	var priorJob int64
+	if err := server.app.db.QueryRow(server.ctx(),
+		`INSERT INTO import_jobs(user_id, status, total_files, processed_files)
+			VALUES($1, 'READY', 1, 1) RETURNING id`,
+		server.userIDOf(server.lastCreatedUsername("import_partial"))).Scan(&priorJob); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.app.db.Exec(server.ctx(),
+		`INSERT INTO import_files(import_job_id, original_filename, file_hash, size_bytes, status)
+			VALUES($1, '이미본.pptx', $2, $3, 'READY')`,
+		priorJob, fmt.Sprintf("%x", sum), len(seen)); err != nil {
+		t.Fatal(err)
 	}
 
-	// Second upload: the same bytes again, beside an empty file. Neither is
-	// queued — one is a duplicate, one is refused — so the job closes on the
-	// spot, with some failures but not all.
+	// Now: the same bytes again, beside an empty file. Neither is queued — one
+	// is a duplicate, one is refused — so the job closes on the spot, with some
+	// failures but not all.
 	second := server.uploadMany("/api/v1/import/pptx", "files", map[string][]byte{
 		"이미본.pptx": seen,
 		"빈것.pptx":  {},
 	}, author)
 	if second.Code != http.StatusAccepted && second.Code != http.StatusOK && second.Code != http.StatusCreated {
-		t.Fatalf("둘째 업로드: %d %s", second.Code, second.Body.String())
+		t.Fatalf("업로드: %d %s", second.Code, second.Body.String())
 	}
 	var envelope struct {
 		Data struct {
