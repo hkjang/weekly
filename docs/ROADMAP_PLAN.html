@@ -1908,6 +1908,18 @@ npm --prefix frontend run lint</div>
 <table><thead><tr><th>검사</th><th>왜 게시 시점인가</th></tr></thead><tbody><tr><td>프런트엔드 시험</td><td>게시되는 것의 절반</td></tr><tr><td><code>version-check.sh</code></td><td>배포 파일이 운영자가 받을 이미지 태그를 담고 있음</td></tr><tr><td><code>openapi-check.py</code></td><td>문서가 아카이브와 함께 나감</td></tr><tr><td><code>modal-close-check.py</code></td><td>같은 빌드의 화면 불변식</td></tr></tbody></table>
 <p>CI 에 남긴 것은 <strong>시험을 판정하는</strong> 검사들입니다 — <code>guard-check</code>(20분), <code>mutation-check</code>, <code>release-check</code>. 이들은 산출물이 아니라 우리가 그것을 얼마나 믿을 수 있는지를 말하고, 느리며, 빨간불이 병합을 막는 자리에 있는 편이 맞습니다.</p>
 <p>원칙으로 남깁니다. <strong>관문은 순서가 있을 때만 관문입니다.</strong> 나란히 도는 두 흐름 중 하나가 다른 하나를 막는다고 생각하고 있었다면, 그것은 관문이 아니라 <strong>같은 시각에 울리는 두 개의 알람</strong>입니다.</p>
+<p>#### 3.10.116 v0.161.0에서 완료 — 두 대표 기능이 처음으로 만났습니다</p>
+<p>이 제품에는 큰 기능이 둘 있습니다. 회의에 들고 갈 <strong>덱을 내보내고</strong>, 다시 타이핑하지 않으려고 <strong>덱을 가져옵니다.</strong> 둘은 한 번도 만난 적이 없습니다.</p>
+<p>가져오기 쪽은 특히 그랬습니다. 업로드가 받아들여지는지, 거부가 기록되는지까지는 시험이 있었는데 — <strong>모델이 답한 뒤부터 보고서가 생기기까지</strong>는 전부 운영 환경에서만 돌았습니다. 배경 작업자, PPTX 추출, 주차 탐지, 항목으로의 투영. 아무것도 시험된 적이 없습니다.</p>
+<p>v0.158.0 에서 세운 <strong>답하는 게이트웨이</strong>가 그 문을 열었습니다.</p>
+<p>한 사람이 쓴 주간보고를 발표자가 하듯 내보내고, 그 파일을 그대로 업로드하고, 작업자가 끝낼 때까지 기다린 뒤, 나온 것이 처음에 쓴 그 업무인지 봅니다. <strong><code>READY</code> 로 끝나고, 업무명·실적·계획이 그대로 돌아옵니다.</strong></p>
+<p>기다리는 방식도 정했습니다 — 짐작한 시간만큼 자는 대신 <strong>끝난 상태를 기다립니다.</strong> 작업자는 고루틴이고, 물어야 할 것은 "끝나는가" 이지 "얼마나 빠른가" 가 아닙니다. v0.159.0 에서 픽스처가 작업자와 경주하다 CI 에서 떨어진 바로 다음 절이라, 이번에는 처음부터 그렇게 썼습니다.</p>
+<p>##### 닿을 수 없는 하한 하나</p>
+<p><code>processImportFile</code> 의 변이 넷 중 셋이 잡히고 하나가 남았습니다 — 파서 예산의 하한 256입니다.</p>
+<div class="phase-box">parserBudget := cfg.MaxInput - runeLength(&quot;원본 파일명: &quot;+filename+&quot;\n&quot;) - 160
+if parserBudget &lt; 256 { parserBudget = 256 }</div>
+<p><code>cfg.MaxInput</code> 은 1000 이상으로 검증되고 파일명은 255자로 제한되므로, 가장 작은 경우도 <code>1000 - 264 - 160 = 576</code> 입니다. <strong>하한 아래로 내려갈 수 없습니다.</strong> 방어로서 옳고, 도달할 수 없다는 것도 사실입니다.</p>
+<p>원칙으로 남깁니다. <strong>기능 하나를 시험하는 것과 기능 둘 사이를 시험하는 것은 다른 일입니다.</strong> 내보내기에도 시험이 있었고 가져오기에도 있었지만, 내보낸 것을 가져올 수 있는지는 둘 중 어느 쪽의 질문도 아니었습니다.</p>
 </div>
 </body>
 </html>
