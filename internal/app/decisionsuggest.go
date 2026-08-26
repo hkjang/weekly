@@ -201,14 +201,24 @@ func (a *App) workItemReportedText(ctx context.Context, workItemID int64) (strin
 		if builder.Len() >= decisionSuggestChars {
 			continue
 		}
-		builder.WriteString("## " + week.Format("2006-01-02") + " 주차\n")
+		// The heading used to be written before anything was known about the
+		// week, so a task whose every field is blank still produced a page of
+		// headings — and the caller's check for "nothing was written here"
+		// could never be true. A task nobody has written on went to the model
+		// anyway, which costs a call to read a list of dates.
+		var weekBody strings.Builder
 		for _, field := range []struct{ label, value string }{
 			{"실적", current}, {"계획", plan}, {"이슈", issue}, {"상위 조직 요청", ask},
 		} {
 			if strings.TrimSpace(field.value) != "" {
-				builder.WriteString(field.label + ": " + strings.TrimSpace(field.value) + "\n")
+				weekBody.WriteString(field.label + ": " + strings.TrimSpace(field.value) + "\n")
 			}
 		}
+		if weekBody.Len() == 0 {
+			continue
+		}
+		builder.WriteString("## " + week.Format("2006-01-02") + " 주차\n")
+		builder.WriteString(weekBody.String())
 		builder.WriteString("\n")
 	}
 	return builder.String(), weeks, rows.Err()
