@@ -320,7 +320,7 @@ export default function WorkItemsPage({ session, notify }: {
               {item.atRisk && <span className="state-chip risk">이슈 {item.issueWeeks}주</span>}
               {item.stalled && <span className="state-chip stalled">{item.stalledWeeks}주 정체</span>}
               {item.latestManagementAsk && <span className="state-chip ask">요청</span>}
-              {item.repeatedPlan >= 3 && <span className="state-chip past">계획 {item.repeatedPlan}주 반복</span>}
+              {item.repeatedPlan >= 3 && <span className="state-chip past">계획 {item.repeatedPlan}회 반복</span>}
               {dueChip(item)}
               {!item.completed && !item.atRisk && !item.stalled && !item.latestManagementAsk && <span className="state-chip">진행</span>}
             </div></td>

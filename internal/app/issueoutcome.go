@@ -105,13 +105,24 @@ func (a *App) issueClearanceFor(ctx context.Context, start, end string, ownerWhe
 	// start and end first, owner arguments after: ownerWhere is built against
 	// $3 onward by the caller, exactly as decisionsInPeriod expects it.
 	args := append([]any{start, end}, ownerArgs...)
-	statement := `SELECT o.weeks, coalesce(w.title,'')
+	// How long the obstacle stood, from the calendar rather than from the count
+	// of reports that mentioned it.
+	//
+	// o.weeks counts the reports that named the issue. Where somebody reported
+	// every week the two agree exactly — (ended - started)/7 is four for an
+	// issue present in four consecutive reports — so this changes nothing for
+	// an unbroken run. They part company when a week goes unreported: an issue
+	// raised on 6 July and still there on 10 August, with nothing written in
+	// between, counts two reports and stood for five weeks. Reading the count
+	// as a duration tells a leader obstacles clear faster than they do, and the
+	// weeks somebody was away are exactly the weeks nothing was being cleared.
+	statement := `SELECT (o.ended_week - o.started_week)/7, coalesce(w.title,'')
 		FROM work_item_issue_outcomes o
 		JOIN work_items w ON w.id = o.work_item_id
 		JOIN users u ON u.id = w.user_id
 		WHERE o.outcome = '` + issueOutcomeResolved + `'
 		  AND o.ended_week BETWEEN $1::date AND $2::date` + ownerWhere + `
-		ORDER BY o.weeks DESC, w.title`
+		ORDER BY (o.ended_week - o.started_week) DESC, w.title`
 	rows, err := a.db.Query(ctx, statement, args...)
 	if err != nil {
 		return issueClearance{}, err
