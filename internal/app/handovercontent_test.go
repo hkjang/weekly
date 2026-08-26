@@ -14,7 +14,8 @@ import (
 // instead, and the suite stayed green.
 
 type handoverBody struct {
-	Items []struct {
+	DisplayName string `json:"displayName"`
+	Items       []struct {
 		Title    string `json:"title"`
 		AgeWeeks int    `json:"ageWeeks"`
 		Stalled  bool   `json:"stalled"`
@@ -219,4 +220,43 @@ func TestAHandoverCarriesTheDecisionsRecordedOnTheLeaversWork(t *testing.T) {
 		t.Fatalf("the task is in the handover but the decision recorded on it is not: %s", w.Body.String())
 	}
 	t.Fatalf("the task carrying the decision is missing from the handover: %s", w.Body.String())
+}
+
+// guards: handover
+//
+// Every content check above reads a handover the reader owns, so the reader
+// and the person being handed over are the same id, and the scope that fetches
+// the work can be swapped for the self-only one without any of them noticing.
+// A handover is read precisely when the two differ — somebody is leaving — and
+// that path had nothing checking what came back. Swapped, a leader asking for
+// a departing member's work gets their own scope, the filter to the leaver
+// keeps nothing, and the screen answers with an empty list and the right name
+// on it: indistinguishable from a colleague with no open work to hand over.
+func TestALeaderReadingADepartingMembersHandoverGetsTheirWork(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("떠나는 사람 조직", "HANDLEAVE")
+	leader := server.createUser("hand_lead", "TEAM_LEADER", &organisation)
+	leaving := server.createUser("hand_goes", "USER", &organisation)
+
+	server.weekWithIssue(leaving, "2026-08-17", "떠나는 사람이 남기는 업무", "인계 전 확인 필요", 35)
+	server.weekWithIssue(leader, "2026-08-17", "팀장 자신의 업무", "", 70)
+
+	leavingID := server.userIDOf(server.lastCreatedUsername("hand_goes"))
+	view := readHandover(t, server, leader, leavingID)
+
+	titles := map[string]bool{}
+	for _, item := range view.Items {
+		titles[item.Title] = true
+	}
+	if !titles["떠나는 사람이 남기는 업무"] {
+		t.Errorf("the leader asked for a departing member's handover and got none of their work: %+v", view.Items)
+	}
+	if titles["팀장 자신의 업무"] {
+		t.Errorf("the handover carried the reader's own work instead of the leaver's: %+v", view.Items)
+	}
+	// The name comes back either way — it is filled in from the users table
+	// when no work is found — so it cannot stand in for the work itself.
+	if view.DisplayName == "" {
+		t.Error("the handover did not name the person being handed over")
+	}
 }
