@@ -389,13 +389,35 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 			item.RepeatedPlan++
 		}
 	}
-	// Consecutive recent weeks at an unchanged progress figure.
+	// How long the figure has stood still, in weeks on the calendar rather than
+	// in reports.
+	//
+	// Counting reports understates exactly the tasks that need attention most.
+	// A task last moved on 7 July and reported again — still at 50% — on 10
+	// August has sat unchanged for six weeks, and counting entries called that
+	// two. The meeting agenda orders by this number, so the task nobody had
+	// touched in a month and a half ranked below one that was stalled for three
+	// weeks with somebody watching it every week. The sentence a reader sees is
+	// "진척이 N주째 멈춰 있습니다", and weeks there means weeks.
 	if !item.Completed {
+		unchangedFrom := last.WeekStart
+		reports := 0
 		for index := len(merged) - 1; index >= 0; index-- {
 			if merged[index].Progress != last.Progress {
 				break
 			}
-			item.StalledWeeks++
+			unchangedFrom = merged[index].WeekStart
+			reports++
+		}
+		item.StalledWeeks = reports
+		if reports > 0 {
+			if from, err := time.Parse("2006-01-02", unchangedFrom); err == nil {
+				if to, err := time.Parse("2006-01-02", last.WeekStart); err == nil {
+					if span := int(to.Sub(from).Hours()/(24*7)) + 1; span > item.StalledWeeks {
+						item.StalledWeeks = span
+					}
+				}
+			}
 		}
 	}
 	item.Stalled = !item.Completed && item.StalledWeeks >= cfg.StallWeeks

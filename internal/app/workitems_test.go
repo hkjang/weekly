@@ -37,9 +37,15 @@ func TestSummarizeWorkItemDerivesAgeing(t *testing.T) {
 	if item.Progress != 30 || item.StartProgress != 10 || item.ProgressGain != 20 {
 		t.Errorf("progress %d start %d gain %d", item.Progress, item.StartProgress, item.ProgressGain)
 	}
-	if item.StalledWeeks != 3 || !item.Stalled {
-		t.Errorf("stalledWeeks = %d stalled = %v, want 3/true", item.StalledWeeks, item.Stalled)
+	// The figure has read 30% since 06-08, and 06-08 to 06-29 is four weeks on
+	// the calendar. This used to expect three, the number of reports — which
+	// skips the missing 06-15 and so understates exactly the tasks nobody is
+	// touching. Standing still elapses whether or not anybody writes it down.
+	if item.StalledWeeks != 4 || !item.Stalled {
+		t.Errorf("stalledWeeks = %d stalled = %v, want 4/true", item.StalledWeeks, item.Stalled)
 	}
+	// An issue is different: it is an observation, and an unreported week
+	// observed nothing. Three reports named an issue, so three it is.
 	if item.IssueWeeks != 3 || !item.AtRisk {
 		t.Errorf("issueWeeks = %d atRisk = %v, want 3/true", item.IssueWeeks, item.AtRisk)
 	}
@@ -209,5 +215,53 @@ func TestWorkItemListLeavesTheWeeklyHistoryOut(t *testing.T) {
 	}
 	if len(trimmed) >= len(full) {
 		t.Errorf("trimming saved nothing: %d vs %d", len(trimmed), len(full))
+	}
+}
+
+// guards: summarizeWorkItem
+//
+// The meeting agenda orders by this number and the sentence beside it says
+// "진척이 N주째 멈춰 있습니다". Counting reports instead of weeks put the task
+// nobody had touched in a month and a half below one that was stalled three
+// weeks with somebody watching it every week — the ranking ran backwards for
+// exactly the tasks the meeting exists to surface.
+func TestStallIsMeasuredInWeeksNotInReports(t *testing.T) {
+	cases := []struct {
+		name    string
+		weeks   []workItemWeek
+		stalled int
+	}{
+		{"매주 보고하며 여섯 주 동안 50%", []workItemWeek{
+			week("2026-07-06", 50, "", "계속", "", ""), week("2026-07-13", 50, "", "계속", "", ""),
+			week("2026-07-20", 50, "", "계속", "", ""), week("2026-07-27", 50, "", "계속", "", ""),
+			week("2026-08-03", 50, "", "계속", "", ""), week("2026-08-10", 50, "", "계속", "", ""),
+		}, 6},
+		{"여섯 주 사이에 두 번만 보고, 둘 다 50%", []workItemWeek{
+			week("2026-07-06", 50, "", "계속", "", ""), week("2026-08-10", 50, "", "계속", "", ""),
+		}, 6},
+		{"세 주 연속 50%", []workItemWeek{
+			week("2026-07-27", 50, "", "계속", "", ""), week("2026-08-03", 50, "", "계속", "", ""),
+			week("2026-08-10", 50, "", "계속", "", ""),
+		}, 3},
+		{"지난주에 움직였다", []workItemWeek{
+			week("2026-07-27", 30, "", "계속", "", ""), week("2026-08-03", 30, "", "계속", "", ""),
+			week("2026-08-10", 60, "", "계속", "", ""),
+		}, 1},
+	}
+	for _, item := range cases {
+		view := &workItemView{Weeks: item.weeks}
+		summarizeWorkItem(view, defaultRollupConfig())
+		if view.StalledWeeks != item.stalled {
+			t.Errorf("%s: stalledWeeks = %d, want %d", item.name, view.StalledWeeks, item.stalled)
+		}
+	}
+
+	// A finished task is not stalled, however long the figure has read 100.
+	done := &workItemView{Weeks: []workItemWeek{
+		week("2026-07-06", 100, "", "", "", ""), week("2026-08-10", 100, "", "", "", ""),
+	}}
+	summarizeWorkItem(done, defaultRollupConfig())
+	if done.StalledWeeks != 0 || done.Stalled {
+		t.Errorf("a completed task reads as stalled for %d week(s)", done.StalledWeeks)
 	}
 }

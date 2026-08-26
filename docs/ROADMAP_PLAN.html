@@ -1470,6 +1470,18 @@ if theirs.Body.String() != missing.Body.String() { ... }</div>
 <p><strong>도구가 한 모양만 볼 줄 안다는 것은 나머지가 괜찮다는 뜻이 아닙니다.</strong> 건너뛴 것을 개수와 위치로 밝히게 해 둔 덕분에(v0.118) 이 둘이 눈에 남아 있었습니다 — 조용히 빼는 도구였다면 27에서 3으로 줄이고 "다 됐다" 고 적었을 것입니다.</p>
 <p>기간 집계 시험에는 하나를 더 넣었습니다. 화면 경로뿐 아니라 <strong>CSV 와 PPTX 내보내기로도 우회할 수 없는지</strong> 봅니다. 같은 기간을 같은 게이트로 읽는 세 경로인데, 게이트가 한 곳에만 있으면 나머지 둘이 문입니다.</p>
 <p>원칙으로 남깁니다. <strong>측정 도구의 사각지대는 측정값 안에 보이지 않습니다.</strong> 그래서 도구가 무엇을 보지 않았는지 스스로 말하게 해야 합니다.</p>
+<p>#### 3.10.85 v0.130.0에서 완료 — 규칙이 지켜지는가에서, 규칙이 옳은가로</p>
+<p>권한 갈래를 마쳤으니 렌즈를 옮겼습니다. 이번 창의 도구들은 <strong>규칙이 지켜지는가</strong>를 물었습니다. 이제 <strong>규칙이 옳은가</strong>를 물을 자리를 찾았습니다 — 제품이 사람에게 내리는 판단 중 근거가 코드에만 있는 것.</p>
+<p>임계값 셋(<code>merge_similarity</code>, <code>stall_weeks</code>, <code>persistent_issue_weeks</code>)을 먼저 봤습니다. 범위를 벗어나면 조용히 기본값으로 되돌리기에 관리자의 생각과 어긋날까 했는데, <strong>검증기가 저장 시점에 같은 범위로 막고 있었습니다.</strong> 추측이 틀렸습니다.</p>
+<p>그다음 <code>StalledWeeks</code> 를 읽었습니다. 규칙은 이랬습니다.</p>
+<blockquote>가장 최근 보고부터 거꾸로, 진척도가 같은 <strong>보고를 센다</strong></blockquote>
+<p>재 봤습니다.</p>
+<table><thead><tr><th>상황</th><th>StalledWeeks</th><th>AgeWeeks</th></tr></thead><tbody><tr><td>매주 보고하며 여섯 주 동안 50%</td><td>6</td><td>6</td></tr><tr><td><strong>여섯 주 사이 두 번만 보고, 둘 다 50%</strong></td><td><strong>2</strong></td><td>6</td></tr><tr><td>세 주 연속 50%</td><td>3</td><td>3</td></tr></tbody></table>
+<p><strong>여섯 주째 그대로인 업무가 2주째로 나옵니다.</strong> 그리고 회의 안건은 <code>10*StalledWeeks</code> 로 순위를 매기므로, <strong>한 달 반 방치된 업무가 매주 챙겨 보던 3주짜리보다 아래에</strong> 놓입니다. 회의에서 가장 먼저 봐야 할 것이 가장 늦게 보입니다.</p>
+<p>사람이 읽는 문장은 <code>진척이 N주째 멈춰 있습니다</code> 입니다. <strong>거기서 주는 주입니다.</strong> 진척도가 마지막으로 바뀐 주부터 달력상 주 수로 세도록 고쳤습니다. 매주 보고한 경우 결과는 그대로입니다.</p>
+<p>기존 시험 하나가 깨졌고 <strong>깨진 것이 옳았습니다.</strong> 준비물이 정확히 이 경우였습니다 — 06-08 에 30% 가 된 뒤 <strong>06-15 가 빠지고</strong> 06-22·06-29 에 그대로. 옛 기대값 3은 보고 횟수였고 정답은 4입니다. 그리고 그 자리에는 <strong>근거가 적혀 있지 않았습니다</strong> — 같은 시험이 <code>AgeWeeks</code>·<code>SilentWeeks</code> 에는 "다섯 주 중 넷이 보고됨" 이라고 달아 두었는데도.</p>
+<p><code>IssueWeeks</code> 는 그대로 보고 기준으로 두었습니다. <strong>멈춤은 시간이 흐르면 저절로 쌓이지만, 이슈는 누군가 적어야 알 수 있는 관찰입니다.</strong> 그 구별을 시험 주석에 적었습니다.</p>
+<p>원칙으로 남깁니다. <strong>숫자 옆의 문장이 그 숫자의 정의입니다.</strong> "N주째" 라고 쓰면서 보고 횟수를 세면, 코드는 일관되어도 제품은 거짓말을 합니다.</p>
 </div>
 </body>
 </html>
