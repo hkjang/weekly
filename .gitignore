@@ -17,3 +17,7 @@ cmd/weekly/web/assets/
 cmd/weekly/templates/reference.pptx
 cmd/weekly/web/*
 !cmd/weekly/web/index.html
+
+# Python bytecode from the check scripts
+__pycache__/
+*.pyc

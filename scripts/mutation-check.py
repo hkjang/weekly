@@ -35,13 +35,16 @@ build or edit that tree while it runs.
 Exit code is 1 when a mutation survives.
 """
 import argparse
+import atexit
 import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 GUARD_MARKER = re.compile(r"^\s*//\s*guards:\s*(.+?)\s*$")
 TEST_FUNC = re.compile(r"^func (Test\w+)\(")
@@ -60,6 +63,105 @@ MUTATIONS = [
     (r"\breturn true\b", "return false", "return true → false"),
     (r"\breturn false\b", "return true", "return false → true"),
 ]
+
+
+# A run that is interrupted must not leave the tree mutated. The mutation is a
+# plausible-looking one-character edit in a file nobody expects to have changed,
+# and the next commit carries it. Ctrl-C and a CI timeout both arrive as signals
+# that skip every finally block, so the restore is registered here instead.
+_IN_FLIGHT = {}
+
+
+def _restore_all(*_):
+    for path, original in list(_IN_FLIGHT.items()):
+        try:
+            pathlib.Path(path).write_text(original, encoding="utf-8")
+        except OSError:
+            pass
+    _IN_FLIGHT.clear()
+
+
+atexit.register(_restore_all)
+for _signal in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(_signal, lambda number, frame: (_restore_all(), sys.exit(130)))
+
+
+def resolve_base(base):
+    """A base that git cannot resolve is not an error worth stopping for.
+
+    The first push of a branch reports an all-zero previous commit, and a
+    shallow clone may not carry the one it names. Falling back to the previous
+    commit checks something rather than nothing."""
+    if base and set(base) != {"0"}:
+        probe = subprocess.run(["git", "rev-parse", "--verify", "--quiet", base + "^{commit}"],
+                               capture_output=True, text=True)
+        if probe.returncode == 0:
+            return base
+        print(f"기준 커밋 {base} 을(를) 찾을 수 없어 HEAD~1 로 대신합니다.")
+    return "HEAD~1"
+
+
+def changed_line_numbers(base, package_dir):
+    """Map path → set of line numbers the diff against base touched.
+
+    The comparison is against the working tree, not against HEAD, so this
+    answers the question before a commit as well as after one."""
+    result = subprocess.run(
+        ["git", "diff", "--unified=0", base, "--", package_dir],
+        capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(f"git diff {base} 실패: {result.stderr.strip()}")
+    touched, path = {}, None
+    # A file git has never seen is not in the diff, and a brand new guard is
+    # exactly the one worth checking. Count every line of it as changed.
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "--", package_dir],
+        capture_output=True, text=True)
+    for name in untracked.stdout.split():
+        if name.endswith(".go"):
+            count = len(pathlib.Path(name).read_text(encoding="utf-8").splitlines())
+            touched[name] = set(range(1, count + 1))
+    for line in result.stdout.splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            continue
+        if line.startswith("@@") and path:
+            # @@ -old,count +new,count @@
+            span = line.split("+", 1)[1].split(" ", 1)[0]
+            start, _, count = span.partition(",")
+            start, count = int(start), int(count or 1)
+            touched.setdefault(path, set()).update(range(start, start + max(count, 1)))
+    return touched
+
+
+def functions_touched(package_dir, base):
+    """Names of top-level funcs whose body the diff changed, plus the guard
+    tests the diff itself added or edited.
+
+    A weak guard is created two ways: the subject grows a branch nobody checks,
+    or a new guard is written that cannot fail. Both are in the diff, and both
+    are worth the minute this costs — the whole suite is not."""
+    touched = changed_line_numbers(base, package_dir)
+    subjects, tests = set(), set()
+    for path, lines in touched.items():
+        file = pathlib.Path(path)
+        if not file.exists() or file.suffix != ".go":
+            continue
+        source = file.read_text(encoding="utf-8").splitlines()
+        bounds = []
+        for index, line in enumerate(source):
+            match = re.match(r"^func (?:\([^)]*\) )?([A-Za-z0-9_]+)", line)
+            if match:
+                bounds.append((index + 1, match.group(1)))
+        for position, name in bounds:
+            end = len(source)
+            for later, _ in bounds:
+                if later > position:
+                    end = later - 1
+                    break
+            if any(position <= number <= end for number in lines):
+                (tests if file.name.endswith("_test.go") else subjects).add(name)
+    return subjects, tests
 
 
 def collect_guards(package_dir):
@@ -137,12 +239,29 @@ def main():
     parser.add_argument("--limit", type=int, default=6,
                         help="mutations to try per guarded function (default 6)")
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--budget", type=int, metavar="SECONDS",
+                        help="stop after roughly this long and say what was "
+                             "not reached, rather than running to the end")
+    parser.add_argument("--changed", metavar="BASE", nargs="?", const="HEAD~1",
+                        help="only guards whose subject the diff against BASE "
+                             "touched, plus guard tests the diff itself changed "
+                             "(default base HEAD~1)")
     options = parser.parse_args()
 
     package_dir = options.package.lstrip("./") or "."
     guards = collect_guards(package_dir)
     if options.test:
         guards = [g for g in guards if g["test"] == options.test]
+    if options.changed:
+        base = resolve_base(options.changed)
+        subjects, tests = functions_touched(package_dir, base)
+        guards = [g for g in guards
+                  if g["test"] in tests or any(s in subjects for s in g["subjects"])]
+        print(f"{base} 이후 바뀐 함수 {len(subjects)}개, 가드 시험 "
+              f"{len(tests)}개 → 점검할 가드 {len(guards)}개")
+        if not guards:
+            print("바뀐 코드를 이름으로 지목하는 가드가 없습니다.")
+            return 0
     if not guards:
         print("no guard markers matched")
         return 0
@@ -152,8 +271,13 @@ def main():
         return 0
 
     survivors, tried, skipped = [], 0, 0
+    started = time.monotonic()
+    unreached = []
     with tempfile.TemporaryDirectory() as workspace:
-        for guard in guards:
+        for index, guard in enumerate(guards):
+            if options.budget and time.monotonic() - started > options.budget:
+                unreached = [g["test"] for g in guards[index:]]
+                break
             for subject in guard["subjects"]:
                 path, start, end = find_function(package_dir, subject)
                 if path is None:
@@ -162,6 +286,7 @@ def main():
                 original = path.read_text(encoding="utf-8")
                 backup = os.path.join(workspace, path.name)
                 shutil.copy(path, backup)
+                _IN_FLIGHT[str(path)] = original
                 caught = 0
                 try:
                     lines = original.splitlines()
@@ -186,13 +311,19 @@ def main():
                                           "caught elsewhere" if elsewhere else "nothing caught it"))
                 finally:
                     shutil.copy(backup, path)
+                    _IN_FLIGHT.pop(str(path), None)
                 mark = "." if not [s for s in survivors if s[0] == guard["test"] and s[1] == subject] else "!"
                 print(f"  {mark}  {guard['test']} — {subject}: caught {caught}, survived "
                       f"{len([s for s in survivors if s[0] == guard['test'] and s[1] == subject])}")
 
     print(f"\n{tried} mutation(s) applied, {skipped} skipped as uncompilable.")
+    if unreached:
+        # Saying nothing here would read as "all of these are guarded", which is
+        # the one thing this tool must never imply.
+        print(f"예산 {options.budget}초를 넘겨 가드 {len(unreached)}개는 확인하지 못했습니다: "
+              + ", ".join(unreached[:6]) + ("…" if len(unreached) > 6 else ""))
     if not survivors:
-        print("Every mutation was caught.")
+        print("확인한 범위에서는 모든 변이가 잡혔습니다." if unreached else "Every mutation was caught.")
         return 0
     unguarded = [s for s in survivors if s[3] == "nothing caught it"]
     mispointed = [s for s in survivors if s[3] != "nothing caught it"]

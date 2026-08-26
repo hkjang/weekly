@@ -31,6 +31,9 @@ jobs:
       WEEKLY_TEST_POSTGRES_DSN: postgres://postgres:weekly@127.0.0.1:5432/weeklytest?sslmode=disable
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The mutation step below diffs against the previous commit.
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -52,6 +55,16 @@ jobs:
       - run: sh scripts/backup-check.sh
       - run: sh scripts/version-check.sh
       - run: python3 scripts/openapi-check.py
+      # guard-check answers "did this test run its subject". mutation-check
+      # answers the harder question, and running it over every guard takes
+      # hours. It does not have to: a guard that cannot fail is nearly always
+      # a new one — either the subject grew a branch nobody checks, or the
+      # guard itself was just written — and both are in the diff.
+      #
+      # A surviving mutation is a question, not a verdict; some are
+      # semantically harmless. So this reports and never blocks.
+      - run: python3 scripts/mutation-check.py --changed "${{ github.event.pull_request.base.sha || github.event.before }}" --budget 480
+        continue-on-error: true
       - run: npm ci && npm run build
         working-directory: frontend
       # Half the product is the frontend and none of it had executable
