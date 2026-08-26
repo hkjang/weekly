@@ -49,15 +49,27 @@ FROM generate_series(1, 32) g;
 
 -- Leaders sit at every level, so a scale run has somebody whose scope is one
 -- team and somebody whose scope is a quarter of the company.
-INSERT INTO users(username, display_name, role, organization_id)
+-- Every seeded account shares one password, and that is the point: this seed
+-- exists to be loaded against, and scripts/load-check.py signs 300 people in
+-- at once to reproduce Monday morning. Its own instructions said the accounts
+-- had a shared password; they did not, so the load check could not be run as
+-- documented without somebody setting three hundred passwords by hand.
+--
+-- The hash below is Argon2id over the same string the load check already
+-- carries in plain sight, so nothing here is a secret that was not already in
+-- the repository. The seed refuses to run against a database that holds
+-- reports, which is the guard that matters.
+INSERT INTO users(username, display_name, role, organization_id, password_hash)
 SELECT 'u' || g, '사용자 ' || g,
        CASE WHEN g % 25 = 0 THEN 'TEAM_LEADER' ELSE 'USER' END,
-       (SELECT id FROM organizations WHERE code = 'TM' || (1 + (g % 32)))
+       (SELECT id FROM organizations WHERE code = 'TM' || (1 + (g % 32))),
+       '$argon2id$v=19$m=65536,t=3,p=2$qgo+q3ViRTgJYWc6v1nNfA$1kNBwOuW87XVWxPlNm8Pwu1OaU9xthF9Bq3EAlq5mxo'
 FROM generate_series(1, 300) g;
 
-INSERT INTO users(username, display_name, role, organization_id)
+INSERT INTO users(username, display_name, role, organization_id, password_hash)
 SELECT 'hq' || g, '본부장 ' || g, 'ORG_MANAGER',
-       (SELECT id FROM organizations WHERE code = 'HQ' || g)
+       (SELECT id FROM organizations WHERE code = 'HQ' || g),
+       '$argon2id$v=19$m=65536,t=3,p=2$qgo+q3ViRTgJYWc6v1nNfA$1kNBwOuW87XVWxPlNm8Pwu1OaU9xthF9Bq3EAlq5mxo'
 FROM generate_series(1, 4) g;
 
 -- 52 weeks ending on the week the application calls current.
