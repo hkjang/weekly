@@ -119,14 +119,17 @@ func TestTurningConfluenceOnNeedsAnAddressAndAWayToSignIn(t *testing.T) {
 // guards: apiKeyRequestAllowed
 //
 // TestAnAPIKeyWithoutTheMCPScopeCannotUseMCP checks that a narrow key is turned
-// away. It never checks that the scope it does hold opens anything, so the
-// whole reports branch could be switched off and a key holding reports:read
-// would be refused everywhere with the suite still green — scopes that grant
-// nothing look exactly like scopes that work, until somebody's integration
-// stops.
-func TestAScopedKeyOpensWhatItsScopeNames(t *testing.T) {
+// away. It never checks that the scope it does hold opens anything.
+//
+// One path is not enough either. The reports scope names four prefixes in a
+// single alternation, and a test that calls only the first one short-circuits
+// before reaching the rest — so three quarters of the branch stayed unrun while
+// the test looked like it covered it. That is what a mutation at each `||`
+// showed, and what checking by hand at the first one missed.
+func TestAScopedKeyOpensEveryPathItsScopeNames(t *testing.T) {
 	server := newTestServer(t)
-	owner := server.createUser("scope_owner", "USER", nil)
+	organisation := server.createOrganization("키 조직", "KEYSCOPE")
+	owner := server.createUser("scope_owner", "TEAM_LEADER", &organisation)
 	server.submitted(owner, "2026-08-24", "키로 읽을 보고")
 
 	key := createKey(t, server, owner, "보고서만 읽는 키", []string{"reports:read"})
@@ -138,7 +141,13 @@ func TestAScopedKeyOpensWhatItsScopeNames(t *testing.T) {
 		return recorder
 	}
 
-	for _, path := range []string{"/api/v1/reports", "/api/v1/me"} {
+	for _, path := range []string{
+		"/api/v1/me",
+		"/api/v1/reports",
+		"/api/v1/team/reports",
+		"/api/v1/rollups?kind=YEAR&period=2026&scope=SELF",
+		"/api/v1/search?q=보고",
+	} {
 		if w := get(path); w.Code != http.StatusOK {
 			t.Errorf("a key holding reports:read cannot read %s: %d %s", path, w.Code, w.Body.String())
 		}

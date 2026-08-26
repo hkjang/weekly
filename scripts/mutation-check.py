@@ -272,10 +272,10 @@ def main():
 
     survivors, tried, skipped = [], 0, 0
     started = time.monotonic()
-    unreached = []
+    unreached, over_budget = [], False
     with tempfile.TemporaryDirectory() as workspace:
         for index, guard in enumerate(guards):
-            if options.budget and time.monotonic() - started > options.budget:
+            if over_budget or (options.budget and time.monotonic() - started > options.budget):
                 unreached = [g["test"] for g in guards[index:]]
                 break
             for subject in guard["subjects"]:
@@ -291,6 +291,12 @@ def main():
                 try:
                     lines = original.splitlines()
                     for changed, description in mutate(lines, start, end):
+                        # Between mutations, not only between guards: one slow
+                        # subject would otherwise spend the whole budget and the
+                        # report would name nothing as unreached.
+                        if options.budget and time.monotonic() - started > options.budget:
+                            over_budget = True
+                            break
                         if caught + len([s for s in survivors if s[0] == guard["test"] and s[1] == subject]) >= options.limit:
                             break
                         path.write_text("\n".join(changed) + "\n", encoding="utf-8")
