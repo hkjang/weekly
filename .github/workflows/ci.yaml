@@ -55,6 +55,15 @@ jobs:
       - run: sh scripts/backup-check.sh
       - run: sh scripts/version-check.sh
       - run: python3 scripts/openapi-check.py
+      # A tag whose release never appeared is a version somebody can be told to
+      # install and cannot. v0.150.0 sat that way for over an hour and was found
+      # by hand, two releases later. This reads the release list, so a network
+      # hiccup would be a false red — and it reports on tags already pushed
+      # rather than on this change. Advisory, like the mutation step.
+      - run: sh scripts/release-check.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        continue-on-error: true
       # guard-check answers "did this test run its subject". mutation-check
       # answers the harder question, and running it over every guard takes
       # hours. It does not have to: a guard that cannot fail is nearly always
