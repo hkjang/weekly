@@ -60,10 +60,56 @@ func TestAnImportWhereEveryFileIsRejectedDoesNotStayOpen(t *testing.T) {
 	if status == "PENDING" || status == "PROCESSING" {
 		t.Errorf("처리할 것이 하나도 없는데 작업이 %q 로 열려 있습니다 (전체 %d, 실패 %d)", status, total, failed)
 	}
+	// "닫혔다" 로는 부족합니다. 전부 거부됐으면 PARTIAL 이 아니라 FAILED 여야
+	// 하고, 올린 사람이 화면에서 읽는 것이 바로 그 낱말입니다. 경계가 한 칸
+	// 밀리면 한 건도 들어가지 않은 가져오기가 "부분 성공" 으로 남습니다.
+	if failed == total && status != "FAILED" {
+		t.Errorf("파일 %d개가 모두 거부됐는데 상태가 %q 입니다", total, status)
+	}
 	if failed == 0 {
 		t.Errorf("거부된 파일이 실패로 세어지지 않았습니다: 실패 %d / 전체 %d", failed, total)
 	}
 	if processed != total {
 		t.Errorf("처리 수가 전체와 다릅니다: %d / %d", processed, total)
+	}
+}
+
+// guards: uploadImportPPTX
+//
+// The request body is capped at what the administrator's own settings imply —
+// files × size, plus a little — and then held under a hard 500 MB ceiling. The
+// ceiling is a clamp downwards. Turn its comparison around and it becomes a
+// clamp upwards: a deployment that limits imports to one small file starts
+// accepting half-gigabyte bodies, and the setting an administrator lowered on
+// purpose stops meaning anything.
+func TestTheConfiguredImportLimitsBoundTheRequest(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("import_limits", "USER", nil)
+
+	if on := server.request(http.MethodPut, "/api/v1/admin/settings", map[string]any{
+		"settings": map[string]string{
+			"ai.enabled": "true", "ai.endpoint": "https://ai.internal/v1", "ai.model": "weekly-1",
+			// One file of at most one megabyte: a request of eight cannot be
+			// anything the administrator asked to allow.
+			"import.max_files": "1", "import.max_file_mb": "1",
+		},
+	}, server.admin); on.Code != http.StatusOK {
+		t.Fatalf("설정을 저장하지 못했습니다: %d %s", on.Code, on.Body.String())
+	}
+
+	oversized := make([]byte, 8<<20)
+	reply := server.upload("/api/v1/import/pptx", "files", "커다란파일.pptx", oversized, author)
+	if reply.Code == http.StatusOK || reply.Code == http.StatusCreated || reply.Code == http.StatusAccepted {
+		t.Fatalf("한도를 1MB로 낮췄는데 8MB 요청이 받아들여졌습니다: %d %s", reply.Code, reply.Body.String())
+	}
+
+	// And nothing was left half-written behind the refusal.
+	var jobs int
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT count(*) FROM import_files WHERE original_filename = '커다란파일.pptx'`).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 0 {
+		t.Errorf("거부된 업로드가 파일 기록 %d개를 남겼습니다", jobs)
 	}
 }
