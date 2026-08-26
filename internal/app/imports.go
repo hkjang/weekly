@@ -154,15 +154,23 @@ func (a *App) uploadImportPPTX(w http.ResponseWriter, r *http.Request) {
 		}
 		queued++
 	}
+	// The answer to an upload has to be the state that was just written. It used
+	// to be derived a second time from whether anything was queued, and the two
+	// disagreed in the case that matters most: an import where every file was
+	// rejected stored FAILED and replied READY. The person who uploaded it was
+	// told one of the success words and had to go and open the job to find out
+	// otherwise.
+	status := "PENDING"
 	if queued == 0 {
-		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET status=CASE WHEN $2 >= total_files THEN 'FAILED' WHEN $2 > 0 THEN 'PARTIAL' ELSE 'READY' END,
-			processed_files=total_files,failed_files=$2,completed_at=now() WHERE id=$1`, jobID, failed)
+		_ = a.db.QueryRow(r.Context(), `UPDATE import_jobs SET status=CASE WHEN $2 >= total_files THEN 'FAILED' WHEN $2 > 0 THEN 'PARTIAL' ELSE 'READY' END,
+			processed_files=total_files,failed_files=$2,completed_at=now() WHERE id=$1
+			RETURNING status`, jobID, failed).Scan(&status)
 	} else {
 		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET failed_files=$2 WHERE id=$1`, jobID, failed)
 		a.wakeImportWorker()
 	}
 	a.audit(r, p, "import.upload", "import_job", strconv.FormatInt(jobID, 10), map[string]any{"files": len(headers), "queued": queued, "failed": failed})
-	writeData(w, http.StatusAccepted, map[string]any{"id": jobID, "status": map[bool]string{true: "PENDING", false: "READY"}[queued > 0]})
+	writeData(w, http.StatusAccepted, map[string]any{"id": jobID, "status": status})
 }
 
 func (a *App) insertFailedImportFile(ctx context.Context, jobID int64, name string, size int64, message string) {

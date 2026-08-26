@@ -35,8 +35,9 @@ func TestAnImportWhereEveryFileIsRejectedDoesNotStayOpen(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			JobID int64 `json:"jobId"`
-			ID    int64 `json:"id"`
+			JobID  int64  `json:"jobId"`
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(reply.Body.Bytes(), &envelope); err != nil {
@@ -71,6 +72,12 @@ func TestAnImportWhereEveryFileIsRejectedDoesNotStayOpen(t *testing.T) {
 	}
 	if processed != total {
 		t.Errorf("처리 수가 전체와 다릅니다: %d / %d", processed, total)
+	}
+	// And the answer to the upload has to be that same state. Deriving it a
+	// second time is how the two came apart: the record said FAILED and the
+	// reply said READY, which is one of the words that means it worked.
+	if envelope.Data.Status != status {
+		t.Errorf("업로드 응답은 %q 라고 하는데 기록은 %q 입니다", envelope.Data.Status, status)
 	}
 }
 
@@ -111,5 +118,70 @@ func TestTheConfiguredImportLimitsBoundTheRequest(t *testing.T) {
 	}
 	if jobs != 0 {
 		t.Errorf("거부된 업로드가 파일 기록 %d개를 남겼습니다", jobs)
+	}
+}
+
+// guards: uploadImportPPTX
+//
+// Between "everything failed" and "everything was queued" there is a third
+// outcome, and it is the one the CASE arm nobody could reach describes: some
+// files rejected, the rest already imported before. Nothing is queued, so the
+// job closes immediately — but it did not fail outright, and telling the
+// uploader it did would send them looking for a problem with files that were
+// simply already there.
+func TestAnImportOfRejectedAndAlreadySeenFilesIsPartial(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("import_partial", "USER", nil)
+
+	if on := server.request(http.MethodPut, "/api/v1/admin/settings", map[string]any{
+		"settings": map[string]string{
+			"ai.enabled": "true", "ai.endpoint": "https://ai.internal/v1", "ai.model": "weekly-1",
+		},
+	}, server.admin); on.Code != http.StatusOK {
+		t.Fatalf("AI 를 켜지 못했습니다: %d %s", on.Code, on.Body.String())
+	}
+
+	// First upload: one file, accepted and queued.
+	seen := []byte("이미 한 번 올린 파일의 내용")
+	first := server.upload("/api/v1/import/pptx", "files", "이미본.pptx", seen, author)
+	if first.Code != http.StatusAccepted && first.Code != http.StatusOK && first.Code != http.StatusCreated {
+		t.Fatalf("첫 업로드: %d %s", first.Code, first.Body.String())
+	}
+
+	// Second upload: the same bytes again, beside an empty file. Neither is
+	// queued — one is a duplicate, one is refused — so the job closes on the
+	// spot, with some failures but not all.
+	second := server.uploadMany("/api/v1/import/pptx", "files", map[string][]byte{
+		"이미본.pptx": seen,
+		"빈것.pptx":  {},
+	}, author)
+	if second.Code != http.StatusAccepted && second.Code != http.StatusOK && second.Code != http.StatusCreated {
+		t.Fatalf("둘째 업로드: %d %s", second.Code, second.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+
+	var status string
+	var failed, total int
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT status, failed_files, total_files FROM import_jobs WHERE id=$1`, envelope.Data.ID).
+		Scan(&status, &failed, &total); err != nil {
+		t.Fatal(err)
+	}
+	if failed == 0 || failed >= total {
+		t.Fatalf("일부만 실패한 상태를 만들지 못했습니다: 실패 %d / 전체 %d", failed, total)
+	}
+	if status != "PARTIAL" {
+		t.Errorf("일부 실패·나머지 중복인데 상태가 %q 입니다", status)
+	}
+	if envelope.Data.Status != status {
+		t.Errorf("업로드 응답은 %q 라고 하는데 기록은 %q 입니다", envelope.Data.Status, status)
 	}
 }
