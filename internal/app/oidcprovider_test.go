@@ -26,6 +26,10 @@ type fakeIDP struct {
 	key    *rsa.PrivateKey
 	claims map[string]any
 	nonce  string
+	// redirectURI is what the deployment told the provider to come back to.
+	// With no redirect URL configured it is derived from the request, and the
+	// derivation is only visible from here.
+	redirectURI string
 }
 
 // newIDP serves discovery, JWKS and a token endpoint, and signs an ID token
@@ -56,6 +60,7 @@ func newIDP(t *testing.T, clientID, nonce string, claims map[string]any) *fakeID
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
+		idp.redirectURI = r.Form.Get("redirect_uri")
 		payload := map[string]any{
 			"iss": idp.server.URL, "aud": clientID, "sub": "subject-1",
 			"exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(),
