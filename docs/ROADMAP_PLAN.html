@@ -1560,6 +1560,31 @@ if theirs.Body.String() != missing.Body.String() { ... }</div>
 <p><code>PUT /reports/{id}</code> 는 그대로 두었습니다. 항목이 곧 보고서이므로 <strong>"항목을 언급하지 않았다" 와 "항목이 없다" 가 같은 뜻</strong>이고, 버전 토큰을 함께 요구하므로 실수로 지나가는 요청이 아닙니다. 판단 기준은 v0.135.0 과 같습니다 — 빠뜨림이 뜻하는 바가 하나뿐인가.</p>
 <p>그리고 <strong>여기서 제 고침을 엉뚱한 함수에 넣을 뻔했습니다.</strong> <code>var input decisionInput</code> 다음에 <code>decodeJSON</code> 이 오는 모양이 <code>createDecision</code> 과 <code>updateDecision</code> 양쪽에 똑같이 있어서, 첫 번째 것이 바뀌었습니다. 컴파일러가 잡아 주었습니다 — 잡히지 않았다면 기록을 만드는 쪽이 조용히 달라졌을 것입니다. <strong>같은 모양이 두 번 나오는 파일에서 첫 일치를 바꾸는 것은 고침이 아니라 추측입니다.</strong></p>
 <p>원칙으로 남깁니다. <strong>동사가 약속한 것과 처리기가 하는 일이 어긋나면, 어긋남을 아는 사람은 아무도 없습니다.</strong> 화면은 늘 전체를 보내니 드러나지 않고, 드러나는 것은 계약을 읽고 그대로 믿은 쪽입니다.</p>
+<p>#### 3.10.92 v0.137.0에서 완료 — 이미 답이 나온 이슈로 채워져 있던 위험 등록부</p>
+<p>v0.134.0 에서 시드를 고쳤으니 화면들이 처음 받아 보는 데이터 모양이 생겼습니다. 브라우저로 열한 개 화면을 돌아봤고, 화면은 멀쩡했습니다. 대신 <strong>문장 하나가 걸렸습니다.</strong></p>
+<p><code>grep 주째</code> 로 남은 자리를 전부 세어 v0.130 의 기준 — 시간이 쌓이는가, 사람이 해야 일어나는가 — 으로 나눴습니다. 정체 쪽 네 자리는 맞았고, <code>IssueWeeks</code> 를 쓰는 자리가 어긋나 있었습니다. 그리고 <code>reportquality.go</code> 에 <strong>v0.133 이 놓친 한 줄</strong>이 있었습니다 — 같은 <code>planRun+1</code> 값인데 차단이 선언된 변형만 아직 <code>주째</code>라고 불렀습니다.</p>
+<p><code>IssueWeeks</code> 는 이렇게 계산됩니다.</p>
+<div class="phase-box">for _, week := range merged {
+    if strings.TrimSpace(week.Issue) != &quot;&quot; {
+        item.IssueWeeks++
+    }
+}</div>
+<p><strong>연속을 보지 않습니다.</strong> 이력 전체에서 이슈가 적힌 보고를 셀 뿐입니다. 그런데 그 값이 이런 자리에 쓰였습니다.</p>
+<table><thead><tr><th>자리</th><th>문장</th></tr></thead><tbody><tr><td><code>meeting.go</code></td><td><code>이슈가 %d주째 지속되고 있습니다</code></td></tr><tr><td><code>meeting.go</code></td><td><code>%d주째 해소되지 않은 이슈입니다</code></td></tr><tr><td><code>handover.go</code></td><td><code>같은 이슈가 %d주간 이어졌습니다</code></td></tr><tr><td><code>pptx_rollup.go</code></td><td><code>이슈 %d주 지속</code></td></tr><tr><td><code>worksearch.go</code></td><td><code>아직 해결되지 않은 …(%d주 지속)</code></td></tr><tr><td><code>workitems.go</code>·<code>rollup.go</code></td><td><code>AtRisk</code> — 위험 등록부에 올릴지</td></tr></tbody></table>
+<p>설정 이름도 <code>rollup.persistent_issue_weeks</code> 입니다. <strong>전부 "지금 열려 있음" 을 말하는데, 값은 "언젠가 있었음" 을 셉니다.</strong></p>
+<p>시드 배포에서 쟀습니다.</p>
+<table><thead><tr><th></th><th>이전</th><th>지금</th></tr></thead><tbody><tr><td>업무 63건 중 위험 표시</td><td><strong>56건 (89%)</strong></td><td>7건 (11%)</td></tr><tr><td>그중 최근 보고에 이슈가 <strong>없는</strong> 것</td><td><strong>47건 (83%)</strong></td><td><strong>0건</strong></td></tr><tr><td>기간 업무보고 56건 중 위험</td><td>50건</td><td>7건</td></tr></tbody></table>
+<p><code>계약 표준화</code> 는 위험 표시가 붙어 있는데 최근 보고의 이슈 칸이 비어 있었습니다. 이슈가 흩어진 일곱 주에 언급됐고, 마지막 언급은 몇 달 전이었습니다. <strong>위험 등록부의 83%가 이미 답이 나온 이슈였습니다.</strong></p>
+<p>올바른 모형은 이미 코드 안에 있었습니다. <code>reportquality.go:154</code> 는 <code>item.Issue</code> 가 비어 있지 않을 때의 <strong>연속 구간(<code>issueRun</code>)</strong> 으로 판단합니다. 그 모형을 나머지에 맞췄습니다.</p>
+<p>값을 다시 정의하는 대신 <strong>나눴습니다.</strong></p>
+<ul>
+<li><code>IssueWeeks</code> — 이력. 이슈가 적힌 주가 몇 번이었나. 화면의 <code>이슈 발생 N주</code>·<code>이슈 이력 N주</code> 가 읽는 값이고, 그 라벨은 원래 정직했습니다.</li>
+<li><code>IssueRunWeeks</code> — 지금 열려 있는 이슈. 마지막 보고에서 끝나는 끊기지 않은 구간을 <strong>달력 주</strong>로 잽니다. 마지막 보고에 이슈가 없으면 0입니다.</li>
+</ul>
+<p>지속을 말하는 자리는 전부 두 번째로 옮겼습니다. 한 업무가 이제 <code>지속=22주 / 이력=27주</code> 로 두 값을 따로 보여 줍니다.</p>
+<p><strong>v0.130 의 판단을 여기서 뒤집습니다.</strong> 그때 "이슈는 관찰이므로 보고 수로 센다" 고 적었는데, v0.133 이 세운 기준을 그대로 적용하면 반대입니다. <strong>이슈가 해소되지 않은 상태는 아무도 쓰지 않아도 시간이 지나면 쌓입니다.</strong> 보고를 거른 주에 이슈가 사라지지는 않습니다. 그때는 단위(보고냐 주냐)만 보고 연속성 문제를 못 봤습니다.</p>
+<p>그리고 v0.134.0 과 <strong>똑같은 일이 또 있었습니다.</strong> 고침을 넣고 재니 위험이 56건에서 <strong>0건</strong>이 됐습니다. 시드의 이슈 규칙이 <code>(r.id + slot) % 7</code> 인데 같은 업무의 다음 주는 <code>r.id</code> 가 305 만큼 커지고 305 mod 7 = 4 이므로, <strong>두 주 연속으로 이슈가 붙는 일이 아예 없습니다.</strong> 0은 옳은 값이었고, 시드가 지속 이슈를 한 번도 만들지 못한다는 뜻이었습니다. 아홉 업무 중 하나가 30주차부터 끝까지 답이 안 나온 이슈를 안고 가도록 시드를 고쳤습니다.</p>
+<p>원칙으로 남깁니다. <strong>하나의 숫자가 두 뜻으로 읽히고 있으면, 둘 중 하나는 반드시 틀린 자리에서 쓰이고 있습니다.</strong> 고치는 방법은 값을 다시 정의하는 것이 아니라 나누는 것입니다 — 두 뜻이 다 필요해서 그렇게 된 것이기 때문입니다.</p>
 </div>
 </body>
 </html>

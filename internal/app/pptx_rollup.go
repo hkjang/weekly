@@ -389,7 +389,7 @@ func riskSlide(view rollupView) *builtSlide {
 		if !item.AtRisk && !item.Stalled {
 			continue
 		}
-		reason := "이슈 " + fmt.Sprint(item.IssueWeeks) + "주 지속"
+		reason := "이슈 " + fmt.Sprint(item.IssueRunWeeks) + "주 지속"
 		if !item.AtRisk {
 			reason = "진척 정체"
 		}

@@ -175,8 +175,8 @@ func cautionFor(item workItemView) string {
 		return "인수 시점에 상위 조직 결정이 대기 중입니다. 요청이 살아 있는지 먼저 확인하세요."
 	case item.Stalled:
 		return fmt.Sprintf("%d주째 진척이 없습니다. 멈춘 이유가 기록에 없다면 이전 담당자에게 확인하세요.", item.StalledWeeks)
-	case item.IssueWeeks >= 2:
-		return fmt.Sprintf("같은 이슈가 %d주간 이어졌습니다. 시도했던 방법을 먼저 파악하세요.", item.IssueWeeks)
+	case item.IssueRunWeeks >= 2:
+		return fmt.Sprintf("같은 이슈가 %d주간 이어졌습니다. 시도했던 방법을 먼저 파악하세요.", item.IssueRunWeeks)
 	case item.SilentWeeks > 0:
 		return fmt.Sprintf("보고가 %d주 누락됐습니다. 그 기간의 진행 상황은 기록에 없습니다.", item.SilentWeeks)
 	case item.Completed:

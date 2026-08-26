@@ -53,7 +53,12 @@ type workItemView struct {
 	StartProgress int `json:"startProgress"`
 	ProgressGain  int `json:"progressGain"`
 	StalledWeeks  int `json:"stalledWeeks"`
+	// IssueWeeks is how many reports in the history carried an issue at all,
+	// scattered or not. IssueRunWeeks is the one still open: the unbroken run
+	// ending at the most recent report, on the calendar. Only the second says
+	// anything about now, and only the second belongs in a risk register.
 	IssueWeeks    int `json:"issueWeeks"`
+	IssueRunWeeks int `json:"issueRunWeeks"`
 	RepeatedPlan  int `json:"repeatedPlan"`
 
 	// Forecast is what the reported pace implies about finishing; DueOutlook is
@@ -352,6 +357,7 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 	// this, running it twice on the same view doubles the issue and stall
 	// counts and turns a task that moved every week into a stalled one.
 	item.IssueWeeks, item.RepeatedPlan, item.StalledWeeks = 0, 0, 0
+	item.IssueRunWeeks = 0
 
 	first, last := merged[0], merged[len(merged)-1]
 	item.FirstWeek, item.LastWeek = first.WeekStart, last.WeekStart
@@ -420,8 +426,35 @@ func summarizeWorkItem(item *workItemView, cfg rollupConfig) {
 			}
 		}
 	}
+	// How long the issue that is open right now has been open. A history that
+	// mentioned an issue in eight scattered reports over a year says nothing
+	// about today, and reading it as persistence flagged tasks whose issue was
+	// answered months ago — on the seeded deployment, 47 of 56 risk flags.
+	if strings.TrimSpace(last.Issue) != "" {
+		openFrom := last.WeekStart
+		reports := 0
+		for index := len(merged) - 1; index >= 0; index-- {
+			if strings.TrimSpace(merged[index].Issue) == "" {
+				break
+			}
+			openFrom = merged[index].WeekStart
+			reports++
+		}
+		item.IssueRunWeeks = reports
+		if reports > 0 {
+			// weekSpan floors at one week, so the span is computed here the way
+			// stalling computes it: a single report is one week, not two.
+			if from, err := time.Parse("2006-01-02", openFrom); err == nil {
+				if to, err := time.Parse("2006-01-02", last.WeekStart); err == nil {
+					if span := int(to.Sub(from).Hours()/(24*7)) + 1; span > item.IssueRunWeeks {
+						item.IssueRunWeeks = span
+					}
+				}
+			}
+		}
+	}
 	item.Stalled = !item.Completed && item.StalledWeeks >= cfg.StallWeeks
-	item.AtRisk = !item.Completed && item.IssueWeeks >= cfg.PersistentIssueWeeks
+	item.AtRisk = !item.Completed && item.IssueRunWeeks >= cfg.PersistentIssueWeeks
 
 	// The pace, and what it means for a deadline if one was set. Both carry the
 	// numbers they came from, so neither is a score.

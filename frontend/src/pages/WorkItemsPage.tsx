@@ -317,7 +317,7 @@ export default function WorkItemsPage({ session, notify }: {
             <td>{item.reportedWeeks}회{item.silentWeeks > 0 && <small className="cell-sub warn-text">{item.silentWeeks}주 누락</small>}</td>
             <td><div className="state-chips">
               {item.completed && <span className="state-chip done">완료</span>}
-              {item.atRisk && <span className="state-chip risk">이슈 {item.issueWeeks}주</span>}
+              {item.atRisk && <span className="state-chip risk">이슈 {item.issueRunWeeks}주</span>}
               {item.stalled && <span className="state-chip stalled">{item.stalledWeeks}주 정체</span>}
               {item.latestManagementAsk && <span className="state-chip ask">요청</span>}
               {item.repeatedPlan >= 3 && <span className="state-chip past">계획 {item.repeatedPlan}회 반복</span>}

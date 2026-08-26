@@ -38,10 +38,10 @@ type App struct {
 	logger *slog.Logger
 	// conditions reports standing states — a cap that is truncating, a limit
 	// that is biting — once each rather than once per request.
-	conditions      *conditionLog
-	web             fs.FS
-	build           BuildInfo
-	box             *secretBox
+	conditions *conditionLog
+	web        fs.FS
+	build      BuildInfo
+	box        *secretBox
 	// keySource says where the secret encryption key came from — the
 	// environment, or instance.key inside the state volume. Until this was
 	// carried past startup it existed only in one boot log line, so a deployment

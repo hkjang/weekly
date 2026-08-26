@@ -93,7 +93,19 @@ SELECT r.id,
        subject.word || ' ' || action.word,
        subject.word || ' ' || action.word || ' 진행 상황을 정리했습니다',
        subject.word || ' ' || action.word || ' 다음 단계',
-       CASE WHEN (r.id + slot) % 7 = 0 THEN '외부 연동 지연' ELSE '' END,
+       -- Two kinds of issue, because the product distinguishes them. The
+       -- scattered one below never lands twice in a row for the same task, so
+       -- before this the seed had no open issue at all and the risk register
+       -- was empty however it was configured. One task in nine now carries an
+       -- unanswered issue from week 30 to the end, which is what "이슈가 N주째
+       -- 지속되고 있습니다" is supposed to describe.
+       CASE
+         WHEN ((r.user_id + slot) % 9) = 0
+              AND ((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7) >= 30
+           THEN '벤더 회신 지연으로 규격 확정을 못 하고 있습니다'
+         WHEN (r.id + slot) % 7 = 0 THEN '외부 연동 지연'
+         ELSE ''
+       END,
        -- Different tasks at different stages, and most of them still running.
        -- An earlier version had every task climb to 100% by the last week, so
        -- nothing had changed since the week before and the meeting agenda came

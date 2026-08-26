@@ -83,19 +83,23 @@ type rollupItemWeek struct {
 }
 
 type rollupItem struct {
-	Key           string           `json:"key"`
-	Category      string           `json:"category"`
-	Title         string           `json:"title"`
-	CurrentResult string           `json:"currentResult"`
-	NextPlan      string           `json:"nextPlan"`
-	Issue         string           `json:"issue"`
-	ManagementAsk string           `json:"managementAsk"`
-	Progress      int              `json:"progress"`
-	StartProgress int              `json:"startProgress"`
-	FirstWeek     string           `json:"firstWeek"`
-	LastWeek      string           `json:"lastWeek"`
-	WeekCount     int              `json:"weekCount"`
-	IssueWeeks    int              `json:"issueWeeks"`
+	Key           string `json:"key"`
+	Category      string `json:"category"`
+	Title         string `json:"title"`
+	CurrentResult string `json:"currentResult"`
+	NextPlan      string `json:"nextPlan"`
+	Issue         string `json:"issue"`
+	ManagementAsk string `json:"managementAsk"`
+	Progress      int    `json:"progress"`
+	StartProgress int    `json:"startProgress"`
+	FirstWeek     string `json:"firstWeek"`
+	LastWeek      string `json:"lastWeek"`
+	WeekCount     int    `json:"weekCount"`
+	IssueWeeks    int    `json:"issueWeeks"`
+	// IssueRunWeeks is the issue still open now: the unbroken run of weeks
+	// carrying one that ends at the last week of the period. IssueWeeks counts
+	// every week that ever carried one, scattered or not.
+	IssueRunWeeks int              `json:"issueRunWeeks"`
 	Owners        []string         `json:"owners"`
 	Weeks         []rollupItemWeek `json:"weeks,omitempty"`
 	MergedTitles  []string         `json:"mergedTitles"`
@@ -644,7 +648,12 @@ func aggregateRollupItems(entries []sourceEntry, cfg rollupConfig) []rollupItem 
 		// Risk is about work still in flight. Delivered work keeps its issue
 		// history in IssueWeeks, but flagging it red would dilute the real
 		// risk register that the reporting line acts on.
-		item.AtRisk = item.IssueWeeks >= cfg.PersistentIssueWeeks && !item.Completed
+		//
+		// It is the open run that decides, not the history. A task that raised
+		// an issue in scattered weeks months ago and has reported clean since
+		// is not at risk, and counting the history called it one.
+		item.IssueRunWeeks = openIssueRun(acc.weeks)
+		item.AtRisk = item.IssueRunWeeks >= cfg.PersistentIssueWeeks && !item.Completed
 		item.Carryover = !item.Completed && strings.TrimSpace(nextPlan) != ""
 		item.Forecast = forecastCompletion(acc.weeks, item.Progress)
 		result = append(result, item)
@@ -779,6 +788,34 @@ func fuzzyMatch(order []string, byKey map[string]*itemAccumulator, entry sourceE
 //
 // Two reports are still the minimum. One report says nothing about the weeks
 // before it, and calling that stalled would be inventing a history.
+// openIssueRun measures the issue that is open at the end of the period: the
+// unbroken run of weeks carrying one, counted on the calendar so a week nobody
+// reported does not reset it. Zero when the last week carries no issue.
+func openIssueRun(weeks []rollupItemWeek) int {
+	if len(weeks) == 0 || !weeks[len(weeks)-1].HasIssue {
+		return 0
+	}
+	last := weeks[len(weeks)-1]
+	openFrom := last.WeekStart
+	reports := 0
+	for index := len(weeks) - 1; index >= 0; index-- {
+		if !weeks[index].HasIssue {
+			break
+		}
+		openFrom = weeks[index].WeekStart
+		reports++
+	}
+	run := reports
+	if from, err := time.Parse("2006-01-02", openFrom); err == nil {
+		if to, err := time.Parse("2006-01-02", last.WeekStart); err == nil {
+			if span := int(to.Sub(from).Hours()/(24*7)) + 1; span > run {
+				run = span
+			}
+		}
+	}
+	return run
+}
+
 func isStalled(weeks []rollupItemWeek, threshold int) bool {
 	if threshold < 2 || len(weeks) < 2 {
 		return false

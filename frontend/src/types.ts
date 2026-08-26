@@ -64,7 +64,7 @@ export interface WorkItem {
   id: number; title: string; category: string; userId: number; displayName: string; dueDate?: string
   firstWeek: string; lastWeek: string; reportedWeeks: number; ageWeeks: number; silentWeeks: number
   progress: number; startProgress: number; progressGain: number
-  stalledWeeks: number; issueWeeks: number; repeatedPlan: number
+  stalledWeeks: number; issueWeeks: number; issueRunWeeks: number; repeatedPlan: number
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean
   latestIssue: string; latestManagementAsk: string
   /**
@@ -177,7 +177,7 @@ export interface CompletionForecast {
 }
 export interface RollupItem {
   key: string; category: string; title: string; currentResult: string; nextPlan: string; issue: string
-  managementAsk: string; progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number
+  managementAsk: string; progress: number; startProgress: number; firstWeek: string; lastWeek: string; weekCount: number; issueWeeks: number; issueRunWeeks: number
   owners: string[]
   /**
    * Only the leading `timelineItems` rows carry this. The rest are table rows
@@ -276,7 +276,7 @@ export interface WorkGraphView {
 }
 
 export interface WorkSearchHit extends WorkRef {
-  score: number; semantic: boolean; ageWeeks: number; issueWeeks: number; resolved: boolean
+  score: number; semantic: boolean; ageWeeks: number; issueWeeks: number; issueRunWeeks: number; resolved: boolean
   matched: string[]; issue: string; resolution: string; why: string
 }
 export interface WorkSearchResponse { query: string; terms: string[]; semantic: boolean; semanticReason?: string; hits: WorkSearchHit[] }

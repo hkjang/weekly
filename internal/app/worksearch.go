@@ -29,15 +29,16 @@ const (
 
 type workSearchHit struct {
 	workRef
-	Score      int      `json:"score"`
-	Semantic   bool     `json:"semantic"`
-	AgeWeeks   int      `json:"ageWeeks"`
-	IssueWeeks int      `json:"issueWeeks"`
-	Resolved   bool     `json:"resolved"`
-	Matched    []string `json:"matched"`
-	Issue      string   `json:"issue"`
-	Resolution string   `json:"resolution"`
-	Why        string   `json:"why"`
+	Score         int      `json:"score"`
+	Semantic      bool     `json:"semantic"`
+	AgeWeeks      int      `json:"ageWeeks"`
+	IssueWeeks    int      `json:"issueWeeks"`
+	IssueRunWeeks int      `json:"issueRunWeeks"`
+	Resolved      bool     `json:"resolved"`
+	Matched       []string `json:"matched"`
+	Issue         string   `json:"issue"`
+	Resolution    string   `json:"resolution"`
+	Why           string   `json:"why"`
 }
 
 type workSearchResponse struct {
@@ -160,7 +161,7 @@ func (a *App) searchWorkItems(w http.ResponseWriter, r *http.Request) {
 		issue, resolution, resolved := resolutionOf(item)
 		hit := &workSearchHit{
 			workRef: referenceTo(item), Score: score, AgeWeeks: item.AgeWeeks,
-			IssueWeeks: item.IssueWeeks, Resolved: resolved, Matched: matched,
+			IssueWeeks: item.IssueWeeks, IssueRunWeeks: item.IssueRunWeeks, Resolved: resolved, Matched: matched,
 			Issue: issue, Resolution: resolution,
 		}
 		hit.Why = describeWorkHit(*hit, false)
@@ -198,7 +199,7 @@ func (a *App) searchWorkItems(w http.ResponseWriter, r *http.Request) {
 					issue, resolution, resolved := resolutionOf(item)
 					hit := &workSearchHit{
 						workRef: referenceTo(item), Score: similarity, Semantic: true,
-						AgeWeeks: item.AgeWeeks, IssueWeeks: item.IssueWeeks, Resolved: resolved,
+						AgeWeeks: item.AgeWeeks, IssueWeeks: item.IssueWeeks, IssueRunWeeks: item.IssueRunWeeks, Resolved: resolved,
 						Matched: []string{}, Issue: issue, Resolution: resolution,
 					}
 					hit.Why = describeWorkHit(*hit, true)
@@ -233,7 +234,7 @@ func describeWorkHit(hit workSearchHit, semantic bool) string {
 	case hit.Resolution != "":
 		return fmt.Sprintf("같은 문제를 겪고 해결한 사례입니다. 해결 경과: %s", hit.Resolution)
 	case hit.Issue != "" && !hit.Resolved:
-		return fmt.Sprintf("아직 해결되지 않은 같은 계열의 이슈입니다(%d주 지속).", hit.IssueWeeks)
+		return fmt.Sprintf("아직 해결되지 않은 같은 계열의 이슈입니다(%d주 지속).", hit.IssueRunWeeks)
 	case semantic && len(hit.Matched) == 0:
 		return "입력한 표현과 직접 겹치는 단어는 없지만 내용이 가까운 업무입니다."
 	case hit.Completed:

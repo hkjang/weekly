@@ -305,7 +305,7 @@ export default function RollupPage({ session, route, notify }: {
               <td><div className="state-chips">
                 {item.completed && <span className="state-chip done">완료</span>}
                 {item.atRisk
-                  ? <span className="state-chip risk">이슈 {item.issueWeeks}주</span>
+                  ? <span className="state-chip risk">이슈 {item.issueRunWeeks}주</span>
                   : item.issueWeeks >= 2 && <span className="state-chip past">이슈 이력 {item.issueWeeks}주</span>}
                 {item.stalled && <span className="state-chip stalled">정체</span>}
                 {noLanding(item) && <span className="state-chip stalled">완료 시점 불명</span>}

@@ -134,7 +134,7 @@ func checkReportQuality(week string, items []reportItem, history []workItemView,
 			// about whether the dependency still holds rather than a demand.
 			if note, waiting := blocked[known.ID]; waiting {
 				finding.Severity = "INFO"
-				finding.Message = fmt.Sprintf("같은 차주 계획을 %d주째 그대로 적었습니다. %s 그 관계가 아직 유효한지 확인하세요.",
+				finding.Message = fmt.Sprintf("같은 차주 계획을 %d번째 그대로 적었습니다. %s 그 관계가 아직 유효한지 확인하세요.",
 					planRun+1, note.sentence())
 			}
 			report.Findings = append(report.Findings, finding)

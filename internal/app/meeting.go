@@ -181,8 +181,8 @@ func buildMeeting(items []workItemView, week string, cfg rollupConfig) meetingVi
 				if priorIssue == "" {
 					entry.Note = "이번 주에 새로 보고된 이슈입니다."
 					newIssues = append(newIssues, entry)
-				} else if item.IssueWeeks >= cfg.PersistentIssueWeeks {
-					entry.Note = fmt.Sprintf("%d주째 해소되지 않은 이슈입니다.", item.IssueWeeks)
+				} else if item.IssueRunWeeks >= cfg.PersistentIssueWeeks {
+					entry.Note = fmt.Sprintf("%d주째 해소되지 않은 이슈입니다.", item.IssueRunWeeks)
 					longIssues = append(longIssues, entry)
 				}
 			}
@@ -350,8 +350,8 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 		}
 		// Issue weeks are historical. Counting them for finished work reported
 		// the completed task as an open risk, which is the opposite of true.
-		if item.IssueWeeks >= cfg.PersistentIssueWeeks && !item.Completed {
-			add(10*item.IssueWeeks, "ISSUE", fmt.Sprintf("이슈가 %d주째 지속되고 있습니다.", item.IssueWeeks))
+		if item.IssueRunWeeks >= cfg.PersistentIssueWeeks && !item.Completed {
+			add(10*item.IssueRunWeeks, "ISSUE", fmt.Sprintf("이슈가 %d주째 지속되고 있습니다.", item.IssueRunWeeks))
 			if kind == "" {
 				kind, headline = "RISK", "장기 이슈"
 			}
