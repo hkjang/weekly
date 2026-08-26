@@ -163,9 +163,61 @@ WHERE r.id = i.report_id
   AND w.user_id = r.user_id
   AND w.normalized_key = lower(regexp_replace(i.title, '[^0-9A-Za-z가-힣]', '', 'g'));
 
+-- Dependencies, because without them a whole feature is dark.
+--
+-- The seed built reports, tasks, issues and stalls, and no task ever waited on
+-- another. So the bottleneck screen read zero however the data grew, the
+-- meeting's 타 조직 대기 section could not appear, and the dependency views had
+-- nothing to draw. Same lesson as the stalls this file learned in v0.134 and the
+-- open issues in v0.137, now for the last dark corner.
+--
+-- Two shapes, because the product distinguishes them. Ordinary pairs inside one
+-- organisation, and a handful of blockers holding several tasks up across
+-- organisations — which is the case the meeting exists to surface, and the only
+-- one that makes a bottleneck.
+WITH running AS (
+  SELECT w.id, w.user_id, u.organization_id,
+         row_number() OVER (ORDER BY w.id) AS n
+  FROM work_items w
+  JOIN users u ON u.id = w.user_id
+  WHERE EXISTS (SELECT 1 FROM report_items i WHERE i.work_item_id = w.id)
+),
+-- Six blockers, each in a different organisation from the work waiting on it.
+blockers AS (SELECT id, organization_id, row_number() OVER (ORDER BY id) AS b FROM running WHERE n % 331 = 7 LIMIT 6),
+waiting AS (
+  SELECT r.id AS blocked_id, b.id AS blocker_id,
+         row_number() OVER (PARTITION BY b.id ORDER BY r.id) AS seq
+  FROM running r JOIN blockers b
+    ON b.organization_id IS DISTINCT FROM r.organization_id
+  WHERE r.n % 37 = 3
+)
+INSERT INTO work_item_links(blocker_id, blocked_id, note)
+SELECT blocker_id, blocked_id, '선행 작업이 끝나야 진행할 수 있습니다'
+FROM waiting WHERE seq <= 4
+ON CONFLICT DO NOTHING;
+
+-- And ordinary pairs inside one organisation: one task waiting on a colleague's.
+INSERT INTO work_item_links(blocker_id, blocked_id, note)
+SELECT b.id, a.id, '같은 팀의 선행 작업입니다'
+FROM (
+  SELECT w.id, u.organization_id,
+         row_number() OVER (PARTITION BY u.organization_id ORDER BY w.id) AS seat
+  FROM work_items w JOIN users u ON u.id = w.user_id
+  WHERE EXISTS (SELECT 1 FROM report_items i WHERE i.work_item_id = w.id)
+) a
+JOIN (
+  SELECT w.id, u.organization_id,
+         row_number() OVER (PARTITION BY u.organization_id ORDER BY w.id) AS seat
+  FROM work_items w JOIN users u ON u.id = w.user_id
+  WHERE EXISTS (SELECT 1 FROM report_items i WHERE i.work_item_id = w.id)
+) b ON b.organization_id = a.organization_id AND b.seat = a.seat + 1
+WHERE a.seat % 9 = 1 AND a.id <> b.id
+ON CONFLICT DO NOTHING;
+
 SELECT (SELECT count(*) FROM organizations) AS organizations,
        (SELECT count(*) FROM users) AS users,
        (SELECT count(*) FROM weekly_reports) AS reports,
        (SELECT count(*) FROM report_items) AS items,
        (SELECT count(*) FROM work_items) AS work_items,
-       (SELECT count(*) FROM report_items WHERE work_item_id IS NULL) AS unlinked;
+       (SELECT count(*) FROM report_items WHERE work_item_id IS NULL) AS unlinked,
+       (SELECT count(*) FROM work_item_links) AS dependencies;
