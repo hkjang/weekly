@@ -127,7 +127,17 @@ func (a *App) updateConfluenceCandidate(w http.ResponseWriter, r *http.Request) 
 		NextPlan        string `json:"nextPlan"`
 		Issue           string `json:"issue"`
 	}
-	if !decodeJSON(w, r, &input) {
+	principal := currentPrincipal(r.Context())
+	// Start from the draft as it stands, so editing one line of it does not
+	// blank the lines the request says nothing about.
+	if err := a.db.QueryRow(r.Context(),
+		`SELECT normalized_title,category,current_result,next_plan,issue
+			FROM report_candidates WHERE id=$1 AND user_id=$2`, id, principal.ID).
+		Scan(&input.NormalizedTitle, &input.Category, &input.CurrentResult, &input.NextPlan, &input.Issue); err != nil {
+		writeError(w, http.StatusNotFound, "CANDIDATE_NOT_FOUND", "수정할 후보를 찾을 수 없습니다.")
+		return
+	}
+	if _, ok := decodeJSONFields(w, r, &input); !ok {
 		return
 	}
 	input.NormalizedTitle = strings.TrimSpace(input.NormalizedTitle)
@@ -135,7 +145,7 @@ func (a *App) updateConfluenceCandidate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 400, "INVALID_CANDIDATE", "자동 초안의 제목 또는 내용 길이가 올바르지 않습니다.")
 		return
 	}
-	p := currentPrincipal(r.Context())
+	p := principal
 	command, err := a.db.Exec(r.Context(), `UPDATE report_candidates SET normalized_title=$3,category=$4,current_result=$5,next_plan=$6,issue=$7,user_edited=true,updated_at=now()
 		WHERE id=$1 AND user_id=$2 AND status='DETECTED'`, id, p.ID, input.NormalizedTitle, strings.TrimSpace(input.Category), strings.TrimSpace(input.CurrentResult), strings.TrimSpace(input.NextPlan), strings.TrimSpace(input.Issue))
 	if err != nil {

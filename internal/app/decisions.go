@@ -265,6 +265,24 @@ func (a *App) decisionWorkItem(ctx context.Context, id int64) (int64, *int64, er
 	return workItemID, recordedBy, err
 }
 
+// loadDecisionInput fills input with what the entry already says, so a decode
+// over the top of it keeps every field the request left out.
+func (a *App) loadDecisionInput(ctx context.Context, id int64, input *decisionInput) error {
+	var decidedOn time.Time
+	var due *time.Time
+	if err := a.db.QueryRow(ctx,
+		`SELECT title,decided_by,decided_on,rationale,follow_up,due_date,status FROM decisions WHERE id=$1`, id).
+		Scan(&input.Title, &input.DecidedBy, &decidedOn, &input.Rationale, &input.FollowUp, &due, &input.Status); err != nil {
+		return err
+	}
+	input.DecidedOn = decidedOn.Format("2006-01-02")
+	input.DueDate = ""
+	if due != nil {
+		input.DueDate = due.Format("2006-01-02")
+	}
+	return nil
+}
+
 func (a *App) updateDecision(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -288,8 +306,15 @@ func (a *App) updateDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "결정을 수정할 수 없습니다.")
 		return
 	}
+	// A correction names the fields it corrects. Reading the stored entry first
+	// means the ones it says nothing about survive, instead of arriving as the
+	// empty string and erasing why the decision was taken.
 	var input decisionInput
-	if !decodeJSON(w, r, &input) {
+	if err := a.loadDecisionInput(r.Context(), id, &input); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "결정을 수정할 수 없습니다.")
+		return
+	}
+	if _, ok := decodeJSONFields(w, r, &input); !ok {
 		return
 	}
 	decidedOn, due, err := validateDecision(&input)
