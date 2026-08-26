@@ -64,6 +64,17 @@ func TestAnUpdateThatSaysNothingAboutActivityLeavesADisabledAccountDisabled(t *t
 	if server.canSignIn(username, password) {
 		t.Fatal("the disabled account signed in with its old password")
 	}
+
+	// A null is not a value for a flag, so it means the same as leaving the
+	// key out: the stored activity stands. Without this case the presence
+	// check could be loosened to read the key alone and nothing would notice.
+	explicitNull := map[string]any{"displayName": username, "role": "USER", "active": nil}
+	if w := server.request(http.MethodPut, "/api/v1/admin/users/"+itoa(id), explicitNull, server.admin); w.Code != http.StatusOK {
+		t.Fatalf("an explicit null for activity: %d %s", w.Code, w.Body.String())
+	}
+	if server.canSignIn(username, "ResetPassword1234") {
+		t.Error("sending active: null re-enabled a disabled account")
+	}
 }
 
 // guards: updateUser
@@ -118,4 +129,71 @@ func (s *testServer) contactOf(id int64) (string, *int64) {
 		s.t.Fatal(err)
 	}
 	return email, organisation
+}
+
+// guards: updateUser
+func TestAnAccountUpdateStillNeedsANameAndARealRole(t *testing.T) {
+	server := newTestServer(t)
+	server.createUser("named", "USER", nil)
+	username := server.lastCreatedUsername("named")
+	id := server.userIDOf(username)
+	path := "/api/v1/admin/users/" + itoa(id)
+
+	blank := server.request(http.MethodPut, path, map[string]any{"displayName": "  ", "role": "USER"}, server.admin)
+	if blank.Code != http.StatusBadRequest {
+		t.Errorf("an update with no display name was accepted: %d %s", blank.Code, blank.Body.String())
+	}
+	invented := server.request(http.MethodPut, path, map[string]any{"displayName": "이름", "role": "SUPERUSER"}, server.admin)
+	if invented.Code != http.StatusBadRequest {
+		t.Errorf("an invented role was accepted: %d %s", invented.Code, invented.Body.String())
+	}
+	// The rejections must not have written anything on the way out.
+	var stored string
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT display_name FROM users WHERE id=$1`, id).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != username {
+		t.Errorf("a refused update changed the name anyway: %q", stored)
+	}
+}
+
+// guards: updateUser
+//
+// The lock-out guard exists so the last administrator cannot remove their own
+// way back in. It has to apply to exactly that: the account making the request,
+// and only when the request actually takes the role or the activity away.
+// Widen it by a character and administrators can no longer edit their own
+// profile, or demote anybody at all.
+func TestTheLockOutGuardCoversTheAdministratorsOwnAccountAndNoOtherCase(t *testing.T) {
+	server := newTestServer(t)
+	adminID := server.userIDOf(server.adminName)
+	own := "/api/v1/admin/users/" + itoa(adminID)
+
+	// Editing your own profile without mentioning activity is ordinary work.
+	rename := server.request(http.MethodPut, own,
+		map[string]any{"displayName": "관리자 새 이름", "role": "ADMIN"}, server.admin)
+	if rename.Code != http.StatusOK {
+		t.Errorf("an administrator cannot rename themselves: %d %s", rename.Code, rename.Body.String())
+	}
+
+	// Taking your own administrator role away, or your own sign-in, is not.
+	demote := server.request(http.MethodPut, own,
+		map[string]any{"displayName": "관리자 새 이름", "role": "USER"}, server.admin)
+	if demote.Code != http.StatusBadRequest || errorCode(demote) != "SELF_LOCKOUT" {
+		t.Errorf("an administrator demoted themselves: %d %s", demote.Code, demote.Body.String())
+	}
+	disable := server.request(http.MethodPut, own,
+		map[string]any{"displayName": "관리자 새 이름", "role": "ADMIN", "active": false}, server.admin)
+	if disable.Code != http.StatusBadRequest || errorCode(disable) != "SELF_LOCKOUT" {
+		t.Errorf("an administrator disabled themselves: %d %s", disable.Code, disable.Body.String())
+	}
+
+	// Somebody else's role is not the lock-out guard's business.
+	server.createUser("demotable", "TEAM_LEADER", nil)
+	other := server.userIDOf(server.lastCreatedUsername("demotable"))
+	someoneElse := server.request(http.MethodPut, "/api/v1/admin/users/"+itoa(other),
+		map[string]any{"displayName": "다른 사람", "role": "USER"}, server.admin)
+	if someoneElse.Code != http.StatusOK {
+		t.Errorf("demoting somebody else was refused as a self lock-out: %d %s", someoneElse.Code, someoneElse.Body.String())
+	}
 }

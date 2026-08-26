@@ -101,3 +101,42 @@ func TestAnOpenIssueIsMeasuredAcrossTheWeeksItSpannedNotTheReportsThatMentionedI
 		t.Error("an issue open across six weeks is exactly what the risk register is for")
 	}
 }
+
+// guards: summarizeWorkItem
+func TestTheIssueThresholdMeansAtLeastThatManyWeeksNotMoreThan(t *testing.T) {
+	server := newTestServer(t)
+	owner := server.createUser("issue_edge", "USER", nil)
+
+	// rollup.persistent_issue_weeks defaults to two, and two weeks is the
+	// first case the setting is meant to catch. Both tests above sit far from
+	// the boundary, so >= and > behaved identically and the number the
+	// administrator types meant nothing either way.
+	server.weekWithIssue(owner, "2026-07-06", "큐 개선", "", 10)
+	server.weekWithIssue(owner, "2026-07-13", "큐 개선", "벤더 회신 지연", 20)
+	server.weekWithIssue(owner, "2026-07-20", "큐 개선", "벤더 회신 지연", 30)
+
+	item := server.onlyWorkItem(owner)
+	if open := int(item["issueRunWeeks"].(float64)); open != 2 {
+		t.Fatalf("an issue open across exactly two weeks should read 2, got %d", open)
+	}
+	if !item["atRisk"].(bool) {
+		t.Error("two weeks is the threshold itself, so the task belongs in the risk register")
+	}
+}
+
+// guards: summarizeWorkItem
+func TestOneWeekOfAnIssueIsNotYetPersistent(t *testing.T) {
+	server := newTestServer(t)
+	owner := server.createUser("issue_one", "USER", nil)
+
+	server.weekWithIssue(owner, "2026-07-06", "큐 개선", "", 10)
+	server.weekWithIssue(owner, "2026-07-13", "큐 개선", "벤더 회신 지연", 20)
+
+	item := server.onlyWorkItem(owner)
+	if open := int(item["issueRunWeeks"].(float64)); open != 1 {
+		t.Fatalf("an issue raised once should read one week, got %d", open)
+	}
+	if item["atRisk"].(bool) {
+		t.Error("an issue raised for the first time this week is not a persistent one")
+	}
+}

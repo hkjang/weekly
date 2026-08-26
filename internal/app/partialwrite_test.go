@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,51 @@ func TestEditingOneLineOfAnAutomaticDraftKeepsTheRest(t *testing.T) {
 	// The one field the request did name is still cleared.
 	if issue != "" {
 		t.Errorf("the issue the request cleared is still there: %q", issue)
+	}
+}
+
+// guards: updateConfluenceCandidate
+//
+// The draft feeds a report, so the same length limits the report enforces have
+// to hold here. Nothing checked them: the handler's whole validation line could
+// be inverted and every test still passed.
+func TestAnAutomaticDraftKeepsTheLimitsAReportWouldEnforce(t *testing.T) {
+	server := newTestServer(t)
+	server.createUser("draft_limits", "USER", nil)
+	owner := server.signIn(server.lastCreatedUsername("draft_limits"), server.passwordFor("draft_limits"))
+	ownerID := server.userIDOf(server.lastCreatedUsername("draft_limits"))
+
+	var id int64
+	if err := server.app.db.QueryRow(server.ctx(),
+		`INSERT INTO report_candidates(user_id, week_start, normalized_title, category, current_result, next_plan, issue)
+			VALUES($1,'2026-08-24','큐 개선','개발','지난주 결과','다음 주 계획','') RETURNING id`, ownerID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/v1/report-candidates/%d", id)
+
+	for _, refusal := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"제목 없음", map[string]any{"normalizedTitle": "   "}},
+		{"제목이 240자를 넘음", map[string]any{"normalizedTitle": strings.Repeat("가", 241)}},
+		{"구분이 80자를 넘음", map[string]any{"normalizedTitle": "큐 개선", "category": strings.Repeat("나", 81)}},
+		{"본문이 60000자를 넘음", map[string]any{"normalizedTitle": "큐 개선", "currentResult": strings.Repeat("다", 60001)}},
+	} {
+		w := server.request(http.MethodPatch, path, refusal.body, owner)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: 받아들여졌습니다 %d %s", refusal.name, w.Code, w.Body.String())
+		}
+	}
+
+	// A refused edit must not have written anything.
+	var title, category, current string
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT normalized_title, category, current_result FROM report_candidates WHERE id=$1`, id).
+		Scan(&title, &category, &current); err != nil {
+		t.Fatal(err)
+	}
+	if title != "큐 개선" || category != "개발" || current != "지난주 결과" {
+		t.Errorf("거부된 수정이 초안을 바꿨습니다: %q / %q / %q", title, category, current)
 	}
 }

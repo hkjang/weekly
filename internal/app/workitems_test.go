@@ -44,10 +44,16 @@ func TestSummarizeWorkItemDerivesAgeing(t *testing.T) {
 	if item.StalledWeeks != 4 || !item.Stalled {
 		t.Errorf("stalledWeeks = %d stalled = %v, want 4/true", item.StalledWeeks, item.Stalled)
 	}
-	// An issue is different: it is an observation, and an unreported week
-	// observed nothing. Three reports named an issue, so three it is.
-	if item.IssueWeeks != 3 || !item.AtRisk {
-		t.Errorf("issueWeeks = %d atRisk = %v, want 3/true", item.IssueWeeks, item.AtRisk)
+	// Two numbers, because the word "이슈" is used for two things. IssueWeeks is
+	// the history: three reports named an issue, so three it is, scattered or
+	// not. IssueRunWeeks is the one still open, and only that decides risk —
+	// v0.130 read the history as persistence and filled the register with
+	// issues that had been answered months earlier.
+	if item.IssueWeeks != 3 {
+		t.Errorf("issueWeeks = %d, want 3", item.IssueWeeks)
+	}
+	if item.IssueRunWeeks < 2 || !item.AtRisk {
+		t.Errorf("issueRunWeeks = %d atRisk = %v, want an open run and true", item.IssueRunWeeks, item.AtRisk)
 	}
 	// The same plan was restated three weeks running.
 	if item.RepeatedPlan != 3 {
@@ -263,5 +269,43 @@ func TestStallIsMeasuredInWeeksNotInReports(t *testing.T) {
 	summarizeWorkItem(done, defaultRollupConfig())
 	if done.StalledWeeks != 0 || done.Stalled {
 		t.Errorf("a completed task reads as stalled for %d week(s)", done.StalledWeeks)
+	}
+
+	// The threshold itself. rollup.stall_weeks defaults to two, and two weeks is
+	// the first case the setting exists to catch — but the cases above all sit
+	// far from the boundary, so >= and > behaved identically and the number an
+	// administrator types changed nothing either way.
+	edge := &workItemView{Weeks: []workItemWeek{
+		week("2026-08-03", 50, "", "계속", "", ""), week("2026-08-10", 50, "", "계속", "", ""),
+	}}
+	summarizeWorkItem(edge, defaultRollupConfig())
+	if edge.StalledWeeks != 2 || !edge.Stalled {
+		t.Errorf("두 주 동안 그대로: stalledWeeks=%d stalled=%v, want 2 and true", edge.StalledWeeks, edge.Stalled)
+	}
+	moved := &workItemView{Weeks: []workItemWeek{
+		week("2026-08-03", 30, "", "계속", "", ""), week("2026-08-10", 60, "", "계속", "", ""),
+	}}
+	summarizeWorkItem(moved, defaultRollupConfig())
+	if moved.Stalled {
+		t.Error("지난주에 움직인 업무는 정체가 아닙니다")
+	}
+}
+
+// guards: summarizeWorkItem
+//
+// The counter walks back from the newest report and stops at the first week
+// that says something else. A task whose plan has read the same since its very
+// first report has no such week, so the walk has to reach index zero — and
+// nothing checked that it did, because every other fixture here has an earlier
+// week with a different plan for the loop to stop on.
+func TestAPlanUnchangedSinceTheFirstReportCountsThatFirstReport(t *testing.T) {
+	view := &workItemView{Weeks: []workItemWeek{
+		week("2026-07-27", 10, "", "같은 계획", "", ""),
+		week("2026-08-03", 20, "", "같은 계획", "", ""),
+		week("2026-08-10", 30, "", "같은 계획", "", ""),
+	}}
+	summarizeWorkItem(view, defaultRollupConfig())
+	if view.RepeatedPlan != 3 {
+		t.Errorf("repeatedPlan = %d, want 3 — the first report says it too", view.RepeatedPlan)
 	}
 }

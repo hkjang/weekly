@@ -1585,6 +1585,23 @@ if theirs.Body.String() != missing.Body.String() { ... }</div>
 <p><strong>v0.130 의 판단을 여기서 뒤집습니다.</strong> 그때 "이슈는 관찰이므로 보고 수로 센다" 고 적었는데, v0.133 이 세운 기준을 그대로 적용하면 반대입니다. <strong>이슈가 해소되지 않은 상태는 아무도 쓰지 않아도 시간이 지나면 쌓입니다.</strong> 보고를 거른 주에 이슈가 사라지지는 않습니다. 그때는 단위(보고냐 주냐)만 보고 연속성 문제를 못 봤습니다.</p>
 <p>그리고 v0.134.0 과 <strong>똑같은 일이 또 있었습니다.</strong> 고침을 넣고 재니 위험이 56건에서 <strong>0건</strong>이 됐습니다. 시드의 이슈 규칙이 <code>(r.id + slot) % 7</code> 인데 같은 업무의 다음 주는 <code>r.id</code> 가 305 만큼 커지고 305 mod 7 = 4 이므로, <strong>두 주 연속으로 이슈가 붙는 일이 아예 없습니다.</strong> 0은 옳은 값이었고, 시드가 지속 이슈를 한 번도 만들지 못한다는 뜻이었습니다. 아홉 업무 중 하나가 30주차부터 끝까지 답이 안 나온 이슈를 안고 가도록 시드를 고쳤습니다.</p>
 <p>원칙으로 남깁니다. <strong>하나의 숫자가 두 뜻으로 읽히고 있으면, 둘 중 하나는 반드시 틀린 자리에서 쓰이고 있습니다.</strong> 고치는 방법은 값을 다시 정의하는 것이 아니라 나누는 것입니다 — 두 뜻이 다 필요해서 그렇게 된 것이기 때문입니다.</p>
+<p>#### 3.10.93 v0.138.0에서 완료 — 통과하지만 아무것도 못 잡던 가드들</p>
+<p>이번 창에서 가드를 여럿 새로 썼습니다. <code>guard-check.py</code> 는 전부 자기가 이름 붙인 함수에 닿는다고 답합니다. 그런데 그 도구는 <strong>"닿았는가" 만 답하고 "잡을 수 있는가" 는 답하지 못합니다</strong> — v0.81 이 만든 <code>mutation-check.py</code> 가 그 질문을 위해 있고, 이번 창에서 한 번도 돌리지 않았습니다.</p>
+<p>새로 쓴 가드 다섯 개에 겨눠 돌렸더니 <strong>아무 시험도 잡지 못하는 변이가 여섯 개</strong> 나왔습니다.</p>
+<table><thead><tr><th>자리</th><th>변이</th><th>뜻</th></tr></thead><tbody><tr><td><code>summarizeWorkItem</code></td><td><code>IssueRunWeeks &gt;= 임계값</code> → <code>&gt;</code></td><td>임계값 자체가 고정되지 않음</td></tr><tr><td><code>summarizeWorkItem</code></td><td><code>StalledWeeks &gt;= 임계값</code> → <code>&gt;</code></td><td>같음</td></tr><tr><td><code>summarizeWorkItem</code></td><td><code>index &gt;= 0</code> → <code>index &gt; 0</code></td><td>첫 보고까지 같은 계획인 경우</td></tr><tr><td><code>updateUser</code></td><td>`DisplayName == "" \</td><td>\</td><td>!validRole<code> → </code>&amp;&amp;`</td><td>이름·역할 검사</td></tr><tr><td><code>updateUser</code></td><td>자기 잠금 조건의 <code>&amp;&amp;</code> → `\</td><td>\</td><td>`</td><td>잠금 방지의 적용 범위</td></tr><tr><td><code>updateConfluenceCandidate</code></td><td>길이 검사의 `\</td><td>\</td><td><code> → </code>&amp;&amp;`</td><td>검사 전체</td></tr></tbody></table>
+<p>전부 같은 모양입니다. <strong>제 시험들이 경계에서 멀리 떨어진 자리만 골라 짚었습니다.</strong> 이슈 지속 시험은 0주와 6주 이상을 확인했는데 기본 임계값은 2주입니다. <code>&gt;=</code> 를 <code>&gt;</code> 로 바꿔도 두 시험이 다 통과합니다. 즉 <strong>관리자가 입력하는 숫자가 무엇을 뜻하는지 아무것도 고정하고 있지 않았습니다.</strong></p>
+<p>경계와 범위를 짚는 가드를 넣었습니다.</p>
+<ul>
+<li>이슈가 정확히 2주 열려 있으면 위험, 1주면 아직 아님</li>
+<li>정체가 정확히 2주면 정체, 지난주에 움직였으면 아님</li>
+<li>첫 보고부터 같은 계획이면 그 첫 보고까지 셈</li>
+<li>표시 이름이 비었거나 없는 역할이면 거부하고, <strong>거부한 요청은 아무것도 쓰지 않았음</strong></li>
+<li>자기 잠금 방지는 자기 계정에만, 그리고 실제로 역할이나 활성 상태를 뺏을 때만 — 관리자가 자기 이름을 바꾸는 것은 평범한 작업이고, 남을 강등하는 것은 이 규칙의 소관이 아님</li>
+<li><code>{"active": null}</code> 은 언급하지 않은 것과 같은 뜻</li>
+<li>자동 초안도 보고서와 같은 길이 한계를 지키고, 거부된 수정은 초안을 바꾸지 않음</li>
+</ul>
+<p>그리고 <strong>시험 하나가 제품이 더는 따르지 않는 결정을 문서화하고 있었습니다.</strong> <code>workitems_test.go</code> 의 주석이 v0.130 의 근거("이슈는 관찰이므로 보고 수로 센다")를 그대로 담고 있었는데, v0.137.0 에서 그 판단을 뒤집었습니다. 단언은 여전히 맞았습니다 — <code>IssueWeeks</code> 는 이력이니까요 — 그래서 <strong>시험이 깨지지 않았고, 그래서 주석이 틀린 채로 남았습니다.</strong> 주석을 고치고 <code>IssueRunWeeks</code> 단언을 함께 넣었습니다.</p>
+<p>원칙으로 남깁니다. <strong>시험이 통과하는 것과 시험이 무언가를 지키는 것은 다른 일이고, 통과는 그 차이를 보여 주지 않습니다.</strong> 임계값을 다루는 코드에서 그 차이는 거의 항상 같은 자리에 있습니다 — 경계에서 멀리 떨어진 값만 골라 짚은 시험입니다.</p>
 </div>
 </body>
 </html>
