@@ -82,6 +82,17 @@ func TestCloningInFullModeCarriesTheWritingAndStructureModeDoesNot(t *testing.T)
 			t.Errorf("STRUCTURE 인데 지난주 내용이 따라왔습니다: %+v", item)
 		}
 	}
+
+	// The report's own history is where an author looks to find out where a
+	// week came from. It records which of the two clones this was, and saying
+	// the wrong one is worse than saying nothing: the author reads that their
+	// text was carried over and goes looking for writing that was never copied.
+	if comment := cloneComment(t, server, "2026-09-07"); !containsAny(comment, "전체 내용") {
+		t.Errorf("FULL 복제인데 이력이 %q 라고 적혀 있습니다", comment)
+	}
+	if comment := cloneComment(t, server, "2026-09-14"); !containsAny(comment, "업무 구조") {
+		t.Errorf("STRUCTURE 복제인데 이력이 %q 라고 적혀 있습니다", comment)
+	}
 }
 
 // guards: cloneReport
@@ -137,4 +148,17 @@ func TestCloningOntoAWeekThatAlreadyHasAReportSaysSo(t *testing.T) {
 	if copies != 1 {
 		t.Errorf("거부된 복제가 %d개의 보고서를 남겼습니다", copies)
 	}
+}
+
+// cloneComment returns what the report's own history says about how it was made.
+func cloneComment(t *testing.T, server *testServer, week string) string {
+	t.Helper()
+	var comment string
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT coalesce(h.comment, '') FROM report_status_history h
+			JOIN weekly_reports r ON r.id = h.report_id
+			WHERE r.week_start = $1::date ORDER BY h.id DESC LIMIT 1`, week).Scan(&comment); err != nil {
+		t.Fatalf("read the history for %s: %v", week, err)
+	}
+	return comment
 }
