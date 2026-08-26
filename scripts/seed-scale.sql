@@ -214,10 +214,70 @@ JOIN (
 WHERE a.seat % 9 = 1 AND a.id <> b.id
 ON CONFLICT DO NOTHING;
 
+-- Decisions, resolved issues and review comments.
+--
+-- Counting every table on a seeded deployment turned up five that stayed empty
+-- however much the seed grew. Three of them are whole screens: the decision
+-- register and the meeting's 결정 필요 section, the issue-clearance report that
+-- v0.131 built, and the review conversation on a report. The other two need
+-- files on disk and the submit flow, and are noted rather than faked.
+--
+-- Found by counting rather than by walking into them one at a time, which is
+-- how the stalls, the open issues and the dependencies were each found.
+
+-- One decision on every ninth task, a third of them still open with a deadline
+-- the meeting agreed — which is the only way a task with no deadline of its own
+-- is offered one.
+INSERT INTO decisions(work_item_id, recorded_by, decided_by, decided_on, title, rationale, follow_up, due_date, status)
+SELECT w.id, w.user_id,
+       CASE WHEN (w.id / 9) % 3 = 0 THEN '본부 회의' ELSE '팀 회의' END,
+       (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357 + ((w.id % 40)::int) * 7),
+       w.title || ' 방향 결정',
+       '대안보다 위험이 낮고 기존 구성과 맞물립니다.',
+       CASE WHEN (w.id / 9) % 3 = 0 THEN '다음 회의까지 설계안 확정' ELSE '담당자가 일정 재확인' END,
+       CASE WHEN (w.id / 9) % 3 = 0
+            THEN (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date + 14)
+            ELSE NULL END,
+       CASE WHEN (w.id / 9) % 3 = 0 THEN 'OPEN' ELSE 'DONE' END
+FROM work_items w
+WHERE w.id % 9 = 0 AND EXISTS (SELECT 1 FROM report_items i WHERE i.work_item_id = w.id)
+ON CONFLICT DO NOTHING;
+
+-- Issues that were raised and then cleared, so the clearance report has spans
+-- to measure rather than an empty window. The spans differ on purpose: a report
+-- of identical numbers cannot show whether it is measuring anything.
+INSERT INTO work_item_issue_outcomes(work_item_id, ended_week, started_week, weeks, outcome, issue_text, recorded_by)
+SELECT w.id,
+       (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - ((w.id % 11)::int) * 7),
+       (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - (((w.id % 11) + 1 + (w.id % 7))::int) * 7),
+       1 + (w.id % 7),
+       'RESOLVED',
+       '외부 연동 지연이 해소되었습니다.',
+       w.user_id
+FROM work_items w
+WHERE w.id % 13 = 0 AND EXISTS (SELECT 1 FROM report_items i WHERE i.work_item_id = w.id)
+ON CONFLICT DO NOTHING;
+
+-- A reviewer's note on some submitted weeks. The comment comes from somebody
+-- other than the author where the organisation has anybody else, because a
+-- review conversation with one voice is not one.
+INSERT INTO report_comments(report_id, user_id, content)
+SELECT r.id,
+       coalesce((SELECT other.id FROM users other
+                 WHERE other.organization_id = u.organization_id AND other.id <> r.user_id
+                 ORDER BY other.id LIMIT 1), r.user_id),
+       '진척 근거를 한 줄만 더 적어 주세요. 다음 주 회의에서 그대로 씁니다.'
+FROM weekly_reports r
+JOIN users u ON u.id = r.user_id
+WHERE r.id % 41 = 0;
+
 SELECT (SELECT count(*) FROM organizations) AS organizations,
        (SELECT count(*) FROM users) AS users,
        (SELECT count(*) FROM weekly_reports) AS reports,
        (SELECT count(*) FROM report_items) AS items,
        (SELECT count(*) FROM work_items) AS work_items,
        (SELECT count(*) FROM report_items WHERE work_item_id IS NULL) AS unlinked,
-       (SELECT count(*) FROM work_item_links) AS dependencies;
+       (SELECT count(*) FROM work_item_links) AS dependencies,
+       (SELECT count(*) FROM decisions) AS decisions,
+       (SELECT count(*) FROM work_item_issue_outcomes) AS cleared_issues,
+       (SELECT count(*) FROM report_comments) AS comments;
