@@ -331,6 +331,13 @@ type workGraphView struct {
 	Weeks     int    `json:"weeks"`
 	Since     string `json:"since"`
 	WorkItems int    `json:"workItems"`
+	// How many organisations the reader can actually see. Two of these views
+	// are about work crossing between organisations, and for a team leader
+	// whose scope is one team they can never hold anything. Saying "there is no
+	// cross-organisation duplication" to somebody who was shown one
+	// organisation asserts an absence that could not have been a presence — the
+	// same mistake this screen already avoids for a failed load, one level in.
+	Organizations int `json:"organizations"`
 	// The lists are capped; the totals say by how much, so the screen can state
 	// what it is not showing rather than implying it has shown everything.
 	Similar        []workLink          `json:"similar"`
@@ -392,9 +399,16 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 	if len(recurring) > insightLinkLimit {
 		recurring = recurring[:insightLinkLimit]
 	}
+	seenOrganizations := map[string]bool{}
+	for _, item := range items {
+		if name := strings.TrimSpace(item.OrganizationName); name != "" {
+			seenOrganizations[name] = true
+		}
+	}
 	writeData(w, http.StatusOK, workGraphView{
 		Weeks: weeks, Since: since, WorkItems: len(items),
-		Similar: graph.Similar, SimilarTotal: graph.SimilarTotal,
+		Organizations: len(seenOrganizations),
+		Similar:       graph.Similar, SimilarTotal: graph.SimilarTotal,
 		Duplicates: graph.Duplicates, DuplicateTotal: graph.DuplicateTotal,
 		Collaboration: graph.Collaboration,
 		Recurring:     recurring, RecurringTotal: recurringTotal,

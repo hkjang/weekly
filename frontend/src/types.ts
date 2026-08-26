@@ -270,6 +270,8 @@ export interface RecurringWork extends WorkRef {
   progressGain: number; issueWeeks: number; reason: string
 }
 export interface WorkGraphView {
+  /** 읽는 사람에게 보이는 조직 수. 조직을 가로지르는 화면은 둘 미만이면 내용을 가질 수 없다. */
+  organizations: number
   weeks: number; since: string; workItems: number
   similar: WorkLink[]; similarTotal: number; duplicates: WorkLink[]; duplicateTotal: number
   collaboration: CollaborationEdge[]; recurring: RecurringWork[]; recurringTotal: number; bottlenecks: Bottleneck[]

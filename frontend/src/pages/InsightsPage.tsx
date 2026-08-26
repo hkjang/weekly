@@ -54,6 +54,14 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
   // can dismiss. A screen must not assert an absence it did not establish.
   const [failed, setFailed] = useState(false)
 
+  // Two of these tabs are about work crossing between organisations. A reader
+  // who can see one organisation is not being told "there is none" — there is
+  // nowhere for it to be. Saying so is the difference between a finding and a
+  // fact about their own scope.
+  const crossOrgReason = view && view.organizations < 2
+    ? '보이는 조직이 하나뿐이라 조직을 가로지르는 비교가 성립하지 않습니다. 상위 조직 범위에서 열면 다른 팀의 업무와 견줄 수 있습니다.'
+    : undefined
+
   useEffect(() => {
     let stale = false
     setView(undefined)
@@ -90,7 +98,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
       <p className="muted">{active.hint}</p>
 
       {tab === 'DUPLICATE' && (view.duplicates.length === 0
-        ? <Empty>조직 간 중복으로 의심되는 업무가 없습니다.</Empty>
+        ? <Empty>{crossOrgReason ?? '조직 간 중복으로 의심되는 업무가 없습니다.'}</Empty>
         : <><Capped shown={view.duplicates.length} total={view.duplicateTotal} />
           <ul className="link-list">{view.duplicates.map((link, index) =>
             <LinkCard key={`${link.left.workItemId}-${link.right.workItemId}-${index}`} link={link} />)}</ul></>)}
@@ -102,7 +110,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
             <LinkCard key={`${link.left.workItemId}-${link.right.workItemId}-${index}`} link={link} />)}</ul></>)}
 
       {tab === 'COLLAB' && (view.collaboration.length === 0
-        ? <Empty>조직 간 연결된 업무가 없습니다.</Empty>
+        ? <Empty>{crossOrgReason ?? '조직 간 연결된 업무가 없습니다.'}</Empty>
         : <>
           <CollaborationMatrix edges={view.collaboration} />
           <button className="link-button" onClick={() => setShowCollabTable(current => !current)}>
