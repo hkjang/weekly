@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -58,6 +59,21 @@ func (s *testServer) logged(fragments ...string) bool {
 // a suite that leaves a row behind still runs the next time. Cleanup below is
 // best effort; this is what makes the tests not depend on it.
 var harnessRun = time.Now().UnixNano() % 1e9
+
+// harnessStamp is the second this `go test` started, carried in the name of
+// every database the harness creates. v0.128 taught the harness to drop its
+// template on the way out; a run that is interrupted never gets there, and
+// interruption is ordinary — Ctrl-C, an editor's stop button, a timeout, or
+// scripts/mutation-check.py killing a run it no longer needs. Forty-three
+// databases and 409 MB accumulated in one working session that way.
+//
+// Cleanup that only happens on a clean exit does not happen. So the name says
+// when it was made, and each run sweeps what earlier runs abandoned.
+var harnessStamp = time.Now().Unix()
+
+// harnessStale is how long a leftover has to sit before a later run removes it.
+// Long enough that a slow suite running beside this one is never touched.
+const harnessStale = 2 * time.Hour
 
 var harnessAccounts atomic.Int64
 
@@ -319,9 +335,69 @@ var (
 	harnessTemplateErr  error
 )
 
+// sweepAbandonedDatabases drops what runs that never reached their cleanup left
+// behind. It reads the age out of the name rather than asking for connections:
+// a template sits unconnected between uses — CREATE DATABASE ... TEMPLATE
+// requires that — so "nobody is connected" would happily delete the working
+// template of a suite running alongside this one.
+func sweepAbandonedDatabases(ctx context.Context, admin *pgx.Conn) {
+	rows, err := admin.Query(ctx,
+		`SELECT datname FROM pg_database
+			WHERE datname LIKE 'weekly\_tmpl\_%' OR datname LIKE 'weekly\_h\_%'`)
+	if err != nil {
+		return
+	}
+	abandoned := []string{}
+	cutoff := time.Now().Add(-harnessStale).Unix()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		stamp, ok := harnessNameStamp(name)
+		// A name with no stamp predates this scheme, so nothing running now
+		// made it.
+		if !ok || stamp < cutoff {
+			abandoned = append(abandoned, name)
+		}
+	}
+	rows.Close()
+	for _, name := range abandoned {
+		if name == harnessTemplateName {
+			continue
+		}
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+	}
+}
+
+// harnessNameStamp reads the second a harness database was created out of its
+// name: weekly_tmpl_<stamp>_<run> and weekly_h_<stamp>_<run>_<n>.
+func harnessNameStamp(name string) (int64, bool) {
+	var rest string
+	switch {
+	case strings.HasPrefix(name, "weekly_tmpl_"):
+		rest = strings.TrimPrefix(name, "weekly_tmpl_")
+	case strings.HasPrefix(name, "weekly_h_"):
+		rest = strings.TrimPrefix(name, "weekly_h_")
+	default:
+		return 0, false
+	}
+	head, _, found := strings.Cut(rest, "_")
+	if !found {
+		return 0, false
+	}
+	stamp, err := strconv.ParseInt(head, 10, 64)
+	// Anything short of ten digits is a run counter from the old naming, not a
+	// second since the epoch.
+	if err != nil || len(head) < 10 {
+		return 0, false
+	}
+	return stamp, true
+}
+
 func ensureHarnessTemplate(dsn string) (string, error) {
 	harnessTemplateOnce.Do(func() {
-		name := fmt.Sprintf("weekly_tmpl_%d", harnessRun)
+		name := fmt.Sprintf("weekly_tmpl_%d_%d", harnessStamp, harnessRun)
 		ctx := context.Background()
 		admin, err := pgx.Connect(ctx, dsn)
 		if err != nil {
@@ -329,6 +405,7 @@ func ensureHarnessTemplate(dsn string) (string, error) {
 			return
 		}
 		defer admin.Close(ctx)
+		sweepAbandonedDatabases(ctx, admin)
 		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
 			harnessTemplateErr = err
 			return
@@ -394,7 +471,7 @@ func createScratchDatabase(t *testing.T, dsn string) string {
 	if err != nil {
 		t.Fatalf("build the harness template: %v", err)
 	}
-	name := fmt.Sprintf("weekly_h_%d_%d", harnessRun, harnessAccounts.Add(1))
+	name := fmt.Sprintf("weekly_h_%d_%d_%d", harnessStamp, harnessRun, harnessAccounts.Add(1))
 
 	ctx := context.Background()
 	admin, err := pgx.Connect(ctx, dsn)
