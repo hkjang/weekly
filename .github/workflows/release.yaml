@@ -3,6 +3,15 @@ name: Offline Docker Release
 on:
   push:
     tags: ["v*"]
+  # A tag push is the only way this ran, so a run that never starts — a stuck
+  # queue, a cancelled job — left a tag with no release and no way back except
+  # rewriting the tag. Rewriting a published ref to fix a pipeline is a bad
+  # trade. This lets the same tag be built again without touching it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "다시 만들 릴리스 태그 (예: v0.150.0)"
+        required: true
 
 permissions:
   contents: write
@@ -10,13 +19,23 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # Named once for the whole job. A dispatch runs on a branch, so
+      # github.ref_name is the branch and every step that reads it would build
+      # the wrong thing.
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # And the source has to be the tag's, not the branch the dispatch ran
+          # from — otherwise VERSION and the release notes come from wherever
+          # main happens to be.
+          ref: ${{ inputs.tag || github.ref }}
       - name: Validate release metadata
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           test "$(cat VERSION)" = "$version" || { printf '::error::VERSION과 태그가 일치하지 않습니다.\n'; exit 1; }
-          test -s ".github/release-notes/${GITHUB_REF_NAME}.md" || { printf '::error::상세 릴리즈 본문이 없습니다.\n'; exit 1; }
+          test -s ".github/release-notes/${RELEASE_TAG}.md" || { printf '::error::상세 릴리즈 본문이 없습니다.\n'; exit 1; }
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -34,8 +53,6 @@ jobs:
           npm --prefix frontend run lint
       - uses: docker/setup-buildx-action@v4
       - name: Build offline image
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
           docker buildx build --platform linux/amd64 --load \
@@ -54,7 +71,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes_source=".github/release-notes/${GITHUB_REF_NAME}.md"
+          notes_source=".github/release-notes/${RELEASE_TAG}.md"
           if [ ! -s "$notes_source" ]; then
             printf '::error::상세 릴리즈 본문이 없습니다: %s\n' "$notes_source"
             exit 1
@@ -75,8 +92,8 @@ jobs:
             printf '\n반입 전에는 파일이 온전히 도착했는지를 SHA-256으로, 그 파일이 담은 것이 빌드된 이미지가 맞는지를 아카이브 안의 다이제스트로 확인합니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 다이제스트는 그대로입니다. `docker image inspect --format {{.Id}}` 는 이 값과 다를 수 있습니다 — Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.\n'
             printf '\n```bash\nsha256sum %s\ngzip -dc %s | tar -xO manifest.json | grep -o "blobs/sha256/[0-9a-f]\\{64\\}" | head -1\ngzip -dc %s | docker load\n```\n' "$asset_name" "$asset_name" "$asset_name"
           } >> release/release-notes.md
-          gh release create "${GITHUB_REF_NAME}" "$OFFLINE_ASSET" \
+          gh release create "${RELEASE_TAG}" "$OFFLINE_ASSET" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "Weekly ${GITHUB_REF_NAME}" \
+            --title "Weekly ${RELEASE_TAG}" \
             --notes-file release/release-notes.md
