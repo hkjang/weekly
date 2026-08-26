@@ -11,7 +11,12 @@ import (
 // a live run's database as stale would delete the template a suite running
 // beside this one is about to copy.
 
-// guards: harnessNameStamp
+// These two carry no `guards:` marker on purpose. The marker names a function
+// for guard-check.py to measure with a coverage profile, and Go does not report
+// coverage for code in _test.go files — so naming harnessNameStamp there makes
+// the check report a guard that "never executed" whatever the test does. The
+// convention is for the product's functions; this is the harness checking
+// itself.
 func TestTheSweepReadsAgeFromTheNameAndNothingElse(t *testing.T) {
 	now := time.Now().Unix()
 
@@ -45,7 +50,6 @@ func TestTheSweepReadsAgeFromTheNameAndNothingElse(t *testing.T) {
 	}
 }
 
-// guards: harnessNameStamp
 func TestADatabaseFromThisRunIsNeverStale(t *testing.T) {
 	// The run that is executing this test must not be able to delete its own
 	// working template, however long the suite takes.
