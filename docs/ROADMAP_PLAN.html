@@ -1665,6 +1665,20 @@ if theirs.Body.String() != missing.Body.String() { ... }</div>
 <p><strong>닫기 실패 갈래</strong>(<code>writeAttachmentFile</code>)는 파일 시스템에 이음매를 넣어야 시험할 수 있습니다. 한 줄을 시험하려고 제품 코드에 추상을 넣는 것이 그 위험보다 큽니다. 다만 그 변이가 무엇을 하는지는 적어 둡니다 — <strong>쓰기가 실패한 뒤 닫기가 성공하면 성공으로 보고합니다.</strong></p>
 <p><strong>아무도 읽지 않는 열</strong>(<code>authenticate</code>). <code>user_sessions.last_seen_at</code> 은 인증된 요청마다(5분 간격으로 눌러) 갱신되는데, <strong>읽는 곳이 코드에도 화면에도 없습니다.</strong> 그래서 그 줄의 조건을 뒤집어도 관찰 가능한 동작이 바뀌지 않습니다 — 무해한 변이입니다. 동시에 그것은 <strong>비용만 있고 독자가 없는 쓰기</strong>라는 뜻이기도 합니다.</p>
 <p>원칙으로 남깁니다. <strong>시험이 읽지 않는 차원은 시험되지 않습니다.</strong> 글자를 읽는 시험은 자리를 보지 못하고, 부분 문자열을 찾는 시험은 순서를 보지 못합니다. 이름은 대개 둘 다 약속합니다.</p>
+<p>#### 3.10.98 v0.143.0에서 완료 — 같은 팀 동료가 시험에 없었습니다</p>
+<p>다섯 번째 변이 점검 묶음입니다. 가장 무거운 것이 하나 나왔습니다.</p>
+<p><strong><code>canViewReport</code></strong> 의 조직 갈래입니다.</p>
+<div class="phase-box">if (p.Role == &quot;TEAM_LEADER&quot; || p.Role == &quot;ORG_MANAGER&quot;) &amp;&amp; p.OrganizationID != nil &amp;&amp; orgID != nil {</div>
+<p><code>&amp;&amp;</code> 를 <code>||</code> 로 바꾸면 <strong>평사원이 같은 조직 동료의 보고서를 읽습니다.</strong> 역할 검사가 무력화되고 조직이 둘 다 설정되어 있기만 하면 하위 조직 질의가 실행되며, 같은 조직이니 통과합니다.</p>
+<p>시험은 통과했습니다. <code>TestOnePersonsReportIsNotAnothersToRead</code> 를 열어 보니 이유가 분명했습니다 — <strong>두 사용자를 모두 조직 없이 만듭니다.</strong> 조직 갈래가 한 번도 실행되지 않으니 그 안을 어떻게 바꾸든 보이지 않습니다.</p>
+<p>그런데 그 갈래가 <strong>제품에서 가장 흔한 경우</strong>입니다. 조직 없는 계정 둘이 아니라, 한 팀에 앉은 두 사람. 이 저장소는 v0.104 에서 소속 없는 계정을 결함으로 다루기까지 했으면서, 사생활 시험만은 그 상태를 픽스처로 쓰고 있었습니다.</p>
+<p>같은 조직 안에서 네 가지를 확인하도록 썼습니다 — 본인은 읽고, <strong>동료는 못 읽고</strong>(그리고 거부가 요약을 흘리지 않고), 그 조직의 팀장은 읽고, 다른 조직의 팀장은 못 읽습니다. 거부와 허용을 함께 두어야 갈래를 통째로 꺼도 알아챕니다.</p>
+<p><strong>감사 기록</strong>에서 둘 더 나왔습니다. <code>audit</code> 은 실패했을 때 로그를 남기는지, 클라이언트가 떠나도 기록이 남는지는 시험되고 있었는데 <strong>기록을 읽어 보는 시험이 없었습니다.</strong> 사고 뒤 운영자가 필요로 하는 두 칸 — 누가 했고 어디서 왔는지 — 이 비어 있어도 아무도 몰랐습니다. 행위자가 없는 기록(서명 전 감사)도 함수를 직접 불러 지킵니다.</p>
+<p><strong><code>issueClearanceFor</code></strong> 는 정렬이 무방비였습니다. 질의가 가장 긴 것부터 돌려주고 코드가 첫 행을 집는데, 기존 시험은 <strong>두 장애물의 기간을 똑같이 5주로</strong> 두었습니다 — 주 수와 언급 수를 가르려는 의도였고 그건 옳습니다. 다만 그래서 어느 행을 집든 답이 같습니다. 마지막 행을 집게 바꾸면 화면이 <strong>가장 짧은 장애물을 가장 긴 것으로</strong> 부릅니다. 기간이 다른 경우를 넣었습니다.</p>
+<p>##### 기록만 하는 둘</p>
+<p><strong><code>instant</code> 의 297·301</strong> 은 Go 로직이 아니라 <strong>SQL 문자열 상수</strong> 안의 경계입니다(<code>&lt;= now()</code>, <code>&gt;= 시작주</code>). <code>now()</code> 를 고정하지 않으면 그 경계를 시험할 수 없습니다. 참여도 집계에서 "이번 주가 아직 열려 있는가" 를 가르는 자리이므로 값은 큽니다.</p>
+<p><strong><code>appendSearchMatches</code> 의 213·232</strong> 는 검색 순위 경계입니다. 순위는 여러 신호의 합이라 한 경계만 움직여도 상위 결과가 그대로일 수 있어, 무해한 변이와 진짜 구멍을 가르려면 순위 자체를 다루는 별도의 작업이 필요합니다.</p>
+<p>원칙으로 남깁니다. <strong>픽스처가 고르는 것은 상황이 아니라 실행되는 코드입니다.</strong> 조직 없는 계정으로 사생활을 시험하면 사생활 규칙의 절반은 실행되지 않고, 기간이 같은 두 행으로 정렬을 시험하면 정렬은 실행되지 않습니다. 시험이 무엇을 확인하는지는 단언이 아니라 <strong>픽스처가 정합니다.</strong></p>
 </div>
 </body>
 </html>

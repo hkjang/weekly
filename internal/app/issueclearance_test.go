@@ -70,3 +70,53 @@ func TestNoRecordedEndingsIsNotAZeroWeekAnswer(t *testing.T) {
 }
 
 var _ = http.MethodGet
+
+// guards: issueClearanceFor
+//
+// The case above gives both obstacles the same span on purpose, so that it
+// measures weeks rather than mentions. That also means the ordering is never
+// exercised: the query asks for the longest first and the reader takes the
+// first row, and with two equal spans either row gives the same answer. Take
+// the last row instead and the screen names the *shortest* obstacle as the
+// worst one.
+func TestTheLongestObstacleIsTheOneReported(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("clearance_longest", "USER", nil)
+	brief, drawnOut := twoWorkItemsOf(t, server, author)
+
+	record := func(workItemID int64, started, ended string, mentions int) {
+		t.Helper()
+		if _, err := server.app.db.Exec(server.ctx(),
+			`INSERT INTO work_item_issue_outcomes(work_item_id, started_week, ended_week, weeks, outcome, issue_text)
+				VALUES($1, $2::date, $3::date, $4, 'RESOLVED', '외부 승인 대기')`,
+			workItemID, started, ended, mentions); err != nil {
+			t.Fatalf("record an ending: %v", err)
+		}
+	}
+	record(brief, "2026-08-03", "2026-08-10", 2)    // 한 주
+	record(drawnOut, "2026-07-06", "2026-08-10", 6) // 다섯 주
+
+	var briefTitle, longTitle string
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT title FROM work_items WHERE id=$1`, brief).Scan(&briefTitle); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT title FROM work_items WHERE id=$1`, drawnOut).Scan(&longTitle); err != nil {
+		t.Fatal(err)
+	}
+
+	clearance, err := server.app.issueClearanceFor(server.ctx(), "2026-07-01", "2026-08-31", "", nil)
+	if err != nil {
+		t.Fatalf("read the clearance: %v", err)
+	}
+	if clearance.LongestWeeks != 5 {
+		t.Errorf("the longest obstacle stood five weeks, the report says %d", clearance.LongestWeeks)
+	}
+	if clearance.LongestTitle == briefTitle {
+		t.Errorf("the report names the briefest obstacle %q as the longest", clearance.LongestTitle)
+	}
+	if clearance.LongestTitle != longTitle {
+		t.Errorf("the longest obstacle is %q, the report names %q", longTitle, clearance.LongestTitle)
+	}
+}
