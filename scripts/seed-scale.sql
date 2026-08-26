@@ -99,8 +99,16 @@ SELECT r.id,
        -- nothing had changed since the week before and the meeting agenda came
        -- back empty on 109,200 rows — a fixture that hid the very screen it was
        -- built to exercise.
+       -- One task in six stops climbing partway through and never moves again.
+       -- Without this every task advanced every fortnight, so nothing was ever
+       -- stalled: the stall rules, the meeting's 정체 entries and the forecast's
+       -- "이 속도로는 끝나는 시점이 없습니다" branch were all unreachable on a
+       -- fixture built to exercise them. The same mistake as the earlier version
+       -- that drove everything to 100%, in the other direction.
        LEAST(100, ((r.user_id * 7 + slot) % 9) * 4
-                  + (((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7)
+                  + (LEAST(
+                       ((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7),
+                       CASE WHEN ((r.user_id + slot) % 6) = 0 THEN 20 ELSE 999 END)
                      * (1 + ((r.user_id + slot) % 3)) / 2)),
        slot
 FROM weekly_reports r
@@ -108,7 +116,32 @@ CROSS JOIN generate_series(1, 7) slot
 JOIN subject ON subject.i = ((r.user_id * 7 + slot) % 32)
 JOIN action ON action.i = (((r.user_id * 7 + slot) / 32) % 8);
 
+-- Give every reported title the task identity the application would have
+-- created for it. resolveWorkItem() does this inside the save transaction, so
+-- rows inserted straight into SQL never get linked: on a freshly seeded
+-- deployment work_items was empty and the task list, stall rules, forecasts,
+-- dependencies and decisions were all blank — the fixture looked populated
+-- while every screen built on task identity had nothing to show.
+--
+-- The key must match candidateTitleKey(): lowercased, letters and digits only.
+INSERT INTO work_items(user_id, title, normalized_key, category)
+SELECT DISTINCT ON (r.user_id, k.key) r.user_id, i.title, k.key, i.category
+FROM report_items i
+JOIN weekly_reports r ON r.id = i.report_id
+CROSS JOIN LATERAL (SELECT lower(regexp_replace(i.title, '[^0-9A-Za-z가-힣]', '', 'g')) AS key) k
+WHERE k.key <> ''
+-- Newest wording wins, the way the upsert leaves the most recent title.
+ORDER BY r.user_id, k.key, r.week_start DESC;
+
+UPDATE report_items i SET work_item_id = w.id
+FROM weekly_reports r, work_items w
+WHERE r.id = i.report_id
+  AND w.user_id = r.user_id
+  AND w.normalized_key = lower(regexp_replace(i.title, '[^0-9A-Za-z가-힣]', '', 'g'));
+
 SELECT (SELECT count(*) FROM organizations) AS organizations,
        (SELECT count(*) FROM users) AS users,
        (SELECT count(*) FROM weekly_reports) AS reports,
-       (SELECT count(*) FROM report_items) AS items;
+       (SELECT count(*) FROM report_items) AS items,
+       (SELECT count(*) FROM work_items) AS work_items,
+       (SELECT count(*) FROM report_items WHERE work_item_id IS NULL) AS unlinked;
