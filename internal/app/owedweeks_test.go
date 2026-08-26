@@ -88,3 +88,78 @@ func participationFor(t *testing.T, server *testServer, username, joined string)
 	}
 	return 0, closed
 }
+
+// guards: analyticsParticipation
+//
+// The trend carries two rates, and both are computed behind a guard against
+// dividing by nobody. Turn either guard around and the rate is never computed:
+// the screen reads a flat zero for every week while the counts beside it say
+// otherwise. Nothing asserted either rate, so the analytics page could have
+// reported total collapse and the suite would have agreed.
+func TestTheParticipationRatesAgreeWithTheCountsBesideThem(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("비율 조직", "RATES")
+	filer := server.createUser("rate_filer", "USER", &organisation)
+	server.createUser("rate_silent", "USER", &organisation)
+
+	week := mondayWeeksAgo(3)
+	reportID := server.submitted(filer, week, week+" 주간보고")
+	// Filed now, it would be three weeks late and the on-time rate would read
+	// zero whether or not it is ever computed. Put the submission inside the
+	// deadline so the second rate has something to be.
+	if _, err := server.app.db.Exec(server.ctx(),
+		`UPDATE weekly_reports SET submitted_at = ($2::date + interval '1 day') AT TIME ZONE 'Asia/Seoul'
+			WHERE id = $1`, reportID, week); err != nil {
+		t.Fatal(err)
+	}
+
+	w := server.request(http.MethodGet, "/api/v1/admin/analytics/participation", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read participation: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Trend []struct {
+				WeekStart      string  `json:"weekStart"`
+				ActiveUsers    int     `json:"activeUsers"`
+				Submitted      int     `json:"submitted"`
+				OnTime         int     `json:"onTime"`
+				SubmissionRate float64 `json:"submissionRate"`
+				OnTimeRate     float64 `json:"onTimeRate"`
+			} `json:"trend"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, row := range envelope.Data.Trend {
+		if row.WeekStart != week {
+			continue
+		}
+		found = true
+		if row.Submitted == 0 || row.ActiveUsers == 0 {
+			t.Fatalf("%s: 제출 %d건, 대상 %d명 — 픽스처가 그 주에 닿지 않았습니다",
+				week, row.Submitted, row.ActiveUsers)
+		}
+		if row.SubmissionRate <= 0 {
+			t.Errorf("%s: 제출 %d건 / 대상 %d명인데 제출률이 %.1f%% 입니다",
+				week, row.Submitted, row.ActiveUsers, row.SubmissionRate)
+		}
+		if want := round1(float64(row.Submitted) * 100 / float64(row.ActiveUsers)); row.SubmissionRate != want {
+			t.Errorf("%s: 제출률 %.1f%% 가 곁의 숫자(%d/%d = %.1f%%)와 어긋납니다",
+				week, row.SubmissionRate, row.Submitted, row.ActiveUsers, want)
+		}
+		if row.OnTime > 0 && row.OnTimeRate <= 0 {
+			t.Errorf("%s: 정시 %d건인데 정시율이 %.1f%% 입니다", week, row.OnTime, row.OnTimeRate)
+		}
+		if want := round1(float64(row.OnTime) * 100 / float64(row.Submitted)); row.OnTimeRate != want {
+			t.Errorf("%s: 정시율 %.1f%% 가 곁의 숫자(%d/%d = %.1f%%)와 어긋납니다",
+				week, row.OnTimeRate, row.OnTime, row.Submitted, want)
+		}
+	}
+	if !found {
+		t.Fatalf("추세에 %s 주가 없습니다", week)
+	}
+}
