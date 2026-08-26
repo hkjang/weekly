@@ -1741,6 +1741,25 @@ if item.Submitted &gt; 0 { item.OnTimeRate = ... }</div>
 <div class="phase-box">gzip -dc weekly-vX.tar.gz | tar -xO manifest.json | grep -o &quot;blobs/sha256/[0-9a-f]\{64\}&quot; | head -1</div>
 <p><code>docker image inspect --format '{{.Id}}'</code> 는 확인에 쓰지 말라고 명시했습니다. 값이 다른 것이 정상이기 때문입니다.</p>
 <p>원칙으로 남깁니다. <strong>여정의 한 구간을 재고 전체를 잰 것처럼 말하지 않습니다.</strong> 왕복이 견딘다는 것과 편도가 견딘다는 것은 다른 주장이고, 이번 경우에는 앞의 것만 참이었습니다.</p>
+<p>#### 3.10.104 v0.149.0에서 완료 — 배포가 안 뜨는 순간에 읽는 유일한 문장</p>
+<p>처음 배포하는 운영자가 겪는 경로를 밟아 봤습니다. 기동이 거부되는 경우는 셋입니다.</p>
+<table><thead><tr><th>상황</th><th>이전 메시지</th></tr></thead><tbody><tr><td>필수 변수 누락</td><td><code>WEEKLY_POSTGRES_DSN, WEEKLY_BOOTSTRAP_ADMIN and WEEKLY_BOOTSTRAP_ADMIN_PASSWORD are required</code></td></tr><tr><td>비밀번호 12자 미만</td><td><code>WEEKLY_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters</code></td></tr><tr><td>DSN 오류</td><td>PostgreSQL 드라이버 메시지 (호스트·DB·SQLSTATE 포함)</td></tr></tbody></table>
+<p>세 번째는 드라이버의 것이고 실제로 유용합니다 — 그대로 둡니다. 앞의 둘은 <strong>제품이 직접 쓰는 문장</strong>입니다.</p>
+<p>이 패키지의 다른 모든 오류는 영어여도 됩니다. 로그로만 남거나, HTTP 응답이 되면서 한국어 문장으로 감싸이기 때문입니다. <strong>이 둘만 사람이 직접 읽습니다</strong> — 설치가 안 되는 순간에, 콘솔에서, 운영자가. 제품의 나머지가 전부 한국어로 말하고 "다음에 무엇을 하라" 까지 말하는데 이 둘만 그렇지 않았습니다.</p>
+<p>그리고 <strong>없는 것만 말하지 않았습니다.</strong> 하나가 빠져도 셋을 전부 나열하니, 운영자는 멀쩡한 둘까지 확인하러 갑니다.</p>
+<div class="phase-box">WEEKLY_POSTGRES_DSN, WEEKLY_BOOTSTRAP_ADMIN_PASSWORD 환경변수가 없습니다.
+deploy/.env.example 을 복사해 채운 뒤 --env-file 로 넘기십시오
+
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD 는 12자 이상이어야 합니다.
+첫 관리자 계정의 비밀번호이며, 기동한 뒤 화면에서 바꿀 수 있습니다</div>
+<p>##### 복제의 두 모드</p>
+<p>여섯 번째 변이 점검 묶음에서 <code>cloneReport</code> 의 네 변이가 살아남았습니다. 복제에는 모드가 둘이고 그 차이가 기능의 전부입니다 — <code>STRUCTURE</code> 는 업무 이름만 다음 주로 옮기고, <code>FULL</code> 은 지난주 글까지 옮겨 고쳐 쓰게 합니다. 도착한 모드는 <strong>아무것도 안 보냈을 때만</strong> 기본값으로 채우는데, 그 비교를 뒤집으면 <strong>모든 <code>FULL</code> 요청이 조용히 <code>STRUCTURE</code> 가 됩니다.</strong> 작성자는 다음 주를 열어 자기 글이 없어진 것을 보고, 어디에도 이유가 적혀 있지 않습니다.</p>
+<p>##### 여기서 제 기대가 틀렸습니다</p>
+<p>이미 보고서가 있는 주차로 복제하는 경우를 시험하며 <code>REPORT_EXISTS</code> 를 기대했습니다. 제가 보고 있던 갈래가 그 코드를 내기 때문입니다. <strong>제품은 이미 더 나은 것을 하고 있었습니다</strong> — 더 앞선 검사가 <code>REPORT_PERIOD_OVERLAPS</code> 로, 주차를 말하고 무엇을 할지("그 보고서를 여십시오")까지 답합니다.</p>
+<p>즉 그 <code>23505</code> 갈래는 앞선 검사가 막아 주는 <strong>두 번째 층</strong>이고, 그래서 어떤 변이도 잡히지 않습니다. 시험을 <strong>작성자가 실제로 읽는 문장</strong>에 맞췄습니다 — 코드 경로가 아니라.</p>
+<p>원칙으로 남깁니다. <strong>시험이 기대해야 할 것은 코드가 내는 값이 아니라 사람이 받는 것입니다.</strong> 제가 보고 있던 갈래를 기준으로 기대를 세우면, 제품이 더 나은 답을 하고 있어도 그것을 결함으로 읽게 됩니다.</p>
+<p>##### 아직 안 본 것</p>
+<p>같은 묶음의 <code>adminUsers</code>(348·354), <code>queryReports</code>(827), <code>uploadImportPPTX</code>(158) 는 다음으로 넘깁니다. <code>authenticate</code>(92) 는 v0.142 에서 이미 무해한 변이로 판정한 자리입니다 — <code>last_seen_at</code> 은 아무도 읽지 않습니다.</p>
 </div>
 </body>
 </html>
