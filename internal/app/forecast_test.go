@@ -196,3 +196,69 @@ func TestShortFlatSeriesSaysStalledRatherThanAskingForMoreWeeks(t *testing.T) {
 		t.Errorf("kind=%s want=%s (%s)", single.Kind, forecastInsufficient, single.Note)
 	}
 }
+
+// guards: forecastCompletion, weekSpan
+//
+// Pace is per week, and a week passes whether or not anybody writes a report in
+// it. Dividing the gain by the number of reports made a task look faster for
+// being written down less often — and this number becomes a date somebody plans
+// against.
+func TestForecastPaceIsPerWeekNotPerReport(t *testing.T) {
+	w := func(week string, progress int) rollupItemWeek {
+		return rollupItemWeek{WeekStart: week, Progress: progress}
+	}
+
+	// Thirty points across six weeks. One task wrote it down every week, the
+	// other three times. Same work, same span, same answer.
+	everyWeek := forecastCompletion([]rollupItemWeek{
+		w("2026-07-06", 50), w("2026-07-13", 56), w("2026-07-20", 62),
+		w("2026-07-27", 68), w("2026-08-03", 74), w("2026-08-10", 80),
+	}, 80)
+	sometimes := forecastCompletion([]rollupItemWeek{
+		w("2026-07-06", 50), w("2026-07-27", 68), w("2026-08-10", 80),
+	}, 80)
+
+	if everyWeek.OverallPerWeek != sometimes.OverallPerWeek {
+		t.Errorf("the same work over the same weeks reads as %.1f%%/week when reported weekly and %.1f%%/week when reported three times",
+			everyWeek.OverallPerWeek, sometimes.OverallPerWeek)
+	}
+	if everyWeek.EarliestWeek != sometimes.EarliestWeek {
+		t.Errorf("the projected finish moved from %s to %s because of how often somebody reported",
+			everyWeek.EarliestWeek, sometimes.EarliestWeek)
+	}
+	if everyWeek.OverallPerWeek != 6 {
+		t.Errorf("thirty points over six weeks is 6%%/week, the forecast says %.1f", everyWeek.OverallPerWeek)
+	}
+
+	// Three reports in three consecutive weeks really is three times the pace,
+	// and must not be flattened by the same change.
+	fast := forecastCompletion([]rollupItemWeek{
+		w("2026-07-27", 50), w("2026-08-03", 68), w("2026-08-10", 80),
+	}, 80)
+	if fast.OverallPerWeek != 15 {
+		t.Errorf("thirty points over three weeks is 15%%/week, the forecast says %.1f", fast.OverallPerWeek)
+	}
+	if fast.EarliestWeeks >= everyWeek.EarliestWeeks {
+		t.Errorf("the genuinely faster task should finish sooner: %d vs %d weeks",
+			fast.EarliestWeeks, everyWeek.EarliestWeeks)
+	}
+}
+
+// guards: weekSpan
+func TestWeekSpanNeverDividesByZero(t *testing.T) {
+	// Two entries carrying the same week, or dates that cannot be read, must not
+	// turn a gain into an infinite pace.
+	for _, item := range []struct {
+		name     string
+		from, to string
+	}{
+		{"같은 주", "2026-08-10", "2026-08-10"},
+		{"읽을 수 없는 시작", "언제인지 모름", "2026-08-10"},
+		{"읽을 수 없는 끝", "2026-08-10", "언제인지 모름"},
+		{"거꾸로 된 순서", "2026-08-10", "2026-07-06"},
+	} {
+		if span := weekSpan(item.from, item.to, 2); span < 1 {
+			t.Errorf("%s: weekSpan = %v, want at least 1", item.name, span)
+		}
+	}
+}

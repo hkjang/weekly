@@ -98,14 +98,25 @@ func forecastCompletion(weeks []rollupItemWeek, progress int) completionForecast
 	}
 
 	first, last := series[0], series[len(series)-1]
-	spans := float64(len(series) - 1)
-	overall := (float64(last.Progress) - float64(first.Progress)) / spans
 
-	// The recent pace uses the last three reported weeks, which is two spans —
-	// enough to notice that work restarted or stopped, short enough that a
-	// change of pace is not averaged away by two good months.
+	// Pace is per week on the calendar, not per report.
+	//
+	// Dividing by the number of reports made a task that gained thirty points
+	// over six weeks look like fifteen a week when only three of those weeks
+	// were written down, and put its finish two weeks earlier than the same
+	// work reported every week. Reporting less often is not going faster, and
+	// this figure is what somebody plans a date against.
+	//
+	// Where every week was reported the two agree exactly, so an unbroken run
+	// is unchanged. A series that cannot be read as dates falls back to the
+	// report count rather than refusing to answer.
+	overall := (float64(last.Progress) - float64(first.Progress)) / weekSpan(first.WeekStart, last.WeekStart, float64(len(series)-1))
+
+	// The recent pace looks back three reports — enough to notice that work
+	// restarted or stopped, short enough that a change of pace is not averaged
+	// away by two good months — and again over the weeks they actually cover.
 	recentFrom := series[len(series)-3]
-	recent := (float64(last.Progress) - float64(recentFrom.Progress)) / 2
+	recent := (float64(last.Progress) - float64(recentFrom.Progress)) / weekSpan(recentFrom.WeekStart, last.WeekStart, 2)
 
 	remaining := float64(100 - progress)
 	weeksAt := func(pace float64) (int, bool) {
@@ -161,6 +172,22 @@ func forecastCompletion(weeks []rollupItemWeek, progress int) completionForecast
 // shiftISOWeek moves a yyyy-mm-dd week start forward by whole weeks. An
 // unparseable input returns empty rather than a wrong date, because a
 // projection labelled with the wrong Monday is worse than one with no label.
+// weekSpan is how many weeks lie between two week starts, falling back to the
+// caller's count when either date cannot be read. Never below one: two reports
+// in the same week would otherwise divide by zero and call any gain infinite.
+func weekSpan(from, to string, fallback float64) float64 {
+	start, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return math.Max(fallback, 1)
+	}
+	end, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		return math.Max(fallback, 1)
+	}
+	weeks := end.Sub(start).Hours() / (24 * 7)
+	return math.Max(math.Round(weeks), 1)
+}
+
 func shiftISOWeek(weekStart string, weeks int) string {
 	parsed, err := time.Parse("2006-01-02", weekStart)
 	if err != nil {
