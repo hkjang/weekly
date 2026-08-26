@@ -14,12 +14,14 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // A harness that serves requests through the same mux the binary does.
@@ -295,11 +297,102 @@ func errorCode(w *httptest.ResponseRecorder) string {
 
 // createScratchDatabase makes an empty database beside the configured one and
 // drops it when the test ends.
+// harnessTemplate is a migrated but otherwise empty database that every scratch
+// database is copied from.
+//
+// Each test used to start from template1 and replay all the migrations, which
+// measured at about two seconds a test. Sixty-seven tests take the harness, so
+// the suite spent roughly two minutes creating the same schema over and over —
+// and every tool that runs the suite once per mutation paid that again.
+// PostgreSQL copies a template's files instead of replaying the DDL, measured at
+// about 0.4 seconds.
+//
+// The template holds schema only. Running New() against it would leave a
+// bootstrap administrator behind, every scratch copy would inherit that row, and
+// New() creates the administrator only when none exists — so every later test
+// would sign in with a name that was never created. That is the failure the
+// per-test database was introduced to end, and copying it into the template
+// would bring it straight back.
+var (
+	harnessTemplateOnce sync.Once
+	harnessTemplateName string
+	harnessTemplateErr  error
+)
+
+func ensureHarnessTemplate(dsn string) (string, error) {
+	harnessTemplateOnce.Do(func() {
+		name := fmt.Sprintf("weekly_tmpl_%d", harnessRun)
+		ctx := context.Background()
+		admin, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			harnessTemplateErr = err
+			return
+		}
+		defer admin.Close(ctx)
+		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
+			harnessTemplateErr = err
+			return
+		}
+		if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+			harnessTemplateErr = err
+			return
+		}
+
+		parsed, err := url.Parse(dsn)
+		if err != nil {
+			harnessTemplateErr = err
+			return
+		}
+		target := *parsed
+		target.Path = "/" + name
+		pool, err := pgxpool.New(ctx, target.String())
+		if err != nil {
+			harnessTemplateErr = err
+			return
+		}
+		err = migrate(ctx, pool)
+		// The pool has to be gone before anything can copy this database:
+		// CREATE DATABASE ... TEMPLATE refuses while another session is
+		// connected to the source.
+		pool.Close()
+		if err != nil {
+			harnessTemplateErr = err
+			return
+		}
+		harnessTemplateName = name
+	})
+	return harnessTemplateName, harnessTemplateErr
+}
+
+// TestMain drops the template when the binary is done with it.
+//
+// Without this the template outlives every run: one database per `go test`
+// invocation, named after the run, never removed. Sixty-three of them had piled
+// up on this machine before anybody looked — invisible on CI, where the
+// container is thrown away, and cumulative everywhere a person actually works.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if name := harnessTemplateName; name != "" {
+		if dsn := os.Getenv("WEEKLY_TEST_POSTGRES_DSN"); dsn != "" {
+			ctx := context.Background()
+			if admin, err := pgx.Connect(ctx, dsn); err == nil {
+				_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+				_ = admin.Close(ctx)
+			}
+		}
+	}
+	os.Exit(code)
+}
+
 func createScratchDatabase(t *testing.T, dsn string) string {
 	t.Helper()
 	parsed, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatalf("parse the test DSN: %v", err)
+	}
+	template, err := ensureHarnessTemplate(dsn)
+	if err != nil {
+		t.Fatalf("build the harness template: %v", err)
 	}
 	name := fmt.Sprintf("weekly_h_%d_%d", harnessRun, harnessAccounts.Add(1))
 
@@ -308,9 +401,9 @@ func createScratchDatabase(t *testing.T, dsn string) string {
 	if err != nil {
 		t.Fatalf("connect to create %s: %v", name, err)
 	}
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name+" TEMPLATE "+template); err != nil {
 		_ = admin.Close(ctx)
-		t.Fatalf("create %s: %v", name, err)
+		t.Fatalf("create %s from %s: %v", name, template, err)
 	}
 	_ = admin.Close(ctx)
 
