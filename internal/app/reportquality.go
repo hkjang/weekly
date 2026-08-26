@@ -57,8 +57,14 @@ func priorSnapshots(item workItemView, week string) []workItemWeek {
 	return result
 }
 
-// runsBackFrom counts how many consecutive weeks at the end of the history share
-// the given key. Zero means the most recent week already differs.
+// runsBackFrom counts how many consecutive reports at the end of the history
+// share the given key. Zero means the most recent one already differs.
+//
+// Reports, not weeks, and the sentences built from it say 번째 rather than
+// 주째. Writing the same thing again is something a person does, so counting
+// the times they did it is the honest unit — a missing week is a week nobody
+// wrote anything in, not a week they repeated themselves. Stalling is the other
+// way round and is measured on the calendar.
 func runsBackFrom(weeks []workItemWeek, key string, field func(workItemWeek) string) int {
 	if key == "" {
 		return 0
@@ -118,7 +124,7 @@ func checkReportQuality(week string, items []reportItem, history []workItemView,
 		if planRun >= repeatedPlanWeeks && item.Progress <= previous.Progress {
 			finding := qualityFinding{
 				Rule: "PLAN_REPEATED", Severity: "WARN", Title: title,
-				Message: fmt.Sprintf("같은 차주 계획을 %d주째 그대로 적었고 진척도도 오르지 않았습니다. 계획을 쪼개거나 막힌 이유를 이슈로 적어 주세요.",
+				Message: fmt.Sprintf("같은 차주 계획을 %d번째 그대로 적었고 진척도도 오르지 않았습니다. 계획을 쪼개거나 막힌 이유를 이슈로 적어 주세요.",
 					planRun+1),
 			}
 			// This warning asks the author to record why they are stuck. Someone
@@ -146,11 +152,11 @@ func checkReportQuality(week string, items []reportItem, history []workItemView,
 		// not working. Reporting it again is not the same as escalating it.
 		issueRun := runsBackFrom(weeks, lineKey(item.Issue), func(week workItemWeek) string { return week.Issue })
 		if strings.TrimSpace(item.Issue) != "" && issueRun >= cfg.PersistentIssueWeeks {
-			message := fmt.Sprintf("같은 이슈를 %d주째 보고하고 있습니다. 같은 방식으로는 풀리지 않는 문제일 수 있으니 상위 조직 요청으로 올리는 것을 검토하세요.", issueRun+1)
+			message := fmt.Sprintf("같은 이슈를 %d번째 보고하고 있습니다. 같은 방식으로는 풀리지 않는 문제일 수 있으니 상위 조직 요청으로 올리는 것을 검토하세요.", issueRun+1)
 			if strings.TrimSpace(item.ManagementAsk) != "" {
 				// Already escalated. Saying so keeps the finding honest instead
 				// of nagging about something the author has acted on.
-				message = fmt.Sprintf("같은 이슈를 %d주째 보고하고 있습니다. 상위 조직 요청은 이미 적혀 있으니 회신 여부를 확인하세요.", issueRun+1)
+				message = fmt.Sprintf("같은 이슈를 %d번째 보고하고 있습니다. 상위 조직 요청은 이미 적혀 있으니 회신 여부를 확인하세요.", issueRun+1)
 			}
 			report.Findings = append(report.Findings, qualityFinding{
 				Rule: "ISSUE_PERSISTED", Severity: "INFO", Title: title, Message: message,

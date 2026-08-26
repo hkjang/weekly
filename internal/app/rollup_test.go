@@ -546,3 +546,45 @@ func TestWeekSnapsToTheConfiguredStartDay(t *testing.T) {
 			sunday.Start, sunday.End)
 	}
 }
+
+// guards: isStalled
+//
+// The rollup has its own stall rule, separate from the one on a work item, and
+// it counted reports. That made the setting behave backwards: raise the
+// threshold to be stricter and it stopped flagging the tasks that had gone
+// longest without moving, because those are exactly the ones nobody writes up.
+func TestRollupStallCountsWeeksNotReports(t *testing.T) {
+	w := func(week string, progress int) rollupItemWeek {
+		return rollupItemWeek{WeekStart: week, Progress: progress}
+	}
+
+	// Three consecutive weeks at the same figure: unchanged by the move to the
+	// calendar, because for an unbroken run the two ways of counting agree.
+	consecutive := []rollupItemWeek{w("2026-07-27", 50), w("2026-08-03", 50), w("2026-08-10", 50)}
+	if !isStalled(consecutive, 3) {
+		t.Error("three consecutive weeks at 50% is stalled at a threshold of three")
+	}
+	if !isStalled(consecutive, 2) {
+		t.Error("three consecutive weeks at 50% is stalled at a threshold of two")
+	}
+
+	// Six weeks at the same figure, written down twice. It has stood longer
+	// than the run above and must not escape the stricter setting.
+	gapped := []rollupItemWeek{w("2026-07-06", 50), w("2026-08-10", 50)}
+	if !isStalled(gapped, 3) {
+		t.Error("six weeks at 50% is stalled at a threshold of three, however few reports say so")
+	}
+
+	// One report says nothing about the weeks before it. Calling that stalled
+	// would be inventing a history.
+	if isStalled([]rollupItemWeek{w("2026-08-10", 50)}, 2) {
+		t.Error("a single report cannot show that anything stood still")
+	}
+	// Work that moved is not stalled, and finished work is not stalled either.
+	if isStalled([]rollupItemWeek{w("2026-07-27", 30), w("2026-08-03", 40), w("2026-08-10", 50)}, 2) {
+		t.Error("a task that gained twenty points reads as stalled")
+	}
+	if isStalled([]rollupItemWeek{w("2026-07-27", 100), w("2026-08-10", 100)}, 2) {
+		t.Error("finished work reads as stalled")
+	}
+}

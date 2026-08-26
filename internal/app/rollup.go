@@ -768,21 +768,38 @@ func fuzzyMatch(order []string, byKey map[string]*itemAccumulator, entry sourceE
 }
 
 // isStalled reports work that reached the end of the period without moving for
-// the configured number of consecutive reported weeks.
+// the configured number of weeks.
+//
+// Weeks on the calendar, not reports. Requiring N reports at the same figure
+// meant the stricter an operator set the rule, the more it missed: a task last
+// touched on 6 July and still reading 50% on 10 August has stood five weeks,
+// and with the threshold at three it was not stalled — while a task somebody
+// wrote up every week for three weeks was. The setting is meant to say "flag
+// what has not moved in three weeks", and that is now what it says.
+//
+// Two reports are still the minimum. One report says nothing about the weeks
+// before it, and calling that stalled would be inventing a history.
 func isStalled(weeks []rollupItemWeek, threshold int) bool {
-	if threshold < 2 || len(weeks) < threshold {
+	if threshold < 2 || len(weeks) < 2 {
 		return false
 	}
 	last := weeks[len(weeks)-1]
 	if last.Progress >= 100 {
 		return false
 	}
-	for index := len(weeks) - threshold; index < len(weeks); index++ {
+	unchangedFrom := last.WeekStart
+	for index := len(weeks) - 1; index >= 0; index-- {
 		if weeks[index].Progress != last.Progress {
-			return false
+			break
 		}
+		unchangedFrom = weeks[index].WeekStart
 	}
-	return true
+	if unchangedFrom == last.WeekStart {
+		return false
+	}
+	// Inclusive, so three consecutive weeks reads as three — the same number the
+	// report count gave for an unbroken run.
+	return int(weekSpan(unchangedFrom, last.WeekStart, 0))+1 >= threshold
 }
 
 // buildRollup assembles the full period view including the executive insight
