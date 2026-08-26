@@ -27,6 +27,12 @@ func TestOutlookForDueDate(t *testing.T) {
 		wantLow  int
 		wantHigh int
 		noteHas  string
+		// noteReaches is the pace the sentence must name as the one that gets
+		// there. Both split sentences contain both phrases — "최근 속도" and
+		// "전체 평균" — so a substring match cannot tell them apart and the two
+		// halves of the sentence could be swapped without a test noticing.
+		// Which one is named first is the whole content of the verdict.
+		noteReaches string
 	}{
 		{
 			// Six weeks left at 10 a week clears 60 points with room to spare.
@@ -46,7 +52,7 @@ func TestOutlookForDueDate(t *testing.T) {
 			// the run average rather than the recent one.
 			name: "recent pace is the slower one", due: "2026-07-20",
 			forecast: slowingForecast, weeks: slowing, progress: 64,
-			wantKind: dueOutlookSplit, noteHas: "전체 평균",
+			wantKind: dueOutlookSplit, noteHas: "전체 평균", noteReaches: "전체 평균",
 		},
 		{
 			// Neither pace arrives, and they disagree about how far short.
@@ -75,7 +81,7 @@ func TestOutlookForDueDate(t *testing.T) {
 			// Five weeks left. The recent sprint gets there, the run average
 			// does not, and which one holds is exactly what nobody knows.
 			name: "depends which pace holds", due: "2026-08-03", forecast: unevenForecast, weeks: uneven, progress: 36,
-			wantKind: dueOutlookSplit, wantLow: 81, wantHigh: 100, noteHas: "최근 속도",
+			wantKind: dueOutlookSplit, wantLow: 81, wantHigh: 100, noteHas: "최근 속도", noteReaches: "최근 속도",
 		},
 		{
 			// The date is behind the last reported week. Nothing is projected,
@@ -114,6 +120,17 @@ func TestOutlookForDueDate(t *testing.T) {
 		}
 		if item.noteHas != "" && !strings.Contains(got.Note, item.noteHas) {
 			t.Errorf("%s: note %q does not say %q", item.name, got.Note, item.noteHas)
+		}
+		if item.noteReaches != "" {
+			other := "전체 평균"
+			if item.noteReaches == other {
+				other = "최근 속도"
+			}
+			reaches, misses := strings.Index(got.Note, item.noteReaches), strings.Index(got.Note, other)
+			if reaches < 0 || misses < 0 || reaches > misses {
+				t.Errorf("%s: %s 가 닿는 쪽인데 문장이 %s 를 먼저 지목합니다: %s",
+					item.name, item.noteReaches, other, got.Note)
+			}
 		}
 	}
 }
