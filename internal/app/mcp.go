@@ -155,7 +155,7 @@ func (a *App) mcpTools(p *principal) []map[string]any {
 		},
 	}
 	if p.Role == "ADMIN" {
-		tools = append(tools, map[string]any{"name": "weekly_endpoint_analysis", "title": "Weekly API 운영 분석", "description": "최근 24시간 API별 호출 수, 평균/최대 응답시간과 오류율을 분석합니다.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "outputSchema": map[string]any{"type": "object", "properties": map[string]any{"endpoints": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}}, "required": []string{"endpoints"}}, "annotations": readOnly})
+		tools = append(tools, map[string]any{"name": "weekly_endpoint_analysis", "title": "Weekly API 운영 분석", "description": "최근 24시간 API별 호출 수, 평균/최대 응답시간, 서버 오류(5xx) 수와 거부(4xx) 비율을 분석합니다. 거부는 권한·검증처럼 정상적으로 막아 낸 요청을 포함하므로 장애 지표가 아닙니다.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "outputSchema": map[string]any{"type": "object", "properties": map[string]any{"endpoints": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}}, "required": []string{"endpoints"}}, "annotations": readOnly})
 	}
 	return tools
 }
