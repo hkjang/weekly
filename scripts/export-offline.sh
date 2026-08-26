@@ -22,3 +22,13 @@ docker save "$image" | gzip -9 -n > "$output"
 
 echo "$output"
 sha256sum "$output"
+
+# The archive hash answers "did this file arrive whole". It cannot answer
+# "is this the image that was built": an archive unpacked and repacked on
+# the way in — ordinary on a network with no route out — comes back with
+# different bytes and the same image inside. Docker rewrites its own
+# packaging metadata on a load-and-save round trip; the layer and config
+# digests do not move. So print the identity that survives the journey.
+printf "image id: "
+docker image inspect "$image" --format '{{.Id}}'
+

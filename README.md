@@ -65,8 +65,12 @@
 
 GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파일을 적재하면 동일한 버전의 `weekly:v<VERSION>` 이미지가 생성됩니다.
 
+확인은 두 번입니다. **반입 전에는 파일이 온전히 도착했는지**를 릴리스에 적힌 SHA-256으로, **적재 뒤에는 그것이 빌드된 이미지가 맞는지**를 이미지 ID로 봅니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 이미지 ID는 그대로이므로, 둘은 서로 다른 질문에 답합니다.
+
 ```bash
-gzip -dc weekly-v0.146.0.tar.gz | docker load
+sha256sum weekly-v0.147.0.tar.gz
+gzip -dc weekly-v0.147.0.tar.gz | docker load
+docker image inspect weekly:v0.147.0 --format '{{.Id}}'
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d

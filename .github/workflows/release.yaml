@@ -62,12 +62,15 @@ jobs:
           cp "$notes_source" release/release-notes.md
           asset_name=$(basename "$OFFLINE_ASSET")
           asset_size=$(stat -c '%s' "$OFFLINE_ASSET")
+          image_id=$(docker image inspect "weekly:${GITHUB_REF_NAME}" --format '{{.Id}}')
           {
             printf '\n## 오프라인 배포 자산\n\n'
             printf -- '- 파일: `%s`\n' "$asset_name"
             printf -- '- 크기: `%s bytes`\n' "$asset_size"
             printf -- '- SHA-256: `%s`\n' "$OFFLINE_SHA256"
-            printf '\n```bash\nsha256sum %s\ngzip -dc %s | docker load\n```\n' "$asset_name" "$asset_name"
+            printf -- '- 이미지 ID: `%s`\n' "$image_id"
+            printf '\n반입 전에는 파일이 온전히 도착했는지를, 적재 뒤에는 그것이 빌드된 이미지가 맞는지를 확인합니다. 옮기는 과정에서 압축을 풀었다 다시 묶으면 파일 해시는 달라지지만 이미지 ID는 그대로입니다.\n'
+            printf '\n```bash\nsha256sum %s\ngzip -dc %s | docker load\ndocker image inspect weekly:%s --format "{{.Id}}"\n```\n' "$asset_name" "$asset_name" "${GITHUB_REF_NAME}"
           } >> release/release-notes.md
           gh release create "${GITHUB_REF_NAME}" "$OFFLINE_ASSET" \
             --repo "$GITHUB_REPOSITORY" \
