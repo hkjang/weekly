@@ -2280,6 +2280,28 @@ Exception in thread Thread-7 (writer):
 <blockquote>Memory is sized by what password hashing reserves, which is <strong>the only part of this service that holds a large block for the length of a request</strong>.</blockquote>
 <p>v0.181.0 에서 잰 캡처 첨부 내보내기가 그 문장을 뒤집습니다. 기본 설정에서 내보내기 하나가 약 700MB 를 요구하는데, 한도는 1Gi 입니다. <strong>월요일 아침과 내보내기가 겹치면 죽습니다.</strong></p>
 <p>둘 다 적도록 고쳤습니다 — 무엇이 크게 잡는지, 얼마인지, 그리고 1Gi 가 무엇까지 버티고 무엇은 못 버티는지.</p>
+<p>#### 3.10.138 v0.183.0에서 완료 — 같은 데이터에 문이 둘, 한쪽만 배웠습니다</p>
+<p>씨앗에 개인 API 키가 없어 <strong>MCP 표면은 데이터와 함께 불려 본 적이 없었습니다.</strong> 키를 만들어 세 도구를 규모 배포에 대고 불렀습니다.</p>
+<p><code>period_report_rollup</code> 이 <strong>2,563,406 바이트</strong>를 돌려줬습니다.</p>
+<table><thead><tr><th>문</th><th>항목</th><th>주차 데이터를 든 항목</th><th>크기</th></tr></thead><tbody><tr><td>화면 (HTTP)</td><td>263</td><td><strong>20</strong></td><td>430KB</td></tr><tr><td>MCP</td><td>263</td><td><strong>263</strong></td><td><strong>2.5MB</strong></td></tr></tbody></table>
+<p>화면 쪽은 주차별 이력이 885KB 중 522KB를 차지한다는 사실을 알고 v0.164 무렵부터 잘라 왔습니다. MCP 쪽은 <code>loadRollup</code> 결과를 <strong>그대로</strong> 돌려줍니다. <code>trimTimelineSeries</code> 는 HTTP 핸들러에만 있었습니다.</p>
+<p>그리고 <code>timelineItems: 0</code> 이라고 말하면서 263개가 전부 주차 데이터를 답니다 — 숫자와 데이터가 어긋납니다.</p>
+<p>##### 화면보다 더 잘라야 합니다</p>
+<p>받는 쪽이 사람이 아니라 언어 모델입니다. 표를 스크롤해 중요한 세 줄을 찾는 것이 아니라, <strong>이 payload 가 그 모델이 가진 전부</strong>이고 모든 바이트를 컨텍스트로 지불합니다.</p>
+<ul>
+<li>화면과 <strong>같은</strong> <code>trimTimelineSeries</code> 를 씁니다 — 한 곳에 하나 (v0.175의 교훈)</li>
+<li>항목도 100건으로 자릅니다. 보고서 검색이 이미 정착시킨 수입니다</li>
+<li>그리고 <strong>문장으로</strong> 말합니다. 검색 도구가 이미 그렇게 합니다</li>
+</ul>
+<blockquote>업무 263건 중 주차별 진척 이력(weeks)은 상위 20건에만 있습니다. <strong>나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.</strong> 업무 263건 중 100건만 반환했습니다. 이 목록을 전체로 보고 요약하지 마세요.</blockquote>
+<p>가운데 문장이 중요합니다. 자르고 나면 빈 <code>weeks</code> 가 "그 업무는 아무 일도 없었다" 로 읽힙니다.</p>
+<p>##### 그리고 같은 답을 두 번 보내고 있었습니다</p>
+<p>규격이 <code>structuredContent</code> 와 텍스트 사본을 둘 다 요구합니다. 그런데 사본이 <strong>들여쓰기</strong>되어 있었습니다.</p>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>structuredContent</td><td>214KB</td></tr><tr><td>들여쓴 텍스트 사본</td><td><strong>316KB</strong></td></tr></tbody></table>
+<p>공백에 절반을 더 씁니다. 이걸 편집기로 여는 사람은 없습니다.</p>
+<table><thead><tr><th></th><th>크기</th></tr></thead><tbody><tr><td>처음</td><td>2,563,406 B</td></tr><tr><td>자르기·상한 뒤</td><td>517,073 B</td></tr><tr><td>들여쓰기 제거 뒤</td><td><strong>421,379 B</strong></td></tr></tbody></table>
+<p>##### 곁가지 — 기간 보고 계층 변이 검사 완료</p>
+<p>가드 8개를 격리된 워크트리에서 전부 돌렸습니다. 살아남은 변이는 <strong>모두 다른 시험이 잡았습니다.</strong> 빈틈 없음입니다.</p>
 </div>
 </body>
 </html>

@@ -217,7 +217,11 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 		if periodErr != nil {
 			return a.mcpToolError(response, "조회 기간이 올바르지 않습니다. 예: 2026-08, 2026-Q3, 2026-H2, 2026")
 		}
-		data, err = a.loadRollup(r.Context(), p, period, scope)
+		var view rollupView
+		view, err = a.loadRollup(r.Context(), p, period, scope)
+		if err == nil {
+			data = a.rollupForModel(&view)
+		}
 	case "weekly_endpoint_analysis":
 		if p.Role != "ADMIN" {
 			return a.mcpToolError(response, "관리자 권한이 필요합니다.")
@@ -236,7 +240,15 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 		a.logger.Error("mcp tool", "tool", params.Name, "error", err, "trace", traceIDFromContext(r.Context()))
 		return a.mcpToolError(response, "분석 중 오류가 발생했습니다.")
 	}
-	encoded, _ := json.MarshalIndent(data, "", "  ")
+	// The same answer twice: structuredContent for callers that understand it,
+	// and a text mirror for the ones that do not. The protocol asks for both.
+	//
+	// Not indented, though. Measured on a 300 person deployment, the year at
+	// organisation scope was 214 KB of structured content and 316 KB of the
+	// indented mirror — half again as much for whitespace, on a payload whose
+	// only reader is a language model paying for every byte of it in context.
+	// Nobody opens this in an editor.
+	encoded, _ := json.Marshal(data)
 	response.Result = map[string]any{"content": []map[string]any{{"type": "text", "text": string(encoded)}}, "structuredContent": data}
 	return response
 }
@@ -244,6 +256,55 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 func (a *App) mcpToolError(response jsonRPCResponse, message string) jsonRPCResponse {
 	response.Result = map[string]any{"isError": true, "content": []map[string]string{{"type": "text", "text": message}}}
 	return response
+}
+
+// mcpRollupItems is the most tasks one rollup call returns in full.
+//
+// The screen sends every row because a person scrolls a table and reads the
+// three that matter. A model has no table: the payload is its entire view, and
+// paying for a thousand rows to answer a question about the period is the
+// wrong trade. A hundred is the same number the report search settled on.
+const mcpRollupItems = 100
+
+// rollupForModel is the period rollup as a tool result rather than a screen.
+//
+// Measured on a 300 person deployment: the year at organisation scope came back
+// as 2,563,406 bytes, because this door returned loadRollup's view untouched
+// while the screen's door had been trimming it since the weekly series turned
+// out to be 522 KB of an 885 KB response. Two doors to the same data and only
+// one of them had learned. The field that says how many rows carry a series
+// said zero while all 263 of them did.
+//
+// So: the same trim the screen uses, then a cap on the rows themselves, and —
+// because the caller cannot scroll — a sentence saying what was left out. The
+// report search already words it this way; a JSON field a model might not
+// compare against len(items) is a weaker signal than being told.
+func (a *App) rollupForModel(view *rollupView) map[string]any {
+	trimTimelineSeries(view)
+	total := len(view.Items)
+	if len(view.Items) > mcpRollupItems {
+		view.Items = view.Items[:mcpRollupItems]
+	}
+	data := map[string]any{
+		"kind": view.Kind, "period": view.Period, "label": view.Label,
+		"start": view.Start, "end": view.End,
+		"scope": view.Scope, "scopeLabel": view.ScopeLabel,
+		"summary": view.Summary, "insights": view.Insights,
+		"highlights": view.Highlights, "items": view.Items,
+		"itemsTotal": total, "timelineItems": view.TimelineItems,
+		"categories": view.Categories, "contributors": view.Contributors,
+		"trend": view.Trend, "weeks": view.Weeks,
+	}
+	notes := []string{fmt.Sprintf(
+		"업무 %d건 중 주차별 진척 이력(weeks)은 상위 %d건에만 있습니다. 나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.",
+		total, view.TimelineItems)}
+	if total > len(view.Items) {
+		notes = append(notes, fmt.Sprintf(
+			"업무 %d건 중 %d건만 반환했습니다. 이 목록을 전체로 보고 요약하지 마세요.",
+			total, len(view.Items)))
+	}
+	data["note"] = strings.Join(notes, " ")
+	return data
 }
 
 // mcpReportPageMaximum is the most reports one tool call returns. The cap is
