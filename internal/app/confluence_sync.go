@@ -725,7 +725,7 @@ func (a *App) recordConfluenceError(ctx context.Context, pageID, phase string, s
 	if err == nil {
 		return
 	}
-	_, _ = a.db.Exec(ctx, `INSERT INTO confluence_sync_errors(page_id,phase,status_code,error_message) VALUES($1,$2,$3,$4)`, nullableString(pageID), phase, nullableInteger(statusCode), trimRunes(safeConfluenceError(err), 2000))
+	_, _ = a.db.Exec(ctx, `INSERT INTO confluence_sync_errors(page_id,phase,status_code,error_message) VALUES($1,$2,$3,$4)`, nullableString(pageID), phase, nullableInteger(statusCode), trimRunes(confluenceSyncErrorMessage(phase, err), 2000))
 	_, _ = a.db.Exec(ctx, `DELETE FROM confluence_sync_errors WHERE id IN (SELECT id FROM confluence_sync_errors ORDER BY created_at DESC OFFSET 500)`)
 }
 
@@ -802,6 +802,32 @@ func confluenceErrorStatus(err error) int {
 // wrong, and the second is an internal API path on a settings screen.
 //
 // The raw error still goes to the log, where whoever is debugging wants it.
+// confluenceSyncErrorMessage explains a failure in terms of the system that
+// actually failed.
+//
+// Every phase used to be described by safeConfluenceError, which speaks only
+// about Confluence. The phases whose work is a call to the AI Gateway were
+// described that way too. Measured on a deployment: 111 AI_CLASSIFY rows and
+// 114 AI_SUMMARY rows all reading "Confluence에 연결하지 못했습니다" on a sync
+// that had just walked 120 Confluence pages and finished SUCCESS. An operator
+// reading that goes and checks Confluence, the network and the credentials,
+// and finds nothing wrong with any of them.
+func confluenceSyncErrorMessage(phase string, err error) string {
+	if strings.HasPrefix(phase, "AI_") {
+		return aiUserMessage(err)
+	}
+	if confluenceStorePhases[phase] {
+		return "동기화 결과를 저장하지 못했습니다. 데이터베이스 상태를 확인하세요."
+	}
+	return safeConfluenceError(err)
+}
+
+// confluenceStorePhases are the ones whose failures come from writing to this
+// service's own database. Confluence answered; the row did not go in.
+var confluenceStorePhases = map[string]bool{
+	"METADATA_STORE": true, "DEDUPLICATION": true, "EXCLUSION": true, "IDENTITY_MAPPING": true,
+}
+
 func safeConfluenceError(err error) string {
 	if err == nil {
 		return ""

@@ -51,13 +51,20 @@ def page_people(index):
     return author, editor
 
 
-def page(index, base):
+def page(index, base, total):
     subject = SUBJECTS[index % len(SUBJECTS)]
     author, editor = page_people(index)
     # 시각은 인자로 받은 기준에서 결정적으로 만듭니다. 같은 인덱스는 언제나
     # 같은 문서가 되어야 두 번 돌린 동기화를 견줄 수 있습니다.
-    created = base - datetime.timedelta(days=200 - index, hours=index % 24)
-    updated = base - datetime.timedelta(days=(200 - index) // 3, hours=(index * 5) % 24)
+    #
+    # 마지막 문서는 **오늘** 고쳐진 것이어야 합니다. 처음에는 가장 최근
+    # 문서가 27일 전이었고, 그래서 후보가 지난 주차들에만 생겨 사람이 실제로
+    # 보는 `이번 주 후보` 화면은 여전히 비어 있었습니다. 씨앗이 만들 수 없는
+    # 상태에는 결함이 숨습니다 — 화면을 걷게 하려고 만든 도구가 그 화면을
+    # 못 켜면 아무 소용이 없습니다.
+    days_ago = (total - 1 - index) * 120 // max(1, total)
+    created = base - datetime.timedelta(days=days_ago + 60, hours=index % 24)
+    updated = base - datetime.timedelta(days=days_ago, hours=(index * 5) % 24)
     return {
         "id": str(100000 + index),
         "type": "blogpost" if index % 11 == 0 else "page",
@@ -115,7 +122,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if parsed.path == "/rest/api/content/search":
             start = int((query.get("start") or ["0"])[0])
             limit = max(1, min(200, int((query.get("limit") or ["50"])[0])))
-            window = [page(index, self.base_time) for index in range(start, min(start + limit, self.pages))]
+            window = [page(index, self.base_time, self.pages)
+                      for index in range(start, min(start + limit, self.pages))]
             print(f"[cf] search start={start} limit={limit} → {len(window)}/{self.pages} · 인증 {auth}"
                   f" · cql={(query.get('cql') or [''])[0][:60]}", flush=True)
             # Confluence Server 는 size 에 **이 페이지의 건수**를, totalSize 에
