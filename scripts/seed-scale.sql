@@ -296,6 +296,50 @@ WHERE r.id = i.report_id
   AND w.user_id = r.user_id
   AND w.normalized_key = lower(regexp_replace(i.title, '[^0-9A-Za-z가-힣]', '', 'g'));
 
+-- 마감일. 씨앗은 여태 하나도 넣지 않았고, 그래서 업무 2,171건 전부가
+-- dueOutlook NONE 이었습니다. 마감일 화면과 전망, 마감 초과 배지, 경영
+-- 요약의 마감 관련 가중치 셋이 어느 배포에서도 켜지지 않았습니다.
+--
+-- 여섯 갈래가 모두 나와야 합니다. 한 갈래라도 비면 그 갈래를 그리는 코드가
+-- 배포에서 한 번도 실행되지 않습니다. 그런데 갈래는 날짜만으로 정해지지
+-- 않고 **그 업무의 진척과 두 속도**에 달려 있습니다.
+--
+-- 이 씨앗의 속도를 실측했습니다: 전체 평균 0.5~0.8%/주, 최근 8%/주.
+-- 남은 주 W 에 대해 낮은 추정은 진척 + 0.8W, 높은 추정은 진척 + 8W 이므로
+--
+--   닿음   : 낮은 추정도 100 — 진척 60 이상이면 W ≥ 50
+--   갈림   : 높은 추정만 100 — W 는 5~44 사이
+--   위태   : 둘 다 못 닿음 — W 가 작을 때
+--
+-- 처음에는 id 로 날짜를 흩뿌렸고 셋만 나왔습니다. 그다음 진척만 보고
+-- 놓았더니 넷이었습니다. 속도를 재고 나서야 여섯이 다 나옵니다.
+WITH state AS (
+  SELECT DISTINCT ON (i.work_item_id)
+         i.work_item_id AS id, i.progress, count(*) OVER (PARTITION BY i.work_item_id) AS weeks
+  FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+  WHERE i.work_item_id IS NOT NULL
+  ORDER BY i.work_item_id, r.week_start DESC
+), wk AS (SELECT date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AS d)
+UPDATE work_items w SET due_date =
+  CASE
+    -- 완료: 끝난 일에 지난 마감일. 완료는 날짜가 지났어도 초과가 아닙니다.
+    WHEN s.progress >= 100 AND (w.id % 3) = 0 THEN wk.d - 35
+    -- 알 수 없음: 보고가 한 주뿐이면 추정할 근거가 없습니다.
+    WHEN s.weeks <= 1 THEN wk.d + 42
+    -- 지남: 아직 한참 남았는데 날짜가 지났습니다.
+    WHEN s.progress < 90 AND (w.id % 11) = 1 THEN wk.d - 28
+    -- 닿음: 진척 60 이상에 쉰다섯 주. 느린 쪽 속도로도 100 에 닿습니다.
+    WHEN s.progress >= 60 AND (w.id % 5) <= 1 THEN wk.d + 385
+    -- 갈림: 스무 주. 최근 속도로는 닿고 전체 평균으로는 못 닿는 자리입니다.
+    WHEN s.progress BETWEEN 30 AND 99 AND (w.id % 7) <= 2 THEN wk.d + 140
+    -- 위태: 이제 시작인데 2주.
+    WHEN s.progress < 45 AND (w.id % 4) = 0 THEN wk.d + 14
+    ELSE NULL
+  END
+FROM state s, wk
+WHERE s.id = w.id;
+
+
 -- Dependencies, because without them a whole feature is dark.
 --
 -- The seed built reports, tasks, issues and stalls, and no task ever waited on
@@ -512,7 +556,7 @@ SELECT (SELECT count(*) FROM organizations) AS organizations,
 DO $$
 DECLARE
   statuses int; issues int; plans int; blanks int; mail_states int; wk date;
-  ended_4w int; ended_12w int;
+  ended_4w int; ended_12w int; due_buckets int;
 BEGIN
   wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
   SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
@@ -547,6 +591,14 @@ BEGIN
   END IF;
   IF ended_12w < 20 THEN
     RAISE EXCEPTION '12주 넘게 보고가 없는 업무가 %건뿐입니다. 넓은 기간과 좁은 기간이 같은 답을 냅니다.', ended_12w;
+  END IF;
+
+  -- 마감일 전망은 여섯 갈래이고 갈래마다 다른 문장과 배지를 그립니다. 날짜를
+  -- 어디에 두느냐로 갈리므로, 서로 다른 자리 수가 줄면 어떤 갈래는 배포에서
+  -- 한 번도 나오지 않습니다.
+  SELECT count(DISTINCT due_date - wk) INTO due_buckets FROM work_items WHERE due_date IS NOT NULL;
+  IF due_buckets < 5 THEN
+    RAISE EXCEPTION '마감일이 %가지 자리에만 있습니다. 마감 전망 여섯 갈래 중 일부가 한 번도 나오지 않습니다.', due_buckets;
   END IF;
 
   SELECT count(DISTINCT status) INTO mail_states FROM report_mail_deliveries;

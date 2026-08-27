@@ -2916,6 +2916,27 @@ if (action === &#x27;reject&#x27; &amp;&amp; !comment.trim()) return   // 조용
 <p>##### 경영 요약은 손대지 않았습니다</p>
 <p>버려진 업무를 경영 요약에도 밀어 넣을 수 있었지만 하지 않았습니다. 이 제품에는 업무를 닫는 상태가 없어서 <strong>사라짐이 곧 끝남</strong>입니다 — 49%에서 사라진 업무는 버려진 것일 수도, 끝났는데 100으로 적지 않은 것일 수도 있습니다.</p>
 <p>인수인계와 업무 추적은 *"이 사람이 무엇을 지고 있는가"* 를 묻기 때문에 <strong>모른다는 사실 자체가 답</strong>입니다. 경영 요약은 *"경영진이 무엇을 결정해야 하는가"* 를 묻고, 거기에 모호한 188건을 밀어 넣는 것은 v0.17 이 정한 규칙 — *이미 한 일을 하라고 말하는 것이 목록 전체를 무시하게 만드는 방법* — 을 어기는 일입니다.</p>
+<p>#### 3.10.177 v0.222.0에서 완료 — 마감일이 하나도 없어 전망 여섯 갈래가 전부 어두웠습니다</p>
+<div class="phase-box">업무 2,171건 · 마감일 있는 것 0건</div>
+<p>씨앗은 <code>work_items</code> 를 직접 만들면서 <code>due_date</code> 를 한 번도 채우지 않았습니다. 그래서 어느 배포에서도</p>
+<ul>
+<li><code>dueOutlook</code> 은 언제나 <strong>NONE</strong></li>
+<li>마감 초과·위태·닿음 배지가 한 번도 그려지지 않고</li>
+<li>경영 요약의 마감 관련 가중치 <strong>셋</strong>이 한 번도 더해지지 않으며</li>
+<li><code>duedate.go</code> 의 전망 계산 전체가 단위 시험 말고는 실행되지 않습니다</li>
+</ul>
+<p>##### 갈래는 날짜가 아니라 속도가 정합니다</p>
+<p>날짜를 <code>id % 11</code> 로 흩뿌렸더니 <strong>셋</strong>만 나왔습니다. 진척을 보고 놓았더니 <strong>넷</strong>이었습니다.</p>
+<p>속도를 실측하고서야 이유를 알았습니다 — 이 씨앗은 <strong>전체 평균 0.5~0.8%/주, 최근 8%/주</strong> 입니다. 남은 주 <code>W</code> 에 대해 낮은 추정은 <code>진척 + 0.8W</code>, 높은 추정은 <code>진척 + 8W</code> 이므로:</p>
+<table><thead><tr><th>갈래</th><th>조건</th></tr></thead><tbody><tr><td>닿음</td><td>낮은 추정도 100 — 진척 60이면 <strong>W ≥ 50</strong></td></tr><tr><td>갈림</td><td>높은 추정만 100 — <strong>W 5~44</strong></td></tr><tr><td>위태</td><td>둘 다 못 닿음 — W 가 작을 때</td></tr></tbody></table>
+<p>그에 맞춰 놓으니 여섯이 다 나옵니다.</p>
+<div class="phase-box">+385일 · u106 → ON_TRACK 2 · AT_RISK 1
+ -35일 · u2   → FINISHED 1 · OVERDUE 1 · ON_TRACK 1 · AT_RISK 2
+ +42일 · u6   → UNKNOWN 1 · ON_TRACK 3 · AT_RISK 1</div>
+<p>##### 목록이 400건에서 잘려 안 보였습니다</p>
+<p>관리자 화면으로 세었을 때는 넷만 보였습니다. 팀 목록이 급한 순서로 400건까지만 싣기 때문입니다 — <strong>가장 안 급한 갈래인 <code>ON_TRACK</code> 과 <code>FINISHED</code> 가 언제나 잘려 나간 쪽에 있습니다.</strong> 소유자의 화면에서 봐야 보입니다. 도구가 볼 수 없으면 없는 것과 같다는 이 주기의 교훈이 그대로 반복됐습니다.</p>
+<p>##### 다시 무너지지 않게</p>
+<p>자기 점검에 차원을 더했습니다 — 마감일이 다섯 자리 미만에만 있으면 <strong>씨앗이 스스로 실패합니다.</strong> 지금은 여섯 자리, 마감일 있는 업무 1,268건입니다.</p>
 </div>
 </body>
 </html>
