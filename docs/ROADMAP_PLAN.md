@@ -5951,3 +5951,48 @@ WHERE k.token_hash=$1 AND k.revoked_at IS NULL
 회전(rotate)에 걸린 키가 "일괄 회수 뒤 발급된 키가 아닙니다" 라고 답할 것으로 보고 시험을 썼는데, 실제로는 **"회수되었습니다"** 였습니다. `rotateKeys` 는 버전을 올리는 동시에 살아 있는 키 전부에 `revoked_at` 을 찍습니다 — 회전은 **정말로 일괄 회수**이고, 답이 정확했습니다. 시험을 사실에 맞췄습니다.
 
 버전 대조는 그 아래 두 번째 층으로 남습니다. 도장이 못 잡는 키가 하나 있습니다 — **회전 트랜잭션과 겹친 발급 요청**은 옛 버전을 읽고, 쓸어 담기가 지나간 뒤에 삽입됩니다. 그 키의 주인은 잘못한 것이 없으므로 "존재하지 않는 키" 말고 다른 말을 들어야 합니다.
+
+#### 3.10.184 v0.229.0에서 완료 — 받은 파일 그대로는 설치가 시작되지 않았습니다
+
+고객이 이 제품과 처음 만나는 순간을 그대로 해 봤습니다. tarball 을 적재하고, `.env.example` 을 복사하고, README 가 채우라는 값을 채우고, `docker compose up`.
+
+```
+error while interpolating services.weekly.environment.WEEKLY_ENCRYPTION_KEY:
+required variable WEEKLY_ENCRYPTION_KEY is missing a value: required
+```
+
+**첫 명령이 렌더조차 되지 않습니다.** 컨테이너도, 로그도, 힌트도 없습니다.
+
+##### 같은 값을 두고 세 파일이 서로 다른 말을 했습니다
+
+```
+deploy/compose.yaml   : ${WEEKLY_ENCRYPTION_KEY:?required}   ← 없으면 거부
+deploy/.env.example   : WEEKLY_ENCRYPTION_KEY=               ← 비워서 배포
+README.md             : "필수 권장" · "환경 키를 설정하지 않은 하위 호환 모드"
+바이너리              : 비어 있으면 기동하고 경고를 남깁니다
+```
+
+넷 중 셋이 "없어도 된다"고 말하고, 실제로 배포되는 파일 하나만 아니라고 말합니다. **그리고 이 셋을 함께 보는 것이 아무것도 없었습니다.**
+
+`:?required` 를 뗐습니다. 하드 요구는 문서화된 하위 호환 모드를 막고, 무엇보다 **키가 볼륨에 있는 기존 배포가 배포된 compose 로 업그레이드할 수 없게** 만듭니다. 권고는 설명할 수 있는 자리에 이미 있습니다 — 기동 로그가 *"키가 상태 볼륨에만 있으니 볼륨을 잃어도 업그레이드가 살아남도록 이 변수를 설정하라"* 고 적습니다.
+
+##### 최초 설치에서 만날 수 있는 첫 문장이 영어였습니다
+
+README 가 시키는 `openssl rand -base64 32` 를 잘못 붙여 넣으면 기동이 멈춥니다.
+
+```
+"error":"WEEKLY_ENCRYPTION_KEY must be a base64-encoded 32-byte key"
+```
+
+한국어 제품에서, 운영자가 **처음 만나는 문장**이, 값의 모양만 말하고 그 값을 만드는 명령은 말하지 않습니다. 바로 옆 두 기동 오류(app.go)는 이미 한국어로 정성껏 쓰여 있습니다. 이 하나만 남아 있었습니다.
+
+##### `install-check.sh`
+
+`scripts/` 의 다른 검사는 전부 **제품**을 잽니다. 이건 제품이 한 번도 돌기 전에 **고객이 복사하는 두 파일**을 잽니다.
+
+- `.env.example` 을 문서대로만 채워 `docker compose config` 가 렌더되는가
+- compose 가 가리키는 이미지가 `VERSION` 과 같은가
+- 코드가 읽는 모든 `WEEKLY_*` 를 compose 와 kubernetes 가 전달하는가 (없이도 도는 값은 그렇다고 적혀 있어야 합니다)
+- `.env.example` 이 그대로 써도 될 것처럼 보이는 비밀번호를 담고 있지 않은가
+
+만들자마자 **자기 자신의 오탐**을 하나 잡았습니다 — 시험만 읽는 `WEEKLY_TEST_POSTGRES_DSN` 을 배포 파일이 전달하지 않는다고 신고했습니다. `_test.go` 를 빼게 했습니다.

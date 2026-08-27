@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.228.0.tar.gz
-gzip -dc weekly-v0.228.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.228.0.tar.gz | docker load
+sha256sum weekly-v0.229.0.tar.gz
+gzip -dc weekly-v0.229.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.229.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -86,7 +86,7 @@ Weekly는 세 개의 필수 환경변수와 한 개의 권장 보안 환경변�
 | `WEEKLY_POSTGRES_DSN` | PostgreSQL 연결 문자열 |
 | `WEEKLY_BOOTSTRAP_ADMIN` | 최초 관리자 아이디 |
 | `WEEKLY_BOOTSTRAP_ADMIN_PASSWORD` | 최초 관리자 비밀번호, 12자 이상 |
-| `WEEKLY_ENCRYPTION_KEY` | 필수 권장: `openssl rand -base64 32`로 한 번 생성해 업그레이드마다 유지할 비밀 설정 암호화 키 |
+| `WEEKLY_ENCRYPTION_KEY` | 필수 권장: `openssl rand -base64 32`로 한 번 생성해 업그레이드마다 유지할 비밀 설정 암호화 키. 비워 두면 키가 상태 볼륨에만 저장되는 하위 호환 모드로 기동하며, 기동 로그가 그 사실을 적습니다 |
 | `WEEKLY_ALLOW_SECRET_RESET` | 선택: 비밀 설정을 복호화할 수 없는 상태에서 기동을 강행할 때만 `true` |
 
 최초 관리자가 만들어진 뒤에는 환경변수의 비밀번호를 바꿔도 기존 관리자 비밀번호를 덮어쓰지 않습니다. `WEEKLY_ENCRYPTION_KEY`는 연결 비밀번호 자체가 아니라 관리자 화면에서 입력한 OIDC Client Secret, AI API Key와 Confluence 비밀번호를 보호하는 마스터 키입니다. 같은 값을 유지하면 컨테이너나 상태 볼륨이 교체돼도 PostgreSQL의 암호화 설정을 계속 복호화할 수 있습니다. 기존 `instance.key`를 쓰던 환경은 기존 볼륨을 연결한 첫 업그레이드에 이 값을 설정하면 자동으로 재암호화됩니다.

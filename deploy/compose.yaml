@@ -1,6 +1,6 @@
 services:
   weekly:
-    image: weekly:v${WEEKLY_VERSION:-0.228.0}
+    image: weekly:v${WEEKLY_VERSION:-0.229.0}
     container_name: weekly
     restart: unless-stopped
     ports:
@@ -16,7 +16,14 @@ services:
       WEEKLY_POSTGRES_DSN: ${WEEKLY_POSTGRES_DSN:?required}
       WEEKLY_BOOTSTRAP_ADMIN: ${WEEKLY_BOOTSTRAP_ADMIN:?required}
       WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: ${WEEKLY_BOOTSTRAP_ADMIN_PASSWORD:?required}
-      WEEKLY_ENCRYPTION_KEY: ${WEEKLY_ENCRYPTION_KEY:?required}
+      # Not :?required. The product supports running without it — the key then
+      # lives only in the state volume — and README documents that mode and the
+      # upgrade path out of it. Demanding it here refused to render at all for
+      # the .env.example this repository ships, and locked out every existing
+      # deployment whose key is in its volume. The nudge belongs where it can
+      # explain itself: the startup log says the key lives only in the volume
+      # and asks for this variable so an upgrade survives losing it.
+      WEEKLY_ENCRYPTION_KEY: ${WEEKLY_ENCRYPTION_KEY:-}
       WEEKLY_ALLOW_SECRET_RESET: ${WEEKLY_ALLOW_SECRET_RESET:-false}
     # Same reasoning as deploy/kubernetes.yaml: the password queue sizes
     # itself to this limit at startup and logs what it chose. Without a limit

@@ -83,7 +83,13 @@ func decodeEncryptionKey(value string) ([]byte, error) {
 			return key, nil
 		}
 	}
-	return nil, errors.New("WEEKLY_ENCRYPTION_KEY must be a base64-encoded 32-byte key")
+	// This is the first sentence an operator can meet, on the first install,
+	// while following the README's own `openssl rand -base64 32`. It reached
+	// them in English in an otherwise Korean product, and it named the shape of
+	// the value without naming the command that produces one.
+	return nil, errors.New("WEEKLY_ENCRYPTION_KEY 값이 base64로 인코딩된 32바이트 키가 아닙니다. " +
+		"`openssl rand -base64 32` 로 생성한 값을 그대로 넣으세요. " +
+		"이 변수를 비워 두면 키가 상태 볼륨에만 저장되는 하위 호환 모드로 기동합니다.")
 }
 
 func newSecretBox(key []byte) (*secretBox, error) {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/base64"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,20 @@ func TestDecodeEncryptionKeyRequiresExactly32Bytes(t *testing.T) {
 	}
 	if _, err := decodeEncryptionKey(base64.StdEncoding.EncodeToString(key[:31])); err == nil {
 		t.Fatal("expected a short encryption key to be rejected")
+	}
+	// This refusal stops the container before anything else runs, so it is the
+	// first sentence an operator can meet — on the first install, while
+	// following the README's own openssl line. It reached them in English in an
+	// otherwise Korean product, and named the shape of the value without naming
+	// the command that produces one.
+	_, err = decodeEncryptionKey("CHANGE_ME")
+	if err == nil {
+		t.Fatal("a placeholder was accepted as an encryption key")
+	}
+	for _, expected := range []string{"WEEKLY_ENCRYPTION_KEY", "openssl rand -base64 32", "비워"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %s", expected, err)
+		}
 	}
 }
 
