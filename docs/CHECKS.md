@@ -29,6 +29,7 @@ CI 는 이 중 `go test`·`go vet`·`guard-check`·`modal-close-check`·`openapi
 |---|---|
 | `seed-scale.sql` | 조직 46 · 사람 305 · 52주 · 보고 항목 110,534. 한 축이라도 납작해지면 **스스로 실패합니다** |
 | `fake-ai-gateway.py` | AI Gateway 자리. 요청의 JSON Schema 를 읽어 그것을 만족하는 답을 돌려줍니다 |
+| `fake-confluence.py` | Confluence Server 6.9.1 자리. 연동이 실제로 부르는 REST 두 개에 답합니다 |
 
 AI 를 쓰는 기능 셋 — **초안 작성 · 결정 제안 · PPTX 가져오기** — 은 씨앗으로 켤 수 없습니다. 그래서 씨를 뿌린 배포에서 그 화면들은 언제나 *"AI Gateway가 비활성화되어 있습니다"* 만 보여 주고, 뒤의 경로는 단위 시험 말고는 아무도 걷지 않습니다.
 
@@ -41,6 +42,18 @@ python3 scripts/fake-ai-gateway.py 18800
 그리고 `관리자 설정 → AI Gateway` 에 `http://host.docker.internal:18800/v1/chat/completions` 와 아무 모델 이름을 넣습니다. 컨테이너는 `--add-host=host.docker.internal:host-gateway` 로 띄웁니다.
 
 모델이 아닙니다. 돌아오는 글은 **일부러 가짜인 티가 납니다** — 이 배포의 초안을 누가 모델이 쓴 것으로 오해하면 안 되니까요. 확인하는 것은 제품의 파싱·검증·신뢰도 처리·미리보기가 **실제 HTTP 왕복 위에서** 도는지입니다.
+
+### Confluence 자리
+
+연동은 **2,516줄, 라우트 열 개**인데 사내 Confluence 없이는 어느 배포에서도 켤 수 없습니다. 동기화·후보·작성자 매핑 화면은 씨를 뿌린 배포에서도 늘 비어 있습니다.
+
+```
+python3 scripts/fake-confluence.py 18900 --pages 120
+```
+
+`관리자 설정 → Confluence` 에 `http://host.docker.internal:18900` 을 넣습니다. 이 서버는 자격을 보지 않고 **받은 것을 로그에 적어** 연동이 무엇을 보냈는지 보여 줍니다. 매핑되지 않은 작성자를 일부러 섞으므로 *"누구인지 모르겠다"* 를 세는 자리도 0 이 아닌 값으로 확인할 수 있습니다.
+
+돌려주는 문서는 제목부터 `[가짜]` 입니다 — 이 배포에서 만들어진 후보를 누가 진짜 사내 문서에서 온 것으로 오해하면 안 됩니다.
 
 ## 두 가지 조심할 것
 

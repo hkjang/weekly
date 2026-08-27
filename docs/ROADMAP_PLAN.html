@@ -2628,6 +2628,26 @@ HTML    → AI Gateway 주소가 JSON이 아닌 응답을 돌려줬습니다. �
 <div class="phase-box">제한시간 90초 · 응답 없는 게이트웨이   90.7초  →  6.25초
 정상 게이트웨이                        0.95초  →  0.98초</div>
 <p>시험은 연결을 받아 놓고 답하지 않는 게이트웨이를 세우고 <code>ai.timeout_seconds</code> 를 90 으로 둔 채 검색합니다. 고치기 전 코드에서는 <strong>30초</strong>(핸들러 backstop) 로 실패하고, 고친 뒤에는 <strong>5.011초</strong> 로 답합니다.</p>
+<p>#### 3.10.161 v0.206.0에서 완료 — 동기화가 받은 것이 아니라 서버가 주장한 수를 믿었습니다</p>
+<p>AI 다음으로 큰 어둠은 <strong>Confluence</strong> 였습니다. <strong>2,516줄, 라우트 열 개</strong>, 화면 여러 곳인데 사내 Confluence 없이는 어느 배포에서도 켤 수 없습니다. <code>scripts/fake-confluence.py</code> 로 그 자리를 세웠습니다 — 연동이 실제로 부르는 REST 두 개에만, 클라이언트가 읽는 모양 그대로 답합니다.</p>
+<p>첫 동기화가 <strong>실패했습니다.</strong></p>
+<div class="phase-box">status FAILED · pagesScanned 10080 · candidatesCreated 0
+errorMessage: Confluence search exceeded the 10000 page safety limit
+가짜 서버가 받은 요청 87건 — start=0 부터 start=9960 까지</div>
+<p>문서는 <strong>120개</strong>뿐이었습니다. <code>start=120</code> 부터는 빈 결과가 돌아갔는데도 동기화는 <strong>84번을 더 물었습니다.</strong></p>
+<p>##### 원인은 제 가짜 서버였고, 그 다음이 제품이었습니다</p>
+<p>Confluence Server 는 <code>size</code> 에 <strong>그 페이지의 건수</strong>를, <code>totalSize</code> 에 전체를 담습니다. 제 서버가 총계를 <code>size</code> 로 보냈습니다 — 고쳤습니다.</p>
+<p>그런데 루프를 보니 <strong>받은 것을 한 번도 보지 않습니다.</strong></p>
+<div class="phase-box">counters.PagesScanned += result.Size          // 서버가 주장한 수
+if result.Size == 0 || result.Size &lt; result.Limit { break }
+start += result.Size</div>
+<p><code>result.Pages</code> 가 비어 있어도 상관하지 않습니다. <strong>결과가 없는 응답은 끝났다는 뜻</strong>이고, 그것은 어느 서버가 무슨 숫자를 적어 보내든 참입니다. 프록시 한 대, 다른 세대의 API 하나면 같은 일이 사내에서 일어납니다 — 그리고 그때 지는 것은 페이지 하나가 아니라 <strong>동기화 전체</strong>입니다.</p>
+<p><code>PagesScanned</code> 도 마찬가지입니다. <strong>훑었다고 기록한 10,080쪽 중 실제로 본 것은 120쪽</strong>이었습니다.</p>
+<p>##### 받은 것을 셉니다</p>
+<div class="phase-box">                        고치기 전            고친 뒤
+size=총계 서버        FAILED · 훑음 10080    SUCCESS · 훑음 120 · 후보 128
+size=페이지 건수 서버  SUCCESS · 훑음 120     SUCCESS · 훑음 120 · 후보 128</div>
+<p>서버가 성실하면 값이 같으므로 잃는 것이 없고, 성실하지 않으면 걸음을 멈춥니다. 시험은 총계를 <code>size</code> 로 보내는 서버를 세우고 동기화가 <strong>호출 횟수와 기록한 쪽수 둘 다</strong> 맞는지 봅니다. 고치기 전 코드에서는 바로 그 안전장치 오류로 실패합니다.</p>
 </div>
 </body>
 </html>

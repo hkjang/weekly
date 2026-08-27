@@ -118,16 +118,27 @@ func (a *App) runConfluenceSync(ctx context.Context, cfg confluenceSettings) err
 			a.finishConfluenceSync(ctx, "FAILED", safeConfluenceError(searchErr), counters, false)
 			return searchErr
 		}
-		counters.PagesScanned += result.Size
+		// What came back, not the count the server claimed. A page carrying no
+		// results is the end of the walk whatever the counter says.
+		//
+		// Reproduced against a stand-in Confluence that reported the grand
+		// total in `size` — which is what a proxy or another generation of the
+		// API can do — this asked for page after empty page: 87 requests, a
+		// reported 10,080 pages scanned, 120 pages actually seen, and then the
+		// 10,000 safety limit failed the whole sync. Counting what arrived
+		// costs nothing when the server is faithful and stops the walk when it
+		// is not.
+		received := len(result.Pages)
+		counters.PagesScanned += received
 		for _, page := range result.Pages {
 			if cfg.allowsSpace(page.SpaceKey) && (page.Status == "" || page.Status == "CURRENT") {
 				pages = append(pages, page)
 			}
 		}
-		if result.Size == 0 || result.Size < result.Limit {
+		if received == 0 || received < result.Limit {
 			break
 		}
-		start += result.Size
+		start += received
 		if start >= 10000 {
 			err = errors.New("Confluence search exceeded the 10000 page safety limit")
 			a.recordConfluenceError(ctx, "", "SEARCH", 0, err)
