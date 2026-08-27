@@ -158,6 +158,21 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
         nearly four screens down. The one moment in the review workflow where a
         writer needs to be told something, and the screen only told them that
         somewhere there was something to read. */}
+    {/* Who else can already read this.
+
+        A draft is unsubmitted, and a writer reasonably takes that to mean it is
+        theirs until they hand it in. It is not: canViewReport has no status
+        condition, so an administrator and any leader above them in the
+        organisation tree can open it now — and the team list shows it with an
+        열기 link beside the 작성 중 badge.
+
+        That is a policy for the deployment to set, not something to change
+        underneath one. What can be fixed without changing it is the surprise:
+        say it where the writing happens. */}
+    {report && report.status === 'DRAFT' && <p className="setting-help">
+      작성 중인 보고서도 <strong>관리자와 상위 조직의 팀장은 지금 열어 볼 수 있습니다.</strong>
+      제출은 검토를 요청하는 행위이지, 이 글이 처음 보이게 되는 시점이 아닙니다.
+    </p>}
     {report && report.status === 'REVISION_REQUESTED' && <div className="revision-notice">
       <strong>반려 사유</strong>
       {revisionReason

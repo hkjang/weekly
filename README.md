@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.193.0.tar.gz
-gzip -dc weekly-v0.193.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.193.0.tar.gz | docker load
+sha256sum weekly-v0.194.0.tar.gz
+gzip -dc weekly-v0.194.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.194.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -171,6 +171,18 @@ DB와 볼륨을 한 번에 백업·검증·복구하려면 `scripts/weekly-backu
 관리자 설정의 메일 카드에는 **최근 14일의 발송·대기·실패 건수와 마지막 실패 사유**가 함께 표시됩니다. 작성자는 자기 발송만 보므로, 이것이 없으면 릴레이가 전원을 거부하는 상태와 아직 아무도 쓰지 않은 상태가 운영자에게 똑같이 보입니다. 연결 시험은 지금 이 순간만 말하고 지난 월요일이 나갔는지는 말하지 않습니다.
 
 SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 암호화되어 저장되며 브라우저로 다시 전달되지 않습니다.
+
+## 보고서를 누가 볼 수 있는가
+
+| 보는 사람 | 볼 수 있는 것 |
+|---|---|
+| 작성자 | 자기 보고서 전부 |
+| 팀장·조직장 | **자기 조직 하위 전체**의 보고서 |
+| 관리자 | 전부 |
+
+**상태는 가시성을 바꾸지 않습니다.** `작성 중`인 보고서도 팀장과 관리자는 지금 열어 볼 수 있습니다. 제출은 검토를 요청하는 행위이지, 그 글이 처음 보이게 되는 시점이 아닙니다.
+
+작성 화면은 그 사실을 작성자에게 그대로 알립니다. 초안이 자기만의 것이라고 넘겨짚게 두는 것이 이 제품이 할 일은 아니기 때문입니다.
 
 ## 업무 추적
 
