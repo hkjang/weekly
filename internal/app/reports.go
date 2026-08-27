@@ -620,10 +620,18 @@ func (a *App) submitReport(w http.ResponseWriter, r *http.Request) {
 	if _, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET status=$1,submitted_at=now(),reviewed_at=NULL,reviewed_by=NULL,updated_at=now(),version=version+1 WHERE id=$2`, target, id); err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status) VALUES($1,$2,$3,$4)`, id, p.ID, previous, target)
 	}
+	// Queued here, sent elsewhere. Filing the report and recording that it
+	// should be mailed are one decision, so they share a transaction; reaching
+	// the relay is not, so it does not. A mail server that is down delays a
+	// mail, and must never fail a submission.
+	if err == nil {
+		err = queueReportMail(r.Context(), tx, id, p.ID)
+	}
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeError(w, 500, "DATABASE_ERROR", "보고서를 제출할 수 없습니다.")
 		return
 	}
+	a.wakeMailWorker()
 	a.audit(r, p, "report.submit", "report", strconv.FormatInt(id, 10), map[string]any{"status": target})
 	writeData(w, http.StatusOK, map[string]string{"status": target})
 }

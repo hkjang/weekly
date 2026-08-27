@@ -100,6 +100,25 @@ var settingDefinitions = map[string]settingDefinition{
 	"confluence.score_notice":             {Validate: integerRange(-100, 100)},
 	"confluence.score_leave":              {Validate: integerRange(-100, 100)},
 	"confluence.score_personal_space":     {Validate: integerRange(-100, 100)},
+	// Sending a finished report to an address the writer chose. The relay these
+	// deployments have is usually an internal one on port 25 with nothing to
+	// authenticate against, so NONE is a first-class choice rather than a
+	// fallback — but a username without encryption is refused, because Go's
+	// SMTP client will not put a password on a plaintext connection and saying
+	// so here beats failing at send time.
+	"mail.enabled":         {Validate: booleanValue},
+	"mail.host":            {Validate: bounded(0, 255)},
+	"mail.port":            {Validate: integerRange(1, 65535)},
+	"mail.security":        {Validate: oneOf("NONE", "STARTTLS", "TLS")},
+	"mail.username":        {Validate: bounded(0, 255)},
+	"mail.password":        {Secret: true, Validate: bounded(0, 4096)},
+	"mail.from":            {Validate: validOptionalMailAddress},
+	"mail.from_name":       {Validate: bounded(0, 120)},
+	"mail.timeout_seconds": {Validate: integerRange(5, 300)},
+	// How many times one report is retried before it is given up on. The queue
+	// is not a mailbox: a report that has not left after five tries is a relay
+	// problem, and repeating it forever hides that.
+	"mail.max_attempts": {Validate: integerRange(1, 20)},
 }
 
 type settingView struct {

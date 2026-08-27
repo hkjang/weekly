@@ -53,6 +53,7 @@ type App struct {
 	defaultPPTXName string
 	capabilities    databaseCapabilities
 	importWake      chan struct{}
+	mailWake        chan struct{}
 	confluenceWake  chan struct{}
 }
 
@@ -125,7 +126,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1)}
+	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1)}
 	a.conditions = newConditionLog(logger)
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
@@ -153,6 +154,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	go a.importWorker(ctx)
 	go a.confluenceWorker(ctx)
 	go a.embeddingWorker(ctx)
+	go a.mailWorker(ctx)
 	return a, nil
 }
 
@@ -229,6 +231,8 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/keys", a.requireAuth(a.csrf(http.HandlerFunc(a.createKey))))
 	a.mux.Handle("POST /api/v1/keys/rotate", a.requireAuth(a.csrf(http.HandlerFunc(a.rotateKeys))))
 	a.mux.Handle("DELETE /api/v1/keys/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.revokeKey))))
+	a.mux.Handle("GET /api/v1/me/mail", a.requireAuth(http.HandlerFunc(a.myMailSettings)))
+	a.mux.Handle("PUT /api/v1/me/mail", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyMailSettings))))
 
 	a.mux.Handle("GET /api/v1/admin/settings", a.requireRole("ADMIN")(http.HandlerFunc(a.adminSettings)))
 	a.mux.Handle("GET /api/v1/admin/encryption", a.requireRole("ADMIN")(http.HandlerFunc(a.adminEncryption)))
@@ -236,6 +240,7 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/admin/settings/oidc/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testOIDC))))
 	a.mux.Handle("POST /api/v1/admin/settings/ai/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testAI))))
 	a.mux.Handle("POST /api/v1/admin/settings/confluence/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testConfluence))))
+	a.mux.Handle("POST /api/v1/admin/settings/mail/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testMail))))
 	a.mux.Handle("GET /api/v1/admin/users", a.requireRole("ADMIN")(http.HandlerFunc(a.adminUsers)))
 	a.mux.Handle("POST /api/v1/admin/users", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.createUser))))
 	a.mux.Handle("PUT /api/v1/admin/users/{id}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateUser))))

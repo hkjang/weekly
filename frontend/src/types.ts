@@ -345,3 +345,12 @@ export interface HandoverView { userId: number; displayName: string; active: num
   openDecisions: number; overdueDecisions: number; items: HandoverItem[] }
 
 export interface EncryptionStatus { keySource: string; storedSecrets: number; recoverable: boolean; stateDirectory: string }
+
+/**
+ * `relayReady` is whether an operator has configured a mail server at all. A
+ * writer who turns sending on and never receives anything is owed the reason,
+ * and "the administrator has not set one up" is not something this screen could
+ * otherwise know.
+ */
+export interface MailDelivery { id: number; weekStart: string; address: string; status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; error: string; createdAt: string; sentAt: string | null }
+export interface MailPreference { relayReady: boolean; address: string; onSubmit: boolean; deliveries: MailDelivery[] }

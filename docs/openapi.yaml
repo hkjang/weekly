@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.177.0
+  version: 0.178.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1117,6 +1117,69 @@ paths:
                                 limit: { type: integer, description: 한 그룹이 싣는 최대 항목 수. count 가 이보다 크면 변화가 큰 것부터 limit 개만 담깁니다. }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /me/mail:
+    get:
+      summary: 주간보고 메일 발송 설정과 최근 발송 결과
+      description: |
+        `relayReady`는 관리자가 SMTP를 설정했는지다. 켜 두었는데 아무것도 오지 않는 사람은
+        자기 실수와 미설정 서버를 구별할 수 있어야 한다. `deliveries`는 최근 10건이며
+        `status`는 QUEUED·SENT·FAILED, `error`는 릴레이가 준 거절 사유 그대로다.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      relayReady: { type: boolean }
+                      address: { type: string }
+                      onSubmit: { type: boolean }
+                      deliveries:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            weekStart: { type: string, format: date }
+                            address: { type: string }
+                            status: { type: string, enum: [QUEUED, SENT, FAILED] }
+                            attempts: { type: integer }
+                            error: { type: string }
+                            createdAt: { type: string, format: date-time }
+                            sentAt: { type: string, format: date-time, nullable: true }
+    put:
+      summary: 주간보고 메일 발송 설정 저장
+      description: |
+        `address`는 표시 이름이나 목록이 아닌 주소 하나여야 한다. `onSubmit`을 켜면서
+        주소를 비우는 것은 거부한다 — 설정된 것처럼 보이면서 아무것도 보내지 않는 유일한
+        조합이기 때문이다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address: { type: string }
+                onSubmit: { type: boolean }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/Error" }
+  /admin/settings/mail/test:
+    post:
+      summary: SMTP 연결 시험, 관리자 전용
+      description: |
+        시험 메일은 **요청한 관리자 본인**에게 간다. 임의의 주소로 보낼 수 있는 시험은
+        이 서버에서 모르는 사람에게 메일을 보내는 수단이 되고, 여기서 묻는 것은 릴레이가
+        동작하는지 하나뿐이다.
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
   /meeting:
     get:
       summary: 회의 모드 안건
