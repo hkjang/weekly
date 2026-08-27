@@ -473,7 +473,15 @@ func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 	var id int64
 	err := a.db.QueryRow(r.Context(), `INSERT INTO users(username,display_name,email,password_hash,role,organization_id,manager_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, input.Username, input.DisplayName, strings.TrimSpace(input.Email), passwordHash, input.Role, input.OrganizationID, input.ManagerID).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "users_username_key") {
+		// The constraint by name, from the structured error rather than the
+		// message text. Two unique constraints live on this table — username
+		// and oidc_subject — so the code alone would conflate an administrator
+		// reusing an id with an SSO subject already claimed, and those are
+		// different mistakes with different fixes. Reading the name out of
+		// err.Error() worked, but only for as long as the driver keeps
+		// formatting the sentence that way.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_username_key" {
 			writeError(w, 409, "USERNAME_EXISTS", "이미 사용 중인 아이디입니다.")
 		} else {
 			a.logger.Error("create user", "error", err, "trace", traceIDFromContext(r.Context()))

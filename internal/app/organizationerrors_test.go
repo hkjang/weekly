@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -62,5 +64,76 @@ func TestAParentThatIsNotThereIsTheCallersMistakeNotAFault(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Errorf("%d organisation(s) were created despite the refusal", rows)
+	}
+}
+
+// The other two ways a unique constraint meets a person, and neither had a
+// test. Both are the caller's mistake and both are seconds from fixed — but
+// only if the answer says which mistake it was.
+
+// guards: createUser
+func TestAnIdSomebodyIsAlreadyUsingSaysSoRatherThanFailing(t *testing.T) {
+	server := newTestServer(t)
+	body := func() map[string]any {
+		return map[string]any{"username": "duplicate_id", "displayName": "중복 아이디",
+			"role": "USER", "password": "WeeklyVerify1234"}
+	}
+	if first := server.request(http.MethodPost, "/api/v1/admin/users", body(), server.admin); first.Code != http.StatusOK && first.Code != http.StatusCreated {
+		t.Fatalf("the first account was refused: %d %s", first.Code, first.Body.String())
+	}
+
+	again := server.request(http.MethodPost, "/api/v1/admin/users", body(), server.admin)
+	if again.Code != http.StatusConflict {
+		t.Fatalf("a duplicate id answered %d, want 409: %s", again.Code, again.Body.String())
+	}
+	if code := errorCode(again); code != "USERNAME_EXISTS" {
+		t.Errorf("code=%q — the administrator cannot tell a taken id from a fault", code)
+	}
+	if body := again.Body.String(); !strings.Contains(body, "아이디") {
+		t.Errorf("the refusal does not say which field is the problem: %s", body)
+	}
+
+	// And only one account exists, whichever request lost.
+	var accounts int
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT count(*) FROM users WHERE username='duplicate_id'`).Scan(&accounts); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if accounts != 1 {
+		t.Errorf("%d accounts hold that id, want 1", accounts)
+	}
+}
+
+// guards: createWorkItemLink
+func TestDeclaringTheSamePredecessorTwiceSaysItIsAlreadyThere(t *testing.T) {
+	server := newTestServer(t)
+	owner := server.createUser("link_twice", "USER", nil)
+	first, second := twoWorkItemsOf(t, server, owner)
+
+	declare := func() *httptest.ResponseRecorder {
+		return server.request(http.MethodPost, fmt.Sprintf("/api/v1/work-items/%d/links", first),
+			map[string]any{"blockerId": second, "note": "이것이 끝나야 한다"}, owner)
+	}
+	if created := declare(); created.Code != http.StatusOK && created.Code != http.StatusCreated {
+		t.Fatalf("the first declaration was refused: %d %s", created.Code, created.Body.String())
+	}
+
+	again := declare()
+	if again.Code != http.StatusConflict {
+		t.Fatalf("declaring it twice answered %d, want 409: %s", again.Code, again.Body.String())
+	}
+	if code := errorCode(again); code != "LINK_EXISTS" {
+		t.Errorf("code=%q — a link that is already there is not a server fault", code)
+	}
+
+	// One link, not two. A second row would show the same dependency twice on
+	// every screen that draws it.
+	var links int
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT count(*) FROM work_item_links WHERE blocked_id=$1 AND blocker_id=$2`, first, second).Scan(&links); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if links != 1 {
+		t.Errorf("%d links between the same pair, want 1", links)
 	}
 }
