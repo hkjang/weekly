@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -368,7 +369,7 @@ func TestEmbeddingStalenessIsDetected(t *testing.T) {
 	const model = "embed-stale-test-model"
 	contains := func(step string, want bool) {
 		t.Helper()
-		items, err := application.pendingEmbeddings(ctx, model, 500)
+		items, err := application.pendingEmbeddings(ctx, model, math.MaxInt64, 500)
 		if err != nil {
 			t.Fatal(err)
 		}

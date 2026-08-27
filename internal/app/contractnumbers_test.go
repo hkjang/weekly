@@ -84,10 +84,24 @@ func TestTheREADMEsNumbersAreTheOnesTheCodeUses(t *testing.T) {
 		{"반복 업무 보고 주기", fmt.Sprintf("| 보고 주기 | 경과 주차 대비 %d%% 이상 |", recurringCadencePercent)},
 		{"반복 업무 진척 변화", fmt.Sprintf("| 진척 변화 | %d%% 이하 |", recurringMaximumGain)},
 		{"검색 단계 전환", fmt.Sprintf("정확히 일치하는 결과가 %d건보다 적으면", searchThinResult)},
+		{"임베딩 다시 만들기 상한", fmt.Sprintf("한 번에 최대 **%s건**까지 채우고", commaGrouped(embeddingRebuildBatches*embeddingBatchSize))},
 	} {
 		if !strings.Contains(readme, item.sentence) {
 			t.Errorf("%s: README.md does not say %q — the code changed and the sentence did not, or the sentence was reworded and this pairing has to follow",
 				item.what, item.sentence)
 		}
 	}
+}
+
+// commaGrouped writes a number the way the README does, in thousands.
+func commaGrouped(value int) string {
+	text := fmt.Sprint(value)
+	var out []byte
+	for index, digit := range []byte(text) {
+		if index > 0 && (len(text)-index)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, digit)
+	}
+	return string(out)
 }

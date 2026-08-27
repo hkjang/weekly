@@ -28,6 +28,9 @@ host.docker.internal works from a container started with
 import argparse
 import http.server
 import json
+import re
+import math
+import hashlib
 import socketserver
 
 
@@ -70,6 +73,31 @@ def sample_for(node, key=""):
     return "가짜 응답"
 
 
+# 임베딩 -------------------------------------------------------------------
+#
+# 의미 검색은 게이트웨이 없이는 어느 배포에서도 켤 수 없습니다. 씨를 뿌린
+# 배포의 관리자 화면은 늘 "항목 110,534 · 임베딩 0" 을 보여 줍니다.
+#
+# 여기서 돌려주는 벡터는 모델의 것이 아니라 글자에서 결정적으로 만든
+# 것입니다. 같은 글은 언제나 같은 벡터가 되고, 글자를 나눠 쓰는 두 글은
+# 서로 가까워집니다. 검색 결과의 의미를 판단하는 데는 쓸 수 없지만,
+# 임베딩 작업자·저장·차원 검사·유사도 질의·화면이 실제로 도는지는 이것으로
+# 확인할 수 있습니다.
+
+EMBED_DIMENSIONS = 256
+
+
+def fake_vector(text: str) -> list:
+    """글자에서 만든 결정적 단위 벡터. 겹치는 글자가 많을수록 가까워집니다."""
+    values = [0.0] * EMBED_DIMENSIONS
+    for token in re.findall(r"[0-9A-Za-z가-힣]+", text.lower()) or [text]:
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        for index in range(0, EMBED_DIMENSIONS):
+            values[index] += (digest[index % len(digest)] - 127.5) / 127.5
+    length = math.sqrt(sum(value * value for value in values)) or 1.0
+    return [round(value / length, 6) for value in values]
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass  # The one line printed per request below is the useful log.
@@ -81,6 +109,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             self.send_error(400, "not json")
             return
+        if self.path.rstrip("/").endswith("embeddings"):
+            self.embeddings(body)
+            return
         wrapper = (body.get("response_format") or {}).get("json_schema") or {}
         schema = wrapper.get("schema") or {"type": "object"}
         payload = json.dumps(sample_for(schema), ensure_ascii=False)
@@ -91,6 +122,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                          "message": {"role": "assistant", "content": payload}}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }, ensure_ascii=False).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(reply)))
+        self.end_headers()
+        self.wfile.write(reply)
+
+    def embeddings(self, body):
+        inputs = body.get("input")
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        inputs = inputs or [""]
+        reply = json.dumps({
+            "object": "list", "model": body.get("model", "fake-embed"),
+            "data": [{"object": "embedding", "index": index, "embedding": fake_vector(text)}
+                     for index, text in enumerate(inputs)],
+            "usage": {"prompt_tokens": len(inputs), "total_tokens": len(inputs)},
+        }).encode()
+        print(f"[ai] {self.path} inputs={len(inputs)} dim={EMBED_DIMENSIONS} → {len(reply)}B", flush=True)
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(reply)))

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -20,10 +21,13 @@ import (
 // carry the whole workload. Nothing here is required for the product to work.
 
 const (
-	embeddingBatchSize    = 32
-	embeddingMaxInput     = 4000
-	semanticSearchLimit   = 20
-	semanticMinSimilarity = 0.25
+	embeddingBatchSize  = 32
+	embeddingBatchPause = 200 * time.Millisecond
+	// One request has to end. What the cap leaves behind is reported, not hidden.
+	embeddingRebuildBatches = 200
+	embeddingMaxInput       = 4000
+	semanticSearchLimit     = 20
+	semanticMinSimilarity   = 0.25
 )
 
 type embeddingConfig struct {
@@ -162,16 +166,52 @@ func (a *App) embeddingWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cfg, err := a.embeddingConfig(ctx)
-			if err != nil {
-				continue
-			}
-			if processed, err := a.embedPending(ctx, cfg); err != nil {
-				a.logger.Warn("embedding batch failed", "error", err)
-			} else if processed > 0 {
-				a.logger.Info("embeddings updated", "items", processed, "model", cfg.Model)
-			}
+			a.drainEmbeddings(ctx)
 		}
+	}
+}
+
+// drainEmbeddings embeds every item that needs it, not one batch of them.
+//
+// The worker used to do a single batch per tick — 32 items every two minutes.
+// The work itself is milliseconds: measured on a deployment, a batch of 32
+// costs 9 ms at the gateway, so the tick was almost entirely idle. A seeded
+// deployment of 110,534 items needed 3,455 of those ticks, four days and
+// nineteen hours, to be embedded once. Semantic search answers from whatever
+// has been embedded so far and says nothing about the rest, so for those days
+// it would have been quietly answering from a fraction of the reports, and an
+// administrator who pressed 다시 만들기 started the four days again.
+//
+// A full batch means there is more waiting, so the next one follows straight
+// away. The pause between them is there so a real gateway is not hit as fast
+// as this loop can go.
+func (a *App) drainEmbeddings(ctx context.Context) {
+	cfg, err := a.embeddingConfig(ctx)
+	if err != nil {
+		return
+	}
+	started := time.Now()
+	total := 0
+	cursor := int64(math.MaxInt64)
+	for {
+		processed, lowest, err := a.embedPending(ctx, cfg, cursor)
+		if err != nil {
+			a.logger.Warn("embedding batch failed", "error", err, "embedded", total)
+			return
+		}
+		total += processed
+		cursor = lowest
+		if processed < embeddingBatchSize {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(embeddingBatchPause):
+		}
+	}
+	if total > 0 {
+		a.logger.Info("embeddings updated", "items", total, "model", cfg.Model, "duration_ms", time.Since(started).Milliseconds())
 	}
 }
 
@@ -184,22 +224,32 @@ type pendingEmbedding struct {
 }
 
 // pendingEmbeddings lists items whose stored embedding is missing or no longer
-// matches the text it was made from.
+// matches the text it was made from, walking down from beforeID.
+//
+// The bound is what keeps a backfill linear. Without it every batch started at
+// the newest item again and stepped over everything already embedded to reach
+// the next thirty-two that were not: measured on a corpus of 110,534 items with
+// 43,200 of them done, one batch read 43,168 rows it had to discard and took
+// 104 ms. That cost grows with each batch, so filling a corpus cost time
+// proportional to its size squared. Walking strictly downward within one pass
+// reads each item once. Items edited during the pass are above the cursor by
+// then; the next pass, two minutes later, takes them.
 //
 // The digest is computed in SQL rather than in Go so that staleness can be a
 // predicate: an item edited after it was embedded has to come back out of the
 // database, and Go cannot filter on a hash it has not read the row to compute.
 // Report items are updated in place since v0.11, so their identifiers survive a
 // save and "no embedding row yet" stopped being a usable test for freshness.
-func (a *App) pendingEmbeddings(ctx context.Context, model string, limit int) ([]pendingEmbedding, error) {
+func (a *App) pendingEmbeddings(ctx context.Context, model string, beforeID int64, limit int) ([]pendingEmbedding, error) {
 	rows, err := a.db.Query(ctx, `SELECT i.id, i.title, i.category, i.current_result, i.next_plan, i.issue, d.digest
 		FROM report_items i
 		CROSS JOIN LATERAL (SELECT encode(sha256(convert_to(
 			concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex') AS digest) d
 		LEFT JOIN report_item_embeddings e ON e.report_item_id = i.id AND e.model = $1
 		WHERE length(trim(i.title)) > 0
+			AND i.id < $2
 			AND (e.report_item_id IS NULL OR e.content_hash IS DISTINCT FROM d.digest)
-		ORDER BY i.id DESC LIMIT $2`, model, limit)
+		ORDER BY i.id DESC LIMIT $3`, model, beforeID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -216,22 +266,25 @@ func (a *App) pendingEmbeddings(ctx context.Context, model string, limit int) ([
 	return items, rows.Err()
 }
 
-// embedPending embeds one batch of items that need it.
-func (a *App) embedPending(ctx context.Context, cfg embeddingConfig) (int, error) {
-	items, err := a.pendingEmbeddings(ctx, cfg.Model, embeddingBatchSize)
+// embedPending embeds one batch of items that need it, below beforeID, and
+// answers with the lowest identifier it reached so the next batch resumes there.
+func (a *App) embedPending(ctx context.Context, cfg embeddingConfig, beforeID int64) (int, int64, error) {
+	items, err := a.pendingEmbeddings(ctx, cfg.Model, beforeID, embeddingBatchSize)
 	if err != nil {
-		return 0, err
+		return 0, beforeID, err
 	}
 	if len(items) == 0 {
-		return 0, nil
+		return 0, beforeID, nil
 	}
+	// Ordered by id descending, so the last one read is the lowest.
+	lowest := items[len(items)-1].id
 	inputs := make([]string, len(items))
 	for index, item := range items {
 		inputs[index] = item.text
 	}
 	vectors, err := requestEmbeddings(ctx, cfg, inputs)
 	if err != nil {
-		return 0, err
+		return 0, beforeID, err
 	}
 	for index, item := range items {
 		// The digest read alongside the text is stored, not one recomputed now:
@@ -244,10 +297,10 @@ func (a *App) embedPending(ctx context.Context, cfg embeddingConfig) (int, error
 				dimensions=EXCLUDED.dimensions, content_hash=EXCLUDED.content_hash, updated_at=now()`,
 			item.id, vectorLiteral(vectors[index]), cfg.Model, len(vectors[index]), item.digest)
 		if err != nil {
-			return index, err
+			return index, item.id, err
 		}
 	}
-	return len(items), nil
+	return len(items), lowest, nil
 }
 
 // searchSemantic finds reports whose meaning is close to the query even when
@@ -360,9 +413,27 @@ func (a *App) embeddingStatus(w http.ResponseWriter, r *http.Request) {
 	writeData(w, 200, result)
 }
 
-// rebuildEmbeddings embeds everything still missing, rather than waiting for the
-// background worker to walk the corpus one batch at a time. Turning the feature
-// on is exactly when an operator wants the backlog cleared now.
+// pendingEmbeddingCount is how many items still need embedding for a model.
+func (a *App) pendingEmbeddingCount(ctx context.Context, model string) int {
+	remaining := 0
+	_ = a.db.QueryRow(ctx, `SELECT count(*) FROM report_items i
+		LEFT JOIN report_item_embeddings e ON e.report_item_id = i.id AND e.model = $1
+		WHERE length(trim(i.title)) > 0
+			AND (e.report_item_id IS NULL OR e.content_hash IS DISTINCT FROM encode(sha256(convert_to(
+				concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex'))`, model).
+		Scan(&remaining)
+	return remaining
+}
+
+// rebuildEmbeddings embeds what it can inside one request, rather than waiting
+// for the background worker. Turning the feature on is exactly when an operator
+// wants the backlog cleared now.
+//
+// It cannot clear all of it: a request has to end, so the pass is capped at
+// embeddingRebuildBatches. The cap was silent — on a corpus of 110,534 items it
+// embedded 6,400, logged "embedding rebuild complete", and told the operator
+// "임베딩 6400건을 생성했습니다" with 104,134 still missing and nothing on screen
+// saying so. It now reports what is left, which the worker goes on to take.
 func (a *App) rebuildEmbeddings(w http.ResponseWriter, r *http.Request) {
 	cfg, err := a.embeddingConfig(r.Context())
 	if err != nil {
@@ -370,18 +441,21 @@ func (a *App) rebuildEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	total := 0
-	for range 200 {
-		processed, err := a.embedPending(r.Context(), cfg)
+	cursor := int64(math.MaxInt64)
+	for range embeddingRebuildBatches {
+		processed, lowest, err := a.embedPending(r.Context(), cfg, cursor)
 		if err != nil {
 			a.logger.Warn("embedding rebuild failed", "error", err, "embedded", total)
 			writeError(w, 502, "EMBEDDING_FAILED", "임베딩 생성 중 오류가 발생했습니다. 임베딩 엔드포인트 설정을 확인하세요.")
 			return
 		}
 		total += processed
+		cursor = lowest
 		if processed < embeddingBatchSize {
 			break
 		}
 	}
-	a.logger.Info("embedding rebuild complete", "items", total, "model", cfg.Model)
-	writeData(w, 200, map[string]any{"embedded": total, "model": cfg.Model})
+	remaining := a.pendingEmbeddingCount(r.Context(), cfg.Model)
+	a.logger.Info("embedding rebuild pass", "items", total, "remaining", remaining, "model", cfg.Model)
+	writeData(w, 200, map[string]any{"embedded": total, "remaining": remaining, "model": cfg.Model})
 }

@@ -40,7 +40,7 @@ function SettingsTab({ notify, changed }: { notify: (message: string, kind?: 'su
   const loadEmbedding = () => api<EmbeddingStatus>('/api/v1/admin/embeddings').then(setEmbedding).catch(() => setEmbedding(undefined))
   const loadEncryption = () => api<EncryptionStatus>('/api/v1/admin/encryption').then(setEncryption).catch(() => setEncryption(undefined))
   useEffect(() => { load(); loadEmbedding(); loadEncryption() }, [])
-  const rebuildEmbeddings = async () => { try { const result = await post<{ embedded: number }>('/api/v1/admin/embeddings/rebuild'); await loadEmbedding(); notify(`임베딩 ${result.embedded}건을 생성했습니다.`) } catch (error) { notify(errorText(error, '임베딩을 생성할 수 없습니다.'), 'error') } }
+  const rebuildEmbeddings = async () => { try { const result = await post<{ embedded: number, remaining: number }>('/api/v1/admin/embeddings/rebuild'); await loadEmbedding(); notify(result.remaining > 0 ? `임베딩 ${result.embedded.toLocaleString()}건을 생성했습니다. ${result.remaining.toLocaleString()}건이 남았고 백그라운드 작업자가 이어서 처리합니다.` : `임베딩 ${result.embedded.toLocaleString()}건을 생성했습니다. 남은 항목이 없습니다.`) } catch (error) { notify(errorText(error, '임베딩을 생성할 수 없습니다.'), 'error') } }
   // A change the server refuses until its consequences are accepted comes back
   // as 409 with the explanation. Showing that text and asking is better than a
   // warning nobody reads next to a field they are not touching.

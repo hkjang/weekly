@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.203.0.tar.gz
-gzip -dc weekly-v0.203.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.203.0.tar.gz | docker load
+sha256sum weekly-v0.204.0.tar.gz
+gzip -dc weekly-v0.204.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.204.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -375,7 +375,7 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 
 표기 유사 단계는 `word_similarity`를 사용합니다. 질의어가 문서 전체에서 차지하는 비중이 아니라 문서 안의 한 단어와 얼마나 닮았는지를 재기 때문에, 긴 제목 안의 짧은 검색어도 찾습니다. 최소 점수는 `유사 검색 최소 점수(%)` 설정으로 조정합니다.
 
-의미 유사 단계는 관리자 설정에서 `의미 기반 검색 사용`을 켜고 OpenAI 호환 `/v1/embeddings` Endpoint와 모델을 지정해야 동작합니다. 임베딩은 배경 작업이 2분마다 갱신하며 `임베딩 다시 생성`으로 즉시 채울 수 있습니다. **코사인 점수 범위는 임베딩 모델마다 다르므로** `의미 검색 최소 점수(%)`는 관리자 화면의 임베딩 현황을 보며 조정해야 합니다. 기본값 25는 시작점일 뿐 모든 모델에 맞는 값이 아닙니다.
+의미 유사 단계는 관리자 설정에서 `의미 기반 검색 사용`을 켜고 OpenAI 호환 `/v1/embeddings` Endpoint와 모델을 지정해야 동작합니다. 임베딩은 배경 작업이 2분마다 깨어나 **밀린 것을 전부** 처리합니다. `임베딩 다시 생성`은 요청 하나가 끝나야 하므로 한 번에 최대 **6,400건**까지 채우고 **남은 건수를 함께 알려 줍니다** — 나머지는 배경 작업이 이어서 가져갑니다. **코사인 점수 범위는 임베딩 모델마다 다르므로** `의미 검색 최소 점수(%)`는 관리자 화면의 임베딩 현황을 보며 조정해야 합니다. 기본값 25는 시작점일 뿐 모든 모델에 맞는 값이 아닙니다.
 
 추가 API:
 
