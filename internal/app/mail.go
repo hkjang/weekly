@@ -356,10 +356,14 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 	var deliveryID, reportID int64
 	var address string
 	var attempts int
+	// Only what is due. A row that has just failed carries a time in the future,
+	// so this reaches past it to somebody else's mail instead of spending the
+	// tick on the same refusal again.
 	err = a.db.QueryRow(ctx, `
 		UPDATE report_mail_deliveries SET attempts = attempts + 1
-		WHERE id = (SELECT id FROM report_mail_deliveries WHERE status = 'QUEUED'
-		            ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT 1)
+		WHERE id = (SELECT id FROM report_mail_deliveries
+		            WHERE status = 'QUEUED' AND next_attempt_at <= now()
+		            ORDER BY next_attempt_at, created_at, id FOR UPDATE SKIP LOCKED LIMIT 1)
 		RETURNING id, report_id, address, attempts`).Scan(&deliveryID, &reportID, &address, &attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The queue is empty. The ordinary case, and not worth a line in a log
@@ -389,9 +393,15 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 			return true
 		}
 		// Left QUEUED with the reason on it, so the writer sees why it has not
-		// arrived yet rather than only that it has not.
-		_, _ = a.db.Exec(ctx, `UPDATE report_mail_deliveries SET error_message=$2 WHERE id=$1`,
-			deliveryID, trimRunes(err.Error(), 1000))
+		// arrived yet rather than only that it has not, and dated so the next
+		// try is far enough away to outlast the outage that caused this one.
+		if _, dbErr := a.db.Exec(ctx, `UPDATE report_mail_deliveries
+			SET error_message=$2, next_attempt_at = now() + $3::interval WHERE id=$1`,
+			deliveryID, trimRunes(err.Error(), 1000), retryDelay(attempts).String()); dbErr != nil {
+			// Without the new time this row is due again immediately and the
+			// queue spins on it, so a write that failed is worth saying.
+			a.logger.Error("defer mail retry", "delivery", deliveryID, "error", dbErr)
+		}
 		a.logger.Warn("report mail retry", "delivery", deliveryID, "attempts", attempts, "error", err)
 		// Stop the sweep: the next one would fail the same way against the same
 		// relay, and hammering it is not a retry policy.
@@ -401,6 +411,24 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 		a.logger.Error("mark mail sent", "delivery", deliveryID, "error", err)
 	}
 	return true
+}
+
+// retryDelay spaces the attempts so the budget outlives an ordinary outage.
+//
+// Four to the power of the attempt: one minute, four, sixteen, an hour, then
+// capped at two. Five attempts therefore span about three hours rather than the
+// two and a half minutes a fixed thirty-second gap gave them — long enough that
+// a relay restart, a certificate reload or a network blip does not spend a
+// report's whole budget while nobody is looking.
+func retryDelay(attempts int) time.Duration {
+	delay := time.Minute
+	for index := 1; index < attempts && delay < 2*time.Hour; index++ {
+		delay *= 4
+	}
+	if delay > 2*time.Hour {
+		delay = 2 * time.Hour
+	}
+	return delay
 }
 
 func (a *App) markMailFailed(ctx context.Context, deliveryID int64, reason string) {
@@ -434,6 +462,9 @@ type mailDeliveryView struct {
 	Error     string     `json:"error"`
 	CreatedAt time.Time  `json:"createdAt"`
 	SentAt    *time.Time `json:"sentAt"`
+	// When the worker will try again. A delivery that is waiting is a different
+	// thing from one that is stuck, and only the date tells them apart.
+	NextAttemptAt *time.Time `json:"nextAttemptAt"`
 }
 
 // mailRecent is how many past attempts the screen shows. Enough to cover a
@@ -456,7 +487,9 @@ func (a *App) myMailSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := a.db.Query(r.Context(), `
-		SELECT d.id, r.week_start, d.address, d.status, d.attempts, d.error_message, d.created_at, d.sent_at
+		SELECT d.id, r.week_start, d.address, d.status, d.attempts, d.error_message,
+		       d.created_at, d.sent_at,
+		       CASE WHEN d.status = 'QUEUED' AND d.attempts > 0 THEN d.next_attempt_at END
 		FROM report_mail_deliveries d JOIN weekly_reports r ON r.id = d.report_id
 		WHERE d.user_id = $1 ORDER BY d.created_at DESC, d.id DESC LIMIT $2`, p.ID, mailRecent)
 	if err != nil {
@@ -468,7 +501,8 @@ func (a *App) myMailSettings(w http.ResponseWriter, r *http.Request) {
 		var delivery mailDeliveryView
 		var week time.Time
 		if err := rows.Scan(&delivery.ID, &week, &delivery.Address, &delivery.Status,
-			&delivery.Attempts, &delivery.Error, &delivery.CreatedAt, &delivery.SentAt); err != nil {
+			&delivery.Attempts, &delivery.Error, &delivery.CreatedAt, &delivery.SentAt,
+			&delivery.NextAttemptAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "발송 이력을 읽을 수 없습니다.")
 			return
 		}

@@ -352,5 +352,5 @@ export interface EncryptionStatus { keySource: string; storedSecrets: number; re
  * and "the administrator has not set one up" is not something this screen could
  * otherwise know.
  */
-export interface MailDelivery { id: number; weekStart: string; address: string; status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; error: string; createdAt: string; sentAt: string | null }
+export interface MailDelivery { id: number; weekStart: string; address: string; status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; error: string; createdAt: string; sentAt: string | null; nextAttemptAt: string | null }
 export interface MailPreference { relayReady: boolean; address: string; onSubmit: boolean; deliveries: MailDelivery[] }

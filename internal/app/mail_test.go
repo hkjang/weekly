@@ -24,7 +24,11 @@ type fakeRelay struct {
 	mu       sync.Mutex
 	messages []string
 	envelope []string
-	refuse   string // when set, the relay rejects RCPT with this text
+	refuse   string // when set, the relay rejects every RCPT with this text
+	// refuseFor rejects one address and accepts the rest, which is the only way
+	// to test that a refused delivery does not hold up the ones behind it: the
+	// refusal has to still be there when the next one is tried.
+	refuseFor map[string]string
 }
 
 func startFakeRelay(t *testing.T) *fakeRelay {
@@ -85,8 +89,16 @@ func (relay *fakeRelay) handle(conn net.Conn) {
 			say("250-relay.test")
 			say("250 SIZE 10485760")
 		case strings.HasPrefix(command, "RCPT TO"):
-			if relay.refuse != "" {
-				say("550 5.1.1 " + relay.refuse)
+			relay.mu.Lock()
+			reason := relay.refuse
+			for address, text := range relay.refuseFor {
+				if strings.Contains(line, address) {
+					reason = text
+				}
+			}
+			relay.mu.Unlock()
+			if reason != "" {
+				say("550 5.1.1 " + reason)
 				continue
 			}
 			relay.mu.Lock()
@@ -507,5 +519,93 @@ func TestARefusedDeliveryKeepsTheRelaysOwnReason(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "recipient rejected by policy") {
 		t.Errorf("the screen does not carry why it has not arrived: %s", w.Body.String())
+	}
+}
+
+// A relay that is unreachable for a couple of minutes is an ordinary event — a
+// restart, a certificate reload, a network blip. With the attempts thirty
+// seconds apart it spent a report's entire budget: measured on a deployment,
+// five attempts and a permanent failure inside two and a half minutes.
+
+// guards: retryDelay
+func TestTheRetryBudgetOutlivesAnOrdinaryOutage(t *testing.T) {
+	var total time.Duration
+	for attempt := 1; attempt <= 5; attempt++ {
+		total += retryDelay(attempt)
+	}
+	if total < time.Hour {
+		t.Errorf("five attempts span %s — a relay restart would spend the whole budget", total)
+	}
+	// And each wait is longer than the last, so an outage that is still there
+	// is asked about less often rather than more.
+	for attempt := 2; attempt <= 4; attempt++ {
+		if retryDelay(attempt) <= retryDelay(attempt-1) {
+			t.Errorf("attempt %d waits %s, not longer than the %s before it",
+				attempt, retryDelay(attempt), retryDelay(attempt-1))
+		}
+	}
+	// Capped, or a long-running deployment would schedule a retry days out and
+	// the row would look abandoned.
+	if retryDelay(20) > 2*time.Hour {
+		t.Errorf("the wait grows without bound: %s", retryDelay(20))
+	}
+	// The first wait still has to be short: most failures are momentary.
+	if retryDelay(1) > 5*time.Minute {
+		t.Errorf("the first retry waits %s, long enough to look broken", retryDelay(1))
+	}
+}
+
+// One address the relay refuses used to hold the queue: the claim took the
+// oldest queued row every tick, failed on it, and stopped. Everybody behind it
+// waited for that row to burn through its attempts.
+
+// guards: sendNextQueuedMail
+func TestOneRefusedAddressDoesNotHoldUpEverybodyElse(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	// Only this address is refused, and it stays refused. Turning the refusal
+	// off before queueing the second delivery would let the worker succeed on
+	// the first one and prove nothing about reaching past it.
+	relay.refuseFor = map[string]string{"blocked@internal.test": "recipient rejected by policy"}
+	server.configureRelay(relay)
+
+	refused := server.createUser("mail_block", "USER", nil)
+	if w := server.request(http.MethodPut, "/api/v1/me/mail",
+		map[string]any{"address": "blocked@internal.test", "onSubmit": true}, refused); w.Code != http.StatusOK {
+		t.Fatalf("save the preference: %d %s", w.Code, w.Body.String())
+	}
+	server.submitted(refused, "2026-08-17", "막히는 사람")
+	// The first delivery has to have been tried and deferred before the second
+	// is queued, or this proves nothing about reaching past it.
+	server.awaitDeliveryReason()
+
+	fine := server.createUser("mail_after", "USER", nil)
+	if w := server.request(http.MethodPut, "/api/v1/me/mail",
+		map[string]any{"address": "after@internal.test", "onSubmit": true}, fine); w.Code != http.StatusOK {
+		t.Fatalf("save the preference: %d %s", w.Code, w.Body.String())
+	}
+	server.submitted(fine, "2026-08-24", "뒤에 선 사람")
+
+	messages := relay.awaitRelay(t, 1)
+	if len(messages) == 0 {
+		t.Fatal("the second writer's mail never went out — the refused one is still holding the queue")
+	}
+	if envelope := strings.Join(relay.envelopeLines(), " "); !strings.Contains(envelope, "after@internal.test") {
+		t.Errorf("the delivered mail was not the second writer's: %s", envelope)
+	}
+
+	// And the refused one is waiting, not lost: it carries a time to try again.
+	var status string
+	var next *time.Time
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT status, next_attempt_at FROM report_mail_deliveries WHERE address='blocked@internal.test'`).
+		Scan(&status, &next); err != nil {
+		t.Fatalf("read the deferred delivery: %v", err)
+	}
+	if status != "QUEUED" {
+		t.Errorf("the refused delivery is %s, want QUEUED", status)
+	}
+	if next == nil || !next.After(time.Now()) {
+		t.Errorf("the refused delivery is due again immediately, so the queue will spin on it: %v", next)
 	}
 }

@@ -52,6 +52,8 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
             <td>{delivery.status === 'SENT' ? '발송됨'
               : delivery.status === 'FAILED' ? <span className="danger-text">실패</span>
               : `대기 중${delivery.attempts > 0 ? ` · 시도 ${delivery.attempts}회` : ''}`}
+              {/* Waiting and stuck look the same without the date. */}
+              {delivery.nextAttemptAt && <small className="cell-sub">다음 시도 {new Date(delivery.nextAttemptAt).toLocaleString('ko-KR')}</small>}
               {/* The reason travels with the row: a delivery that has not
                   arrived is a question, and the relay already answered it. */}
               {delivery.error && <small className="cell-sub">{delivery.error}</small>}</td>

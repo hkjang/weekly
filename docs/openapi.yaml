@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.178.0
+  version: 0.179.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1151,6 +1151,11 @@ paths:
                             error: { type: string }
                             createdAt: { type: string, format: date-time }
                             sentAt: { type: string, format: date-time, nullable: true }
+                            nextAttemptAt:
+                              type: string
+                              format: date-time
+                              nullable: true
+                              description: 다음 재시도 예정 시각. 한 번이라도 시도했다가 실패해 대기 중인 건에만 있다. 기다리는 중인 것과 멈춘 것은 이 값으로만 구별된다.
     put:
       summary: 주간보고 메일 발송 설정 저장
       description: |

@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.178.0.tar.gz
-gzip -dc weekly-v0.178.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.178.0.tar.gz | docker load
+sha256sum weekly-v0.179.0.tar.gz
+gzip -dc weekly-v0.179.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.179.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -162,7 +162,9 @@ DB와 볼륨을 한 번에 백업·검증·복구하려면 `scripts/weekly-backu
 | 연결 보안 | 없음(평문) | 사내 릴레이가 포트 25에 인증 없이 열려 있는 경우가 흔합니다 |
 | SMTP 계정 | 비어 있음 | **계정을 쓰려면 STARTTLS나 TLS가 필요합니다.** 평문 연결에는 비밀번호를 실어 보내지 않습니다 |
 | 발송 제한시간 | 20초 | 연결부터 본문 전송까지 전체에 걸립니다 |
-| 재시도 횟수 | 5회 | 넘기면 실패로 확정하고 사유를 남깁니다 |
+| 재시도 횟수 | 5회 | 1분·4분·16분·1시간·2시간 간격으로 벌어져 약 3시간에 걸칩니다. 넘기면 실패로 확정하고 사유를 남깁니다 |
+
+재시도 간격이 벌어지는 이유는 실측 때문입니다. 30초 고정이던 때는 릴레이가 **2분 30초** 동안 닿지 않으면 다섯 번을 다 쓰고 영구 실패했습니다. 릴레이 재시작보다 짧습니다.
 
 발송은 제출 트랜잭션 **밖에서** 이루어집니다. 릴레이가 죽어 있어도 제출은 실패하지 않으며, 밀린 발송은 큐에 남아 다시 시도됩니다. 작성자는 `개인 설정`에서 주차별 발송 상태와, 실패했다면 릴레이가 준 사유를 그대로 봅니다.
 

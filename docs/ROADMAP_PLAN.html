@@ -2204,6 +2204,25 @@ ERROR:  차주 계획 문장이 1가지뿐입니다. 계획 반복 배지가 모
 <p><strong>셋 — 시험이 백그라운드 작업자와 경쟁했습니다.</strong> 제출이 작업자를 깨우므로 메일은 이미 나갔고, 시험이 직접 부른 <code>sendNextQueuedMail</code> 은 빈 큐를 봤습니다. 실패 문구는 <code>nothing was queued</code> — <strong>기능이 동작한 것을, 동작하지 않았다고</strong> 보고했습니다. 상태를 기다리는 방식으로 바꿨습니다.</p>
 <p>##### 저장소의 가드가 저를 잡았습니다</p>
 <p><code>sqlparams_test.go</code> 가 제 SQL 두 곳에서 자리표시자 재사용을 지적했습니다. 예외 목록에 넣는 대신 재사용을 없앴습니다 — <code>SELECT $1, s.user_id, ...</code> 와 <code>ON CONFLICT ... SET address=EXCLUDED.address</code>.</p>
+<p>#### 3.10.134 v0.179.0에서 완료 — 재시작보다 짧은 재시도</p>
+<p>v0.178.0으로 메일 발송을 낸 직후, 그 기능의 끝 상태를 재 봤습니다. 릴레이를 닫힌 포트로 돌리고 제출한 뒤 30초마다 지켜봤습니다.</p>
+<div class="phase-box">03:19:05  QUEUED 시도2
+03:19:33  QUEUED 시도3
+03:20:01  QUEUED 시도4
+03:20:28  FAILED 시도5      ← 2분 30초 만에 영구 실패</div>
+<p><strong>릴레이가 2분 30초 닿지 않으면 그 주의 보고는 영영 안 갑니다.</strong> 재시작, 인증서 재적재, 네트워크 끊김 — 전부 그보다 깁니다. 재시도 정책이 아니라 조금 늦춘 포기였습니다.</p>
+<p>##### 그리고 한 건이 뒤를 막고 있었습니다</p>
+<p>작업자는 매 틱마다 <strong>가장 오래된 대기 건</strong>을 집었습니다. 릴레이가 거부하는 주소 하나가 큐 맨 앞에 있으면, 그 건이 시도를 다 쓸 때까지 뒤에 선 사람들의 메일이 전부 기다립니다.</p>
+<p>##### 고침</p>
+<p><code>next_attempt_at</code> 을 두고, 실패한 건은 그 시각을 미룹니다. 두 문제가 같은 한 줄로 풀립니다 — 미뤄진 건은 <strong>아직 차례가 아니므로</strong> 다음 틱이 그것을 건너뛰고 뒤를 봅니다.</p>
+<p>간격은 4의 거듭제곱입니다: 1분 · 4분 · 16분 · 1시간 · 2시간(상한). 다섯 번이 <strong>2분 30초에서 약 3시간</strong>으로 늘어납니다.</p>
+<p>배포에서 같은 장애를 재현해 확인했습니다.</p>
+<table><thead><tr><th></th><th>이전</th><th>지금</th></tr></thead><tbody><tr><td>시도 1 → 2</td><td>30초</td><td><strong>1분</strong></td></tr><tr><td>시도 2 → 3</td><td>30초</td><td><strong>4분</strong></td></tr><tr><td>2분 30초 장애</td><td><strong>영구 실패</strong></td><td>대기 중</td></tr><tr><td>릴레이 복구 후</td><td>—</td><td><strong>시도 3회에 SENT</strong></td></tr></tbody></table>
+<p>##### 픽스처가 절반만 보고 있었습니다</p>
+<p>선두 막힘 시험을 처음 쓸 때 릴레이의 거부를 <strong>통째로 껐다가</strong> 두 번째 건을 넣었습니다. 그러면 작업자가 첫 건을 다시 시도해 성공해 버리므로, 미루기를 빼도 두 번째 건이 나갑니다 — 시험은 떨어졌지만 <strong>엉뚱한 이유로</strong> 떨어졌습니다.</p>
+<p>가짜 릴레이를 <strong>주소별 거부</strong>로 고쳤습니다. 이제 미루기를 빼면 <code>the second writer's mail never went out — the refused one is still holding the queue</code> 로 정확히 떨어집니다.</p>
+<p>##### 기다리는 것과 멈춘 것</p>
+<p>작성자 화면에 <code>다음 시도</code> 시각을 함께 보입니다. 그 값이 없으면 대기 중인 건과 멈춘 건이 같아 보입니다.</p>
 </div>
 </body>
 </html>
