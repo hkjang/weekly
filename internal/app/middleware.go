@@ -92,12 +92,27 @@ func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/mcp")
 }
 
+// routePath is the pattern without the method it was registered under.
+//
+// A method-scoped registration puts the method in the pattern itself, so
+// r.Pattern reads "GET /api/v1/me" while the metric already stores the method
+// in its own column. The operator's table printed both and every API row came
+// out as "GET  GET /api/v1/me", with the catch-all "/" the only row shaped
+// like a path. The method column is the one that belongs; this leaves it the
+// only place the method appears.
+func routePath(pattern string) string {
+	if index := strings.IndexByte(pattern, ' '); index >= 0 {
+		return strings.TrimSpace(pattern[index+1:])
+	}
+	return pattern
+}
+
 func (a *App) requestMetrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		mw := &metricsWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(mw, r)
-		route := r.Pattern
+		route := routePath(r.Pattern)
 		if route == "" {
 			route = "unmatched"
 		}

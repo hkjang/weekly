@@ -150,7 +150,31 @@ func TestAnUnknownAPIPathIsNotFiledUnderTheSiteRoot(t *testing.T) {
 	}
 	// A 404 from a real route keeps its pattern, so an administrator can still
 	// see which endpoint is being asked for things that are not there.
-	if counts["GET /api/v1/reports/{id}"] == 0 {
+	if counts["/api/v1/reports/{id}"] == 0 {
 		t.Errorf("a 404 from a route that exists lost its own name: %v", counts)
+	}
+	// The method has a column of its own. Leaving it in the pattern too made
+	// every API row on the analytics screen read "GET  GET /api/v1/me".
+	for route := range counts {
+		if head, _, found := strings.Cut(route, " "); found && head == strings.ToUpper(head) && strings.HasPrefix(route[len(head):], " /") {
+			t.Errorf("the route carries its method as well as the method column: %q in %v", route, counts)
+		}
+	}
+}
+
+// guards: routePath
+func TestTheRecordedRouteLeavesTheMethodToTheMethodColumn(t *testing.T) {
+	// Go puts the method in the pattern of a method-scoped registration and
+	// leaves it out of one that has none, so the raw pattern was two shapes.
+	for _, tc := range []struct{ pattern, want string }{
+		{"GET /api/v1/me", "/api/v1/me"},
+		{"POST /api/v1/reports/{id}/submit", "/api/v1/reports/{id}/submit"},
+		{"/", "/"},
+		{"", ""},
+		{"DELETE /api/v1/admin/pptx-template", "/api/v1/admin/pptx-template"},
+	} {
+		if got := routePath(tc.pattern); got != tc.want {
+			t.Errorf("routePath(%q) = %q, want %q", tc.pattern, got, tc.want)
+		}
 	}
 }

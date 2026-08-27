@@ -2555,6 +2555,17 @@ A test that never runs its subject passes whatever the subject does.</div>
 <p>탭을 새로 열기 전까지 풀리지 않습니다. 그동안 검토 중이던 수정값은 상태에 그대로 남아 있지만 <strong>닿을 수 없고</strong>, 나가려 하면 저장 안 됨 경고가 붙잡습니다. 상세를 못 불러왔을 때도 <code>catch</code> 가 없어 같은 자리에서 같은 모양으로 멈췄습니다.</p>
 <p>##### 인라인이라 아무도 시험할 수 없었습니다</p>
 <p>두 결정 모두 JSX 안에 한 줄로 박혀 있었습니다. <code>frontend/src/importConflict.ts</code> 와 <code>importPanel.ts</code> 로 꺼내 시험 12개를 붙였습니다(전체 79개). 화면에서 다시 걸어 네 전략의 문장, 붉은 표시, 같은 작업 재클릭이 모두 맞는 것을 확인했습니다.</p>
+<p>#### 3.10.156 v0.201.0에서 완료 — 운영 표가 메서드를 두 번 찍고 있었습니다</p>
+<p>v0.200.0 을 확인하며 열네 화면을 다시 훑다가, 관리자만 보는 <strong>최근 24시간 API 분석</strong> 표에서 걸렸습니다.</p>
+<table><thead><tr><th>메서드</th><th>경로</th></tr></thead><tbody><tr><td>GET</td><td><code>/</code></td></tr><tr><td>GET</td><td><code>GET /api/v1/me</code></td></tr><tr><td>POST</td><td><code>POST /api/v1/auth/login</code></td></tr></tbody></table>
+<p>메서드 열이 따로 있는데 경로 열이 메서드를 다시 달고 있습니다. Go 는 메서드를 지정해 등록한 패턴에는 메서드를 넣고 그렇지 않은 패턴에는 넣지 않으므로, <code>r.Pattern</code> 을 그대로 저장하면 <strong>같은 열에 두 가지 모양</strong>이 섞입니다 — 껍데기를 내주는 <code>/</code> 만 경로처럼 생기고 나머지는 전부 겹칩니다.</p>
+<p>기록하는 자리에서 메서드를 떼어 냈습니다. 메서드는 자기 열이 있으니 그쪽 하나면 됩니다.</p>
+<div class="phase-box">GET    /readyz
+GET    /api/v1/reports/{id}
+GET    (unknown API path)
+POST   /api/v1/auth/login
+GET    /api/v1/me</div>
+<p>기존 시험은 *"있는 경로에서 난 404 는 자기 이름을 지킨다"* 를 지키려던 것이었고 메서드 접두는 곁다리였으므로 기대값만 옮겼습니다. 여기에 <strong>어떤 행도 메서드를 두 번 달지 않는다</strong>는 확인을 더했습니다. 사람이 못 보고 지나칠 종류의 어긋남이라, 다음에 누가 되돌려 놓으면 시험이 말합니다.</p>
 </div>
 </body>
 </html>
