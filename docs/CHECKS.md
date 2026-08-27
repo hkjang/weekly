@@ -21,6 +21,25 @@
 
 CI 는 이 중 `go test`·`go vet`·`guard-check`·`modal-close-check`·`openapi-check`·`version-check`·`release-check`·`mutation-check --changed` 를 돌립니다. 릴리스 워크플로는 **산출물을 망가뜨릴 수 있는 것만** 돌립니다 — 잘못된 가드 표시는 tarball 을 망가뜨리지 않으므로 거기 없습니다.
 
+## 화면을 걷기 위한 도구
+
+검사는 아니지만 같은 이유로 있습니다 — **데이터가 없는 화면에서는 결함이 보이지 않습니다.**
+
+| 도구 | 무엇을 세우나 |
+|---|---|
+| `seed-scale.sql` | 조직 46 · 사람 305 · 52주 · 보고 항목 110,534. 한 축이라도 납작해지면 **스스로 실패합니다** |
+| `fake-ai-gateway.py` | AI Gateway 자리. 요청의 JSON Schema 를 읽어 그것을 만족하는 답을 돌려줍니다 |
+
+AI 를 쓰는 기능 셋 — **초안 작성 · 결정 제안 · PPTX 가져오기** — 은 씨앗으로 켤 수 없습니다. 그래서 씨를 뿌린 배포에서 그 화면들은 언제나 *"AI Gateway가 비활성화되어 있습니다"* 만 보여 주고, 뒤의 경로는 단위 시험 말고는 아무도 걷지 않습니다.
+
+```
+python3 scripts/fake-ai-gateway.py 18800
+```
+
+그리고 `관리자 설정 → AI Gateway` 에 `http://host.docker.internal:18800/v1/chat/completions` 와 아무 모델 이름을 넣습니다. 컨테이너는 `--add-host=host.docker.internal:host-gateway` 로 띄웁니다.
+
+모델이 아닙니다. 돌아오는 글은 **일부러 가짜인 티가 납니다** — 이 배포의 초안을 누가 모델이 쓴 것으로 오해하면 안 되니까요. 확인하는 것은 제품의 파싱·검증·신뢰도 처리·미리보기가 **실제 HTTP 왕복 위에서** 도는지입니다.
+
 ## 두 가지 조심할 것
 
 **`load-check.py` 는 읽기만 하지 않습니다.** `u1..uN` 의 **이번 주 보고서를 덮어씁니다.** 그래서 `--yes` 를 요구하고, 거부할 때 무엇을 덮어쓸지 그 자리에서 말합니다. 규모 시드를 뿌린 배포에만 겨누십시오.
