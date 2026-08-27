@@ -27,6 +27,22 @@ metadata:
   name: weekly
 spec:
   replicas: 1
+  # 한 프로세스만 돌아야 합니다. 기본 전략인 RollingUpdate 는 replicas 가 1
+  # 이어도 새 파드를 먼저 띄운 뒤 옛 파드를 내리므로, 업그레이드하는 동안
+  # 잠깐 둘이 겹칩니다.
+  #
+  # 두 대를 같은 데이터베이스에 붙여 재현했습니다. 새 프로세스는 기동하면서
+  # 중단된 작업을 되살리려고 PROCESSING 인 Import 를 PENDING 으로 돌리는데,
+  # 그 작업은 중단된 것이 아니라 옛 프로세스가 붙들고 있던 것입니다. 되돌린
+  # 직후 새 프로세스가 스스로 그것을 집어 가, 같은 PPTX 를 두 프로세스가
+  # 동시에 AI 로 분석했습니다 — 게이트웨이에 연결 두 개, 같은 행에 두 번
+  # 쓰기, 그리고 started_at 은 일을 하지 않는 쪽의 시각으로 덮였습니다.
+  # Confluence 동기화도 같은 모양의 기동 복구를 갖고 있습니다.
+  #
+  # ReadWriteOnce 볼륨도 같은 답을 가리킵니다. 새 파드가 다른 노드에 잡히면
+  # 옛 파드가 볼륨을 놓을 때까지 붙지 못해 롤아웃이 멈춥니다.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: weekly
@@ -43,7 +59,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: weekly
-          image: weekly:v0.210.0
+          image: weekly:v0.211.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:

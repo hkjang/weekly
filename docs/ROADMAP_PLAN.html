@@ -2718,6 +2718,22 @@ AI_CLASSIFY (111건): 〃</div>
 404 응답 → Issuer 주소에서 .well-known/openid-configuration 을 찾지 못했습니다.
             Issuer URL이 realm 루트(예: https://sso.internal/realms/weekly)인지 확인하세요.</div>
 <p>시험은 <strong>알림에 넣기에 너무 긴 문장</strong>과 흘러나온 망 주소를 함께 봅니다. 전체 오류는 traceId 와 함께 서버 로그에 그대로 남습니다.</p>
+<p>#### 3.10.166 v0.211.0에서 완료 — 매니페스트는 한 프로세스를 요구하고 기본 전략은 둘을 돌립니다</p>
+<p>배포 파일이 <code>replicas: 1</code> 과 <code>ReadWriteOnce</code> 를 쓰면서 <strong><code>strategy</code> 를 정하지 않았습니다.</strong> Kubernetes 의 기본값은 <code>RollingUpdate</code> 이고, 그것은 <code>replicas: 1</code> 에서도 <strong>새 파드를 먼저 띄운 뒤</strong> 옛 파드를 내립니다. 업그레이드하는 동안 두 프로세스가 겹칩니다.</p>
+<p>읽어서 안 것이 아니라 <strong>재현했습니다.</strong> 컨테이너 두 대를 같은 데이터베이스에 붙였습니다.</p>
+<p>##### 기동 복구는 겹침을 전제하지 않습니다</p>
+<p>메일과 Import 는 <code>FOR UPDATE SKIP LOCKED</code> 로 한 건씩 집어 가므로 겹쳐도 안전합니다. 그런데 <strong>기동할 때 하는 복구</strong>는 그렇지 않습니다.</p>
+<div class="phase-box">UPDATE import_jobs SET status=&#x27;PENDING&#x27; WHERE status=&#x27;PROCESSING&#x27;</div>
+<p>크래시가 남긴 일을 되살리는 문장이고, 한 번에 한 프로세스만 돌 때는 옳습니다. 겹쳐 있는 동안 그 <code>PROCESSING</code> 은 중단된 것이 아니라 <strong>옛 프로세스가 붙들고 있는 것</strong>입니다.</p>
+<p>느린 AI 게이트웨이로 파일 하나를 오래 붙잡아 두고 두 번째를 띄웠습니다.</p>
+<div class="phase-box">started_at 13:04:16.012   ← B 의 기동 시각. A 의 것을 덮었습니다
+ESTAB 127.0.0.1:34604 → 127.0.0.1:18820
+ESTAB 127.0.0.1:52688 → 127.0.0.1:18820   ← 같은 파일, 연결 두 개</div>
+<p>B 는 되돌린 직후 <strong>스스로 그것을 집어 갔고</strong>, 같은 PPTX 를 둘이 동시에 AI 로 분석했습니다. 같은 <code>import_files</code> 행에 두 번 쓰고, <code>started_at</code> 은 일을 하지 않는 쪽의 시각이 됩니다. Confluence 동기화도 같은 모양의 기동 복구를 갖고 있습니다.</p>
+<p>##### <code>ReadWriteOnce</code> 도 같은 답을 가리킵니다</p>
+<p>새 파드가 다른 노드에 잡히면 옛 파드가 볼륨을 놓을 때까지 붙지 못합니다. 롤아웃이 거기서 멈추고, 그동안 옛 파드는 계속 서비스하므로 <strong>누가 볼 때까지 아무 일도 없어 보입니다.</strong></p>
+<p>##### <code>strategy: Recreate</code></p>
+<p>한 줄입니다. 시험은 매니페스트를 읽어 <code>replicas: 1</code> · <code>Recreate</code> · <code>ReadWriteOnce</code> 가 함께 있는지 보고, compose 가 두 벌을 띄우지 않는지도 확인합니다. 이유는 매니페스트와 README 양쪽에 적었습니다 — 다음에 누가 <code>RollingUpdate</code> 로 되돌리려 할 때 읽을 자리는 코드가 아니라 거기입니다.</p>
 </div>
 </body>
 </html>

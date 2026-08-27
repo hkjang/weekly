@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.210.0.tar.gz
-gzip -dc weekly-v0.210.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.210.0.tar.gz | docker load
+sha256sum weekly-v0.211.0.tar.gz
+gzip -dc weekly-v0.211.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.211.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -107,6 +107,22 @@ DB와 볼륨을 한 번에 백업·검증·복구하려면 `scripts/weekly-backu
 1. 기존 `WEEKLY_ENCRYPTION_KEY`를 설정합니다. 가장 확실한 방법이며 상태 볼륨이 없어도 됩니다.
 2. `instance.key`가 있던 `/var/lib/weekly` 볼륨을 복구합니다.
 3. 값을 모두 다시 입력하기로 했다면 `WEEKLY_ALLOW_SECRET_RESET=true`로 기동합니다. 기존 암호문은 지우지 않고 관리자 화면에 `다시 입력 필요`로 표시합니다.
+
+### 업그레이드는 한 프로세스씩
+
+**두 벌을 같은 데이터베이스에 붙이지 마십시오.** 메일 발송과 Import 는 `FOR UPDATE SKIP LOCKED` 로 한 건씩 집어 가지만, **기동할 때 하는 복구**는 그렇지 않습니다. 새 프로세스는 중단된 작업을 되살리려고 `PROCESSING` 인 Import 를 `PENDING` 으로 돌리는데, 겹쳐 있는 동안 그 작업은 중단된 것이 아니라 **옛 프로세스가 붙들고 있는 것**입니다.
+
+두 대를 붙여 재현하면 이렇게 됩니다.
+
+```
+새 프로세스가 되돌림 → 스스로 집어 감 → 같은 PPTX 를 둘이 동시에 AI 로 분석
+AI 게이트웨이 연결 2개 · 같은 import_files 행에 두 번 쓰기
+started_at 은 일을 하지 않는 쪽의 시각으로 덮임
+```
+
+Confluence 동기화도 같은 모양의 기동 복구를 갖고 있습니다.
+
+`deploy/kubernetes.yaml` 은 `strategy: Recreate` 로 옛 파드를 먼저 내립니다 — 기본값인 `RollingUpdate` 는 `replicas: 1` 이어도 새 파드를 먼저 띄웁니다. `ReadWriteOnce` 볼륨도 같은 답을 가리킵니다: 새 파드가 다른 노드에 잡히면 옛 파드가 볼륨을 놓을 때까지 붙지 못해 롤아웃이 멈춥니다. `docker compose up -d` 는 컨테이너를 그 자리에서 교체하므로 별도 설정이 필요 없습니다.
 
 ## 관리자 분석
 
