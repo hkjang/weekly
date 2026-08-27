@@ -2080,6 +2080,24 @@ if target == p.ID {          // != 로 뒤집어도 아무도 몰랐습니다
 <p>처음에는 "1KB 미만이면 빈 응답" 으로 잡았습니다. 그런데 <code>/api/v1/analytics/overview</code> 는 <strong>221바이트에 76명과 미해결 126건</strong>이 들어 있는 진짜 요약입니다. 스크립트 자신의 주석이 이미 이렇게 말하고 있었습니다 — *"늑대를 외치는 도구는 사람들이 안 읽게 됩니다."*</p>
 <p><strong>가장 깊은 목록의 행 수</strong>로 바꿨습니다. 주간 변화는 아무 일이 없어도 그룹 일곱이 늘 있으므로, 행은 그 한 층 아래에서 셉니다. 목록이 아예 없는 응답은 요약 객체이니 건드리지 않습니다.</p>
 <table><thead><tr><th>계정</th><th>이전</th><th>지금</th></tr></thead><tbody><tr><td>admin (업무 없음)</td><td>—</td><td>5건이 "잰 것 없음"</td></tr><tr><td>hq1 (본부장)</td><td>6건</td><td><strong>1건</strong></td></tr><tr><td>u100 (팀장)</td><td>3건</td><td><strong>1건</strong></td></tr></tbody></table>
+<p>#### 3.10.127 v0.172.0에서 완료 — 상태가 하나뿐이라 보이지 않던 것</p>
+<p>씨앗의 모든 보고서가 <code>APPROVED</code> 였습니다. 다섯 상태 가운데 하나만 존재했습니다.</p>
+<table><thead><tr><th></th><th>작성 중</th><th>검토 대기</th><th>반려/수정</th><th>승인</th><th>확정</th></tr></thead><tbody><tr><td>이전</td><td>0</td><td>0</td><td>0</td><td>305</td><td>0</td></tr><tr><td>지금</td><td>27</td><td>27</td><td>28</td><td>194</td><td>28</td></tr></tbody></table>
+<p>그래서 <code>보고서 상태 분포</code> 는 다섯 칸 중 넷이 0이었고, <strong>제출률은 어느 배포에서나 정확히 100.0%</strong> 였으며, "아직 안 낸 사람" 을 묻는 화면은 부를 이름이 없었습니다. 검토 워크플로는 이 제품이 하는 일의 삼분의 일인데 픽스처는 그것을 한 상태로 두고 있었습니다.</p>
+<p>현재 주만 갈랐습니다. 이전 주는 전부 <code>APPROVED</code> 로 남겨 롤업과 예측이 읽는 1년 치 이력은 그대로입니다. <code>submitted_at</code>·<code>reviewed_at</code>·<code>reviewed_by</code> 도 상태와 앞뒤가 맞게 채웠습니다 — 셋 다 씨앗 전체에서 NULL 이었습니다.</p>
+<p>반려된 보고서에는 사유를 붙였습니다. <code>reviewReport()</code> 가 사유를 상태 이력과 <strong><code>report_comments</code> 양쪽에</strong> 쓰고, 작성자가 화면에서 읽는 것은 후자입니다. 사유 없는 반려는 제품이 만들지 않는 상태입니다.</p>
+<p>##### 그러자 팀 화면에서 빈틈이 드러났습니다</p>
+<p>배지가 다섯 가지로 나오자마자 보였습니다. <strong>팀장이 해야 할 단 하나의 일 — 검토 대기를 찾는 것 — 을 할 방법이 없습니다.</strong></p>
+<ul>
+<li>목록은 3,952건 중 200건씩 옵니다.</li>
+<li>승인·반려 버튼은 <code>SUBMITTED</code> 에만 나타납니다.</li>
+<li>상태 열은 있지만 <strong>거를 수가 없습니다.</strong></li>
+</ul>
+<p>76명짜리 조직에서 검토할 것을 찾으려면 스무 페이지를 넘기며 배지를 읽어야 합니다. 그런데 API 는 처음부터 <code>status</code> 매개변수를 받았고 <code>docs/openapi.yaml</code> 에도 적혀 있었습니다. <strong>화면만 그것을 쓰지 않았습니다.</strong></p>
+<table><thead><tr><th></th><th>이전</th><th>지금</th></tr></thead><tbody><tr><td>검토 대기를 찾기</td><td>3,952건을 훑기</td><td>한 번 고르면 7건</td></tr></tbody></table>
+<p>필터를 바꾸면 첫 행부터 다시 읽습니다 — 다른 필터에서 넘어온 offset 은 다른 목록을 가리킵니다. 빈 결과일 때는 "이 상태인 보고서가 없습니다" 라고 말합니다. 무엇이 비었는지 모르는 빈 화면을 또 만들지 않기 위해서입니다.</p>
+<p>##### 손대지 않은 것</p>
+<p>팀장이 동료의 <code>작성 중</code> 보고서 <strong>내용까지</strong> 열 수 있습니다. 상태 열이 작성 중을 일부러 보여 주고 열기 링크를 주는 것으로 보아 의도된 설계로 읽힙니다. 가시성 규칙은 배포된 조직의 기대가 걸린 문제라 혼자 바꾸지 않고 적어만 둡니다.</p>
 </div>
 </body>
 </html>

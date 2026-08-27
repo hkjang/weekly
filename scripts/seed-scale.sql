@@ -83,11 +83,39 @@ FROM generate_series(1, 4) g;
 --
 -- service.timezone defaults to Asia/Seoul; change the zone below to match a
 -- deployment that has set it to something else.
-INSERT INTO weekly_reports(user_id, week_start, summary, status)
-SELECT u.id,
-       (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - ((51 - w) * 7)),
-       '주간 요약 ' || w, 'APPROVED'
+--
+-- Every report was APPROVED, and submitted_at, reviewed_at and reviewed_by were
+-- all null. So 보고서 상태 분포 had four of its five rows at zero, 제출률 read
+-- exactly 100.0% on every deployment, and nothing that asks who has not handed
+-- theirs in yet had anybody to name. The review workflow is a third of what
+-- this product does and the fixture had it in one state.
+--
+-- Only the current week varies. Every earlier week stays APPROVED so the
+-- year of history the rollups and forecasts read is unchanged.
+INSERT INTO weekly_reports(user_id, week_start, summary, status, submitted_at, reviewed_at, reviewed_by)
+SELECT u.id, wk.day, '주간 요약 ' || w, st.status,
+       CASE WHEN st.status = 'DRAFT' THEN NULL
+            ELSE wk.day + interval '4 days 15 hours' END,
+       CASE WHEN st.status IN ('DRAFT', 'SUBMITTED') THEN NULL
+            ELSE wk.day + interval '5 days 10 hours' END,
+       CASE WHEN st.status IN ('DRAFT', 'SUBMITTED') THEN NULL
+            ELSE rev.id END
 FROM users u CROSS JOIN generate_series(0, 51) w
+CROSS JOIN LATERAL (SELECT (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - ((51 - w) * 7)) AS day) wk
+CROSS JOIN LATERAL (SELECT CASE
+         WHEN wk.day <> date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date THEN 'APPROVED'
+         WHEN u.id % 11 = 0 THEN 'DRAFT'
+         WHEN u.id % 11 = 1 THEN 'SUBMITTED'
+         WHEN u.id % 11 = 2 THEN 'REVISION_REQUESTED'
+         WHEN u.id % 11 = 3 THEN 'CLOSED'
+         ELSE 'APPROVED' END AS status) st
+-- Somebody in the same organisation who is allowed to review. Left join, so a
+-- writer with no leader above them still gets a report.
+LEFT JOIN LATERAL (SELECT l.id FROM users l
+                   WHERE l.organization_id = u.organization_id
+                     AND l.role IN ('TEAM_LEADER', 'ORG_MANAGER')
+                     AND l.id <> u.id
+                   ORDER BY l.id LIMIT 1) rev ON TRUE
 -- Including the four 본부장. They were left out, so the most senior seat in the
 -- deployment owned no work at all: 내 보고서, 인수인계, 미결 후속 조치 and the
 -- self-scoped half of every screen answered empty from the account most likely
@@ -180,6 +208,19 @@ WHERE (slot <= 7 OR (r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia
            AND ((r.user_id + slot) % 23) = 1 AND p.base < 90)
   AND NOT (slot <= 7 AND r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7
            AND ((r.user_id + slot) % 23) = 4);
+
+-- A rejected report carries its reason. reviewReport() writes the reason into
+-- report_comments as well as the status history, and that comment is what the
+-- writer actually reads on the screen — a 반려 with nothing beside it is a
+-- state the product never produces.
+INSERT INTO report_comments(report_id, user_id, content)
+SELECT r.id, coalesce(r.reviewed_by, r.user_id),
+       (ARRAY['지난주 대비 무엇이 달라졌는지가 없습니다. 진척 근거를 적어 주세요.',
+              '이슈에 담당과 기한이 없습니다. 다음 주 계획과 함께 보완해 주세요.',
+              '업무 항목이 지난주와 제목만 다릅니다. 같은 일이면 하나로 합쳐 주세요.'])[1 + (r.id % 3)]
+FROM weekly_reports r
+WHERE r.status = 'REVISION_REQUESTED'
+ON CONFLICT DO NOTHING;
 
 -- Give every reported title the task identity the application would have
 -- created for it. resolveWorkItem() does this inside the save transaction, so
