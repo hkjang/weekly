@@ -272,6 +272,47 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 	writeData(w, 200, map[string]any{"updated": keys})
 }
 
+// oidcUserMessage says which discovery failure happened.
+//
+// This is the only integration that never got one. The gateway has
+// aiUserMessage, Confluence has safeConfluenceError, and mail got
+// mailUserMessage; OIDC — the one that decides who can sign in — appended the
+// raw error to a fixed prefix. Measured on a deployment, that put "dial tcp
+// 192.168.65.254:18899" on the screen for a refused connection and, when the
+// address answered with an ordinary 404 page, **the entire HTML document** into
+// the notification. Three different faults, one prefix, and the part that told
+// them apart in English at the end of it.
+//
+// The whole error still goes to the log with the trace id.
+func oidcUserMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	lowered := strings.ToLower(text)
+	switch {
+	case strings.Contains(lowered, "issuer did not match"):
+		return "Issuer URL이 제공자가 답한 issuer와 다릅니다. Keycloak realm 주소를 그대로 넣었는지 확인하세요."
+	case strings.Contains(lowered, "no such host"), strings.Contains(lowered, "connection refused"),
+		strings.Contains(lowered, "dial "), strings.Contains(lowered, "network is unreachable"):
+		return "Issuer 주소에 연결하지 못했습니다. 주소와 사내망 접근 경로를 확인하세요."
+	case strings.Contains(lowered, "timeout"), strings.Contains(lowered, "deadline exceeded"):
+		return "Issuer 주소가 시간 안에 응답하지 않았습니다. 주소와 사내망 경로를 확인하세요."
+	case strings.Contains(lowered, "x509"), strings.Contains(lowered, "certificate"):
+		return "Issuer 인증서를 검증하지 못했습니다. 사내 CA가 이 서버에 설치돼 있는지 확인하세요."
+	case strings.HasPrefix(text, "401"), strings.HasPrefix(text, "403"):
+		return "Discovery 문서 요청이 거부되었습니다. 앞단 인증이나 접근 정책을 확인하세요."
+	case strings.HasPrefix(text, "404"):
+		return "Issuer 주소에서 .well-known/openid-configuration 을 찾지 못했습니다. Issuer URL이 realm 루트(예: https://sso.internal/realms/weekly)인지 확인하세요."
+	case strings.HasPrefix(text, "5"):
+		return "제공자가 오류로 응답했습니다. 제공자 쪽 문제이므로 이 설정을 바꿔도 해결되지 않습니다."
+	case strings.Contains(lowered, "failed to decode"), strings.Contains(lowered, "<html"),
+		strings.Contains(lowered, "invalid character"):
+		return "Issuer 주소가 JSON이 아닌 응답을 돌려줬습니다. 프록시나 로그인 페이지가 앞에 있는지, 주소가 realm 루트인지 확인하세요."
+	}
+	return "OIDC Discovery에 실패했습니다. 서버 로그에서 자세한 원인을 확인하세요."
+}
+
 func (a *App) testOIDC(w http.ResponseWriter, r *http.Request) {
 	cfg, err := a.oidcConfig(r.Context())
 	if err != nil {
@@ -280,7 +321,8 @@ func (a *App) testOIDC(w http.ResponseWriter, r *http.Request) {
 	}
 	provider, err := oidc.NewProvider(r.Context(), cfg.Issuer)
 	if err != nil {
-		writeError(w, 502, "OIDC_DISCOVERY_FAILED", "Keycloak OIDC Discovery 연결에 실패했습니다: "+err.Error())
+		a.logger.Warn("OIDC discovery", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, 502, "OIDC_DISCOVERY_FAILED", oidcUserMessage(err))
 		return
 	}
 	var metadata struct {

@@ -50,16 +50,26 @@ type embeddingConfig struct {
 }
 
 func (a *App) embeddingConfig(ctx context.Context) (embeddingConfig, error) {
+	// These reach a screen. embeddingStatus returns this error's text as its
+	// `reason` and the 검색 설정 line prints it, so an administrator's own
+	// deployment read "pgvector 사용 가능 · 임베딩 0/110,534 · embedding is
+	// disabled" — an internal English string in an otherwise Korean product,
+	// and one that did not say which of two settings was missing.
 	if !a.capabilities.Vector {
-		return embeddingConfig{}, errors.New("pgvector is not installed")
+		return embeddingConfig{}, errors.New("이 데이터베이스에 pgvector 확장이 없어 의미 검색을 쓸 수 없습니다.")
 	}
 	if !a.settingBool(ctx, "ai.embedding_enabled", false) {
-		return embeddingConfig{}, errors.New("embedding is disabled")
+		return embeddingConfig{}, errors.New("의미 기반 검색 사용이 꺼져 있습니다.")
 	}
 	model := strings.TrimSpace(a.setting(ctx, "ai.embedding_model", ""))
 	endpoint := strings.TrimSpace(a.setting(ctx, "ai.embedding_endpoint", ""))
-	if model == "" || endpoint == "" {
-		return embeddingConfig{}, errors.New("embedding endpoint or model is not configured")
+	switch {
+	case endpoint == "" && model == "":
+		return embeddingConfig{}, errors.New("임베딩 Endpoint와 모델이 비어 있습니다.")
+	case endpoint == "":
+		return embeddingConfig{}, errors.New("임베딩 Endpoint가 비어 있습니다. OpenAI 호환 /v1/embeddings 주소를 넣으세요.")
+	case model == "":
+		return embeddingConfig{}, errors.New("임베딩 모델 이름이 비어 있습니다.")
 	}
 	secret, err := a.secretSetting(ctx, "ai.api_key")
 	if err != nil {
@@ -452,7 +462,7 @@ func (a *App) pendingEmbeddingCount(ctx context.Context, model string) int {
 func (a *App) rebuildEmbeddings(w http.ResponseWriter, r *http.Request) {
 	cfg, err := a.embeddingConfig(r.Context())
 	if err != nil {
-		writeError(w, 400, "EMBEDDING_DISABLED", "의미 검색이 활성화돼 있지 않습니다: "+err.Error())
+		writeError(w, 400, "EMBEDDING_DISABLED", err.Error())
 		return
 	}
 	total := 0
