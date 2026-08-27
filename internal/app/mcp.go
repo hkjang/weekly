@@ -276,6 +276,30 @@ func (a *App) mcpToolError(response jsonRPCResponse, message string) jsonRPCResp
 // wrong trade. A hundred is the same number the report search settled on.
 const mcpRollupItems = 100
 
+// mcpRollupBytes is the most one rollup result may weigh.
+//
+// The row cap above is written from a reason about size — "the payload is its
+// entire view" — but a row is not a fixed weight. Measured on this deployment,
+// the same hundred rows came back as 108,414 bytes for a month and 169,341 for
+// a year, because a row carries the prose of every week it appeared in. A count
+// bounds a table; it does not bound a context window, and the caller here has
+// only a context window.
+//
+// 64 KiB, because the other tool on this surface — the report search, with its
+// own hundred-row cap — measured 55,931 bytes on the same deployment. A budget
+// that leaves the tool already inside it alone, and pulls in the one that is
+// not.
+const mcpRollupBytes = 64 << 10
+
+// mcpRollupTimelineFloor is how many weekly series survive the budget.
+//
+// Not zero. The series are the heaviest part of a row, so shedding them buys
+// the most rows per byte — but shed all of them and the sentence explaining
+// them ("상위 N건에만 있습니다") becomes a claim about nothing, and the caller
+// loses every trace of shape in the period. Five is enough to see whether the
+// work climbed or sat still, and cheap enough that the rows keep the rest.
+const mcpRollupTimelineFloor = 5
+
 // rollupForModel is the period rollup as a tool result rather than a screen.
 //
 // Measured on a 300 person deployment: the year at organisation scope came back
@@ -305,16 +329,64 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 		"categories": view.Categories, "contributors": view.Contributors,
 		"trend": view.Trend, "weeks": view.Weeks,
 	}
+	// Then by weight, heaviest thing first. The weekly series is two thirds of
+	// a heavy row and is already the part the note explains the absence of —
+	// "weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다" — so shedding a
+	// series costs the caller a chart it was told it might not have, while
+	// shedding a row costs it a task it will never learn existed. Dropping rows
+	// first took the year from 256 tasks to 13; taking the series first leaves
+	// the tasks and their totals.
+	byBytes := false
+	// trimTimelineSeries names a fixed twenty whether or not there are twenty
+	// rows, so a rollup of three said its top twenty carried a series. Clamped
+	// here because the loop below indexes by this number.
+	if view.TimelineItems > len(view.Items) {
+		view.TimelineItems = len(view.Items)
+		data["timelineItems"] = view.TimelineItems
+	}
+	for view.TimelineItems > mcpRollupTimelineFloor && encodedSize(data) > mcpRollupBytes {
+		view.TimelineItems--
+		view.Items[view.TimelineItems].Weeks = nil
+		data["timelineItems"] = view.TimelineItems
+		byBytes = true
+	}
+	// Only then the rows themselves, from the end, keeping the order the screen
+	// and the row cap already chose.
+	for len(view.Items) > 0 && encodedSize(data) > mcpRollupBytes {
+		view.Items = view.Items[:len(view.Items)-1]
+		data["items"] = view.Items
+		byBytes = true
+	}
 	notes := []string{fmt.Sprintf(
 		"업무 %d건 중 주차별 진척 이력(weeks)은 상위 %d건에만 있습니다. 나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.",
 		total, view.TimelineItems)}
 	if total > len(view.Items) {
+		reason := ""
+		if byBytes {
+			// Said, because a caller told only "100 of 256" may reasonably ask
+			// for the rest by paging, and the answer would be the same size.
+			reason = " 응답 크기 상한에 맞춰 더 줄였습니다."
+		}
 		notes = append(notes, fmt.Sprintf(
-			"업무 %d건 중 %d건만 반환했습니다. 이 목록을 전체로 보고 요약하지 마세요.",
-			total, len(view.Items)))
+			"업무 %d건 중 %d건만 반환했습니다.%s 이 목록을 전체로 보고 요약하지 마세요.",
+			total, len(view.Items), reason))
 	}
 	data["note"] = strings.Join(notes, " ")
 	return data
+}
+
+// encodedSize is how many bytes this result becomes on the way to the caller.
+// Measured rather than estimated: the fields carry Korean prose, and a rune
+// count is not a byte count.
+func encodedSize(data map[string]any) int {
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		// Unmeasurable is not a licence to send everything, but nothing here
+		// can be trimmed on the strength of a guess either. The row cap above
+		// still holds.
+		return 0
+	}
+	return len(encoded)
 }
 
 // mcpReportPageMaximum is the most reports one tool call returns. The cap is

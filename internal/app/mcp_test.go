@@ -129,3 +129,78 @@ func TestASmallRollupIsNotDescribedAsPartial(t *testing.T) {
 		t.Errorf("a complete list was described as partial: %q", note)
 	}
 }
+
+// The row cap is written from a reason about size — "the payload is its entire
+// view" — but a row is not a fixed weight. Measured on a 300 person deployment,
+// the same hundred rows weighed 108,414 bytes for a month and 169,341 for a
+// year, because a row carries the prose of every week it appeared in. A count
+// bounds a table; the caller here has only a context window.
+//
+// guards: rollupForModel
+func TestTheRollupAModelReadsIsBoundedByWeightNotOnlyByRows(t *testing.T) {
+	app := &App{}
+	view := rollupView{Kind: periodYear, Period: "2026", Scope: scopeTeam}
+	// Rows the size the field measures them at: a year's worth of weekly prose
+	// on the rows that carry a series, and a plain row behind them.
+	for index := 0; index < mcpRollupItems*3; index++ {
+		item := rollupItem{
+			Key: fmt.Sprintf("k%d", index), Title: fmt.Sprintf("업무 %03d", index),
+			CurrentResult: strings.Repeat("배포 준비를 마쳤습니다. ", 12),
+			NextPlan:      strings.Repeat("다음 주에는 인수인계를 정리합니다. ", 12),
+		}
+		for week := 0; week < 52; week++ {
+			item.Weeks = append(item.Weeks, rollupItemWeek{
+				WeekStart: fmt.Sprintf("2026-%02d-01", week%12+1), Progress: week % 100,
+			})
+		}
+		view.Items = append(view.Items, item)
+	}
+
+	data := app.rollupForModel(&view)
+	size := encodedSize(data)
+	if size > mcpRollupBytes {
+		t.Errorf("the model's whole view is %d bytes, over the %d budget", size, mcpRollupBytes)
+	}
+	items, _ := data["items"].([]rollupItem)
+	if len(items) == 0 {
+		t.Fatal("the budget left the caller nothing at all")
+	}
+	if len(items) >= mcpRollupItems {
+		t.Errorf("rows this heavy should have been cut past the row cap, kept %d", len(items))
+	}
+	// The series are shed first because they buy the most bytes per row lost —
+	// but not to nothing, or the sentence explaining them describes nothing and
+	// the caller loses every trace of shape.
+	if declared, _ := data["timelineItems"].(int); declared != mcpRollupTimelineFloor {
+		t.Errorf("timelineItems=%v, want the floor %d", data["timelineItems"], mcpRollupTimelineFloor)
+	}
+	// And it says the cut happened, and why — a caller told only "100 of 300"
+	// may reasonably page for the rest, and the next page would weigh the same.
+	note, _ := data["note"].(string)
+	if !strings.Contains(note, fmt.Sprint(len(items))) {
+		t.Errorf("the note does not say how many came back: %q", note)
+	}
+	if !strings.Contains(note, "응답 크기 상한") {
+		t.Errorf("the note does not say the size was what cut it: %q", note)
+	}
+}
+
+// A rollup that already fits must not be described as cut for size.
+//
+// guards: rollupForModel
+func TestARollupInsideTheBudgetIsNotDescribedAsCutForSize(t *testing.T) {
+	app := &App{}
+	view := rollupView{Kind: periodMonth, Period: "2026-08", Scope: scopeSelf}
+	for index := 0; index < 5; index++ {
+		view.Items = append(view.Items, rollupItem{
+			Key: fmt.Sprintf("k%d", index), Title: fmt.Sprintf("업무 %d", index),
+		})
+	}
+	data := app.rollupForModel(&view)
+	if note, _ := data["note"].(string); strings.Contains(note, "응답 크기 상한") {
+		t.Errorf("a rollup that fits was described as trimmed for size: %q", note)
+	}
+	if items, _ := data["items"].([]rollupItem); len(items) != 5 {
+		t.Errorf("a rollup that fits lost rows: %d of 5", len(items))
+	}
+}
