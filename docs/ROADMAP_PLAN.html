@@ -2422,6 +2422,22 @@ A test that never runs its subject passes whatever the subject does.</div>
 <p>릴리스 전에 <code>go test</code>·<code>go vet</code>·<code>gofmt</code>·<code>version-check</code>·<code>openapi-check</code>·<code>npm test</code> 를 돌립니다. <strong><code>guard-check</code> 는 안 돌립니다</strong> — 커버리지와 함께 전체 시험을 돌려 7분쯤 걸리기 때문입니다. CI 가 그것을 대신 봅니다.</p>
 <p>그 분업 자체는 타당합니다. 잘못된 가드 표시는 <strong>산출물을 망가뜨리지 않습니다</strong> — 그래서 릴리스 워크플로가 아니라 CI 가 볼 일이고, v0.190.0 의 tarball 은 멀쩡합니다.</p>
 <p>바꿔야 할 것은 규칙 하나입니다. <strong><code>// guards:</code> 표시를 새로 달거나 고쳤으면 릴리스 전에 <code>guard-check</code> 를 돌린다.</strong> 그 경우에만 돌리면 되므로 매번 7분을 쓸 일도 없습니다.</p>
+<p>#### 3.10.147 v0.192.0에서 완료 — 필요한 순간에 못 돌리던 검사</p>
+<p>v0.191.0 은 제가 잘못 붙인 가드 표시를 걷은 것입니다. 그때 남긴 규칙이 있었습니다 — *"<code>// guards:</code> 를 새로 달거나 고쳤으면 릴리스 전에 <code>guard-check</code> 를 돌린다."*</p>
+<p>그런데 <code>guard-check</code> 는 <strong>가드 하나당 <code>go test</code> 를 한 번씩</strong> 돌립니다. 200개면 7분입니다. 릴리스 전마다 7분을 쓸 수는 없으니, 실제로는 안 돌리게 됩니다. <strong>규칙이 지켜지지 않을 규칙이었습니다.</strong></p>
+<p>범위를 좁히는 두 옵션을 붙였습니다.</p>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>--test NAME</code></td><td>그 가드 하나만</td></tr><tr><td><code>--changed [BASE]</code></td><td>시험이나 대상 이름이 diff 에 나오는 가드만 (기본 <code>HEAD~1</code>, 추적 안 된 파일 포함)</td></tr></tbody></table>
+<p>표시가 거짓이 되는 길은 둘뿐입니다 — 시험이 이름한 것에서 멀어지거나, 대상이 멀어지거나. 둘 다 <strong>이름으로 diff 에 나타납니다.</strong></p>
+<p>##### 그 실패를 그대로 재현해 봤습니다</p>
+<p>v0.190.0 을 깬 표시를 되살리고 새 옵션으로 검사했습니다.</p>
+<div class="phase-box">$ python3 scripts/guard-check.py --test TestTheREADMEsNumbersAreTheOnesTheCodeUses
+1 guard(s) cannot fail:
+  ... never executed buildDigest; never executed recurringWorkItems
+
+real 0m5.770s</div>
+<p><strong>5.8초.</strong> CI 가 7분 걸려 찾은 것과 같은 답입니다.</p>
+<table><thead><tr><th></th><th>시간</th></tr></thead><tbody><tr><td>전체 (CI)</td><td>약 7분</td></tr><tr><td><code>--changed HEAD~3</code> — 가드 12개</td><td><strong>49초</strong></td></tr><tr><td><code>--test</code> — 가드 1개</td><td><strong>5.8초</strong></td></tr></tbody></table>
+<p>CI 는 그대로 전부 봅니다. 달라진 것은 <strong>릴리스 전에 그 규칙을 지킬 수 있게 됐다</strong>는 것뿐입니다.</p>
 </div>
 </body>
 </html>

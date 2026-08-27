@@ -91,6 +91,52 @@ def collect_guards(package_dir):
     return guards
 
 
+def resolve_base(reference):
+    """The commit to diff against, or None when there is nothing to compare."""
+    candidates = [reference] if reference else ["HEAD~1", "HEAD"]
+    for candidate in candidates:
+        result = subprocess.run(["git", "rev-parse", "--verify", "--quiet", candidate + "^{commit}"],
+                                capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    return None
+
+
+def changed_text(base):
+    """Everything the working tree adds or changes against base, as one string.
+
+    Untracked files count: a guard added in a new file is exactly the case this
+    is for, and it is the case that put a wrong marker into a release.
+    """
+    pieces = []
+    diff = subprocess.run(["git", "diff", "--unified=0", base, "--"], capture_output=True, text=True)
+    pieces.append(diff.stdout)
+    untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"],
+                               capture_output=True, text=True)
+    for name in untracked.stdout.split():
+        try:
+            pieces.append(pathlib.Path(name).read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    return "\n".join(pieces)
+
+
+def touched_guards(guards, base):
+    """Guards whose test or named subject appears in what changed.
+
+    A marker can only become a lie two ways: the test moves away from what it
+    names, or the subject does. Both show up in the diff by name.
+    """
+    text = changed_text(base)
+    if not text.strip():
+        return []
+    picked = []
+    for guard in guards:
+        names = [guard["test"]] + [name for name, _ in guard["subjects"]]
+        if any(name in text for name in names):
+            picked.append(guard)
+    return picked
+
 def covered_functions(package, test_name, profile):
     """Run one test under coverage; return {function: percent} and whether it ran."""
     result = subprocess.run(
@@ -118,6 +164,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", default="./internal/app")
     parser.add_argument("--list", action="store_true", help="print the guards and exit")
+    parser.add_argument("--test", help="check only this guard test")
+    # Whole-run cost is one `go test` per guard, which is minutes. That is the
+    # right price for CI and the wrong one for the moment somebody adds a
+    # marker — so it went unrun there, and a marker naming two functions the
+    # test never calls reached a release. This makes the check affordable
+    # exactly when it is needed.
+    parser.add_argument("--changed", nargs="?", const="", metavar="BASE",
+                        help="only guards whose test or subject the diff against BASE touched "
+                             "(default base HEAD~1; untracked files count)")
     options = parser.parse_args()
 
     package_dir = options.package.lstrip("./") or "."
@@ -129,6 +184,21 @@ def main():
         for guard in guards:
             print(f"{guard['test']:<60} guards {', '.join(describe(guard['subjects']))}")
         return 0
+
+    if options.test:
+        guards = [g for g in guards if g["test"] == options.test]
+        if not guards:
+            print(f"no guard named {options.test}")
+            return 1
+    elif options.changed is not None:
+        base = resolve_base(options.changed)
+        if base is None:
+            print("nothing to diff against; checking every guard")
+        else:
+            guards = touched_guards(guards, base)
+            if not guards:
+                print("no guard's test or subject appears in the diff — nothing to check")
+                return 0
 
     print(f"checking {len(guards)} guard test(s) in {options.package}\n")
     findings, skipped = [], []
