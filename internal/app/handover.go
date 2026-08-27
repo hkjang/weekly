@@ -168,9 +168,46 @@ func (a *App) canViewPerson(ctx context.Context, p *principal, target int64) (bo
 	return visible, err
 }
 
+// abandonedAfterWeeks is how long a task can go unmentioned before the person
+// receiving it has to be told that nobody has touched it.
+//
+// A month is the shortest gap that cannot be a holiday or a quiet fortnight.
+const abandonedAfterWeeks = 4
+
+// weeksSince is how many weeks separate a reported week from the current one.
+// Zero when the week is the current one, unparseable or in the future.
+func weeksSince(lastWeek, currentWeek string) int {
+	last, err := time.Parse("2006-01-02", lastWeek)
+	if err != nil {
+		return 0
+	}
+	current, err := time.Parse("2006-01-02", currentWeek)
+	if err != nil {
+		return 0
+	}
+	weeks := int(current.Sub(last).Hours() / (24 * 7))
+	if weeks < 0 {
+		return 0
+	}
+	return weeks
+}
+
 // cautionFor states the one thing most likely to surprise the new owner.
-func cautionFor(item workItemView) string {
+//
+// currentWeek is needed because every other measure here is computed inside the
+// task's own reported span, and a task that simply stopped has nothing wrong
+// inside it. Measured on a deployment: an item last mentioned seven months ago
+// at 49% came through with 멈춤 false, silentWeeks 0 and no caution at all,
+// while a task reported this week carried "32주째 진척이 없습니다" and one that
+// missed a single week said so. The screen warned about a one-week gap and said
+// nothing about a seven-month disappearance — on the one screen whose whole
+// question is "what does this person still owe?".
+func cautionFor(item workItemView, currentWeek string) string {
+	silentSince := weeksSince(item.LastWeek, currentWeek)
 	switch {
+	case silentSince >= abandonedAfterWeeks && !item.Completed:
+		return fmt.Sprintf("%d주째 이 업무를 언급한 보고가 없습니다. 마지막 기록은 %s 주차이며, 그 뒤의 상황은 아무 데도 없습니다.",
+			silentSince, item.LastWeek)
 	case strings.TrimSpace(item.LatestManagementAsk) != "":
 		return "인수 시점에 상위 조직 결정이 대기 중입니다. 요청이 살아 있는지 먼저 확인하세요."
 	case item.Stalled:
@@ -249,6 +286,10 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	today := time.Now().In(a.serviceLocation(r.Context())).Format("2006-01-02")
+	// Week starts, not today: every reported week is a week start, and
+	// subtracting today from one would round by whatever day it happens to be.
+	currentWeek := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())),
+		a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
 
 	view := handoverView{UserID: target, Items: []handoverItem{}}
 	for _, item := range items {
@@ -270,7 +311,7 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 			OpenIssue: strings.TrimSpace(item.LatestIssue), OpenAsk: strings.TrimSpace(item.LatestManagementAsk),
 			Milestones: milestonesOf(item), IssueHistory: issueHistoryOf(item),
 			Track:       trackOf(item),
-			RelatedWork: related[item.ID], Caution: cautionFor(item),
+			RelatedWork: related[item.ID], Caution: cautionFor(item, currentWeek),
 			Decisions: decisions[item.ID],
 		}
 		if len(item.Weeks) > 0 {
