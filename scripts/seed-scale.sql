@@ -243,7 +243,20 @@ WHERE (slot <= 7 OR (r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia
   AND NOT (slot <= 7 AND r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date
            AND ((r.user_id + slot) % 23) = 1 AND p.base < 90)
   AND NOT (slot <= 7 AND r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7
-           AND ((r.user_id + slot) % 23) = 4);
+           AND ((r.user_id + slot) % 23) = 4)
+  -- 그리고 끝나는 업무. 열한 쌍에 하나는 18~43주차 어딘가에서 보고를 멈춥니다.
+  -- 폭이 좁으면 4주와 12주가 여전히 같은 답을 냅니다. 처음 18~37주로 두었더니
+  -- 끝난 업무가 전부 15주 넘게 전이라 두 창이 똑같이 걸러 냈습니다.
+  --
+  -- 이것이 없으면 2,171건이 전부 최근 4주 안에 보고된 상태가 되고, 그러면
+  -- 화면의 기간 선택이 아무것도 가르지 못합니다. 실제로 재 보니 업무
+  -- 인사이트의 4·12·26·52주가 업무 2171·중복 5692·협업 328 로 **똑같은 수**를
+  -- 냈습니다. 기간을 통째로 무시하는 회귀가 생겨도 같은 답이 나옵니다.
+  --
+  -- 일은 끝납니다. 끝난 일이 다음 주 보고서에 없는 것이 정상이고, 그 부재가
+  -- 있어야 '최근 N주' 라는 말에 뜻이 생깁니다.
+  AND NOT (slot <= 7 AND ((r.user_id + slot) % 11) = 0
+           AND p.wk > 18 + ((r.user_id * 3 + slot) % 26));
 
 -- A rejected report carries its reason. reviewReport() writes the reason into
 -- report_comments as well as the status history, and that comment is what the
@@ -497,6 +510,7 @@ SELECT (SELECT count(*) FROM organizations) AS organizations,
 DO $$
 DECLARE
   statuses int; issues int; plans int; blanks int; mail_states int; wk date;
+  ended_4w int; ended_12w int;
 BEGIN
   wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
   SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
@@ -516,6 +530,21 @@ BEGIN
   END IF;
   IF blanks = 0 THEN
     RAISE EXCEPTION '실적이 빈 줄이 하나도 없습니다. 보고 품질 점검의 네 규칙 중 하나가 실행되지 않습니다.';
+  END IF;
+
+  -- 끝난 업무가 있어야 '최근 N주' 가 뜻을 갖습니다. 이것이 0 이면 화면의
+  -- 기간 선택이 4주든 52주든 같은 답을 냅니다. 실측한 적이 있습니다.
+  SELECT count(*), count(*) FILTER (WHERE last_week < wk - 84) INTO ended_4w, ended_12w
+    FROM (SELECT i.work_item_id, max(r.week_start) AS last_week
+            FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+           WHERE i.work_item_id IS NOT NULL
+           GROUP BY i.work_item_id
+          HAVING max(r.week_start) < wk - 28) t;
+  IF ended_4w < 50 THEN
+    RAISE EXCEPTION '최근 4주 안에 보고가 끊긴 업무가 %건뿐입니다. 기간 선택이 아무것도 가르지 못합니다.', ended_4w;
+  END IF;
+  IF ended_12w < 20 THEN
+    RAISE EXCEPTION '12주 넘게 보고가 없는 업무가 %건뿐입니다. 넓은 기간과 좁은 기간이 같은 답을 냅니다.', ended_12w;
   END IF;
 
   SELECT count(DISTINCT status) INTO mail_states FROM report_mail_deliveries;
