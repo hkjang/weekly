@@ -54,8 +54,13 @@ func TestTheContractsNumbersAreTheOnesTheCodeUses(t *testing.T) {
 // argument for itself — 근거를 볼 수 없는 요약은 읽는 사람이 반박할 수 없다 —
 // so a weight published there and nowhere paired with the code is the one
 // number that must not drift.
-
-// guards: buildDigest, recurringWorkItems
+//
+// No `guards:` marker, for the same reason the contract test above has none:
+// this does not exercise a function, it pairs a published sentence with the
+// constant behind it. Marking it guards: buildDigest was wrong and guard-check
+// said so in CI — "never executed buildDigest ... a test that never runs its
+// subject passes whatever the subject does." The tool was right; the marker was
+// a claim this test cannot make.
 func TestTheREADMEsNumbersAreTheOnesTheCodeUses(t *testing.T) {
 	raw, err := os.ReadFile("../../README.md")
 	if err != nil {

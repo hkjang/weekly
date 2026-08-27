@@ -4575,3 +4575,32 @@ if slideIndex >= used {
 `csrf` 의 `p != nil && p.AuthType == "session"`. `||` 로 바꿔도 오늘은 아무 차이가 없습니다 — 개인 API 키의 쓰기는 `apiKeyRequestAllowed` 가 먼저 거부하므로, 세션이 아닌 주체가 이 검사에 닿을 일이 없습니다.
 
 시험 대신 주석을 달았습니다. 이 조건이 왜 그렇게 쓰였는지 — **키에 쓰기 범위가 생기는 날 비로소 값을 하고, 그때 발견하면 스크립트에 보낼 이유가 없는 Origin 헤더를 요구하게 됩니다.**
+
+#### 3.10.146 v0.191.0에서 완료 — 제가 붙인 가드 표시가 거짓말이었고, 저장소가 그것을 잡았습니다
+
+v0.190.0 의 CI 가 빨간불이었습니다. 이번 창 첫 실패이고, 원인은 제가 넣은 시험입니다.
+
+```
+1 guard(s) cannot fail:
+
+  internal/app/contractnumbers_test.go:58  TestTheREADMEsNumbersAreTheOnesTheCodeUses
+    never executed buildDigest; never executed recurringWorkItems
+
+A test that never runs its subject passes whatever the subject does.
+```
+
+`// guards: buildDigest, recurringWorkItems` 를 붙였는데, 그 시험은 **상수와 텍스트 파일만 읽습니다.** 두 함수를 부르지 않습니다. 표시는 그 시험이 할 수 없는 주장이었습니다.
+
+형제 시험 `TestTheContractsNumbersAreTheOnesTheCodeUses` 에는 표시가 없습니다 — 이 종류는 함수를 실행하는 것이 아니라 **발표된 문장과 그 뒤의 상수를 짝짓기** 때문입니다. 같은 이유로 제 것도 표시가 없어야 합니다. 그 사실을 주석으로 적었습니다.
+
+##### 이번 창의 규율을 제가 어긴 것입니다
+
+"시험이 자기 대상을 실행하지 않으면 대상이 무엇을 하든 통과한다" — 이 창에서 네 번 찾아낸 바로 그 모양입니다(v0.175·v0.176·v0.186·v0.188). 다섯 번째는 제가 만들었습니다.
+
+##### 왜 미리 못 잡았나
+
+릴리스 전에 `go test`·`go vet`·`gofmt`·`version-check`·`openapi-check`·`npm test` 를 돌립니다. **`guard-check` 는 안 돌립니다** — 커버리지와 함께 전체 시험을 돌려 7분쯤 걸리기 때문입니다. CI 가 그것을 대신 봅니다.
+
+그 분업 자체는 타당합니다. 잘못된 가드 표시는 **산출물을 망가뜨리지 않습니다** — 그래서 릴리스 워크플로가 아니라 CI 가 볼 일이고, v0.190.0 의 tarball 은 멀쩡합니다.
+
+바꿔야 할 것은 규칙 하나입니다. **`// guards:` 표시를 새로 달거나 고쳤으면 릴리스 전에 `guard-check` 를 돌린다.** 그 경우에만 돌리면 되므로 매번 7분을 쓸 일도 없습니다.
