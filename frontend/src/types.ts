@@ -207,7 +207,7 @@ export interface Rollup {
   kind: PeriodKind; period: string; label: string; start: string; end: string
   scope: RollupScope; scopeLabel: string; summary: string
   insights: RollupInsights; highlights: RollupHighlight[]; items: RollupItem[]
-  issueClearance: { resolved: number; medianWeeks: number; longestWeeks: number; longestTitle?: string }
+  issueClearance: { resolved: number; medianWeeks: number; longestWeeks: number; longestTitle?: string; unread?: boolean }
   categories: RollupCategory[]; contributors: RollupContributor[]; trend: RollupWeekPoint[]
   weeks: string[]
   decisions: Decision[]; decisionTotal: number; openDecisions: number; decisionLimit: number

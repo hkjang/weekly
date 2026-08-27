@@ -225,6 +225,7 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 		view.IssueClearance = clearance
 	} else {
 		a.logger.Warn("issue clearance", "error", clearErr)
+		view.IssueClearance.Unread = true
 	}
 	view.GeneratedAt = time.Now().In(a.serviceLocation(ctx))
 	return view, nil

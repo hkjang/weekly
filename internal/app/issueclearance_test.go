@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -118,5 +120,99 @@ func TestTheLongestObstacleIsTheOneReported(t *testing.T) {
 	}
 	if clearance.LongestTitle != longTitle {
 		t.Errorf("the longest obstacle is %q, the report names %q", longTitle, clearance.LongestTitle)
+	}
+}
+
+// The figure exists in two period reports — one person's own, and their
+// organisation's — and the people clause that narrows it is written once and
+// handed to both. It is written against the aliases decisionsInPeriod uses, so
+// the clearance query has to use those same names or the personal clause names
+// a table it does not have. That failure is caught and logged rather than
+// losing the report, which is why nobody saw it: every personal period report
+// answered "해소로 기록된 이슈가 아직 없습니다" while PostgreSQL was refusing
+// the question. The old tests called issueClearanceFor with an empty clause —
+// the one shape the product never passes — so this one goes through the route.
+//
+// guards: issueClearanceFor, periodRollup
+func TestTheClearanceFigureSurvivesBothScopes(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("해소 조직", "CLEARORG")
+	leader := server.createUser("clearance_leader", "TEAM_LEADER", &organisation)
+	own, _ := twoWorkItemsOf(t, server, leader)
+	if _, err := server.app.db.Exec(server.ctx(),
+		`INSERT INTO work_item_issue_outcomes(work_item_id, started_week, ended_week, weeks, outcome, issue_text)
+		 VALUES ($1, '2026-08-03'::date, '2026-08-24'::date, 4, 'RESOLVED', '외부 승인 대기')`,
+		own); err != nil {
+		t.Fatalf("record an ending: %v", err)
+	}
+
+	read := func(scope string) issueClearance {
+		t.Helper()
+		response := server.request(http.MethodGet,
+			"/api/v1/rollups?kind=MONTH&period=2026-08&scope="+scope, nil, leader)
+		if response.Code != http.StatusOK {
+			t.Fatalf("read the %s rollup: %d %s", scope, response.Code, response.Body.String())
+		}
+		var body struct {
+			Data struct {
+				IssueClearance issueClearance `json:"issueClearance"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode the %s rollup: %v", scope, err)
+		}
+		return body.Data.IssueClearance
+	}
+
+	for _, scope := range []string{"SELF", "TEAM"} {
+		clearance := read(scope)
+		if clearance.Unread {
+			t.Fatalf("%s: the clearance query did not run", scope)
+		}
+		if clearance.Resolved != 1 {
+			t.Fatalf("%s: one ending was recorded, the report counts %d", scope, clearance.Resolved)
+		}
+		if clearance.LongestWeeks != 3 {
+			t.Errorf("%s: the obstacle stood three weeks, the report says %d", scope, clearance.LongestWeeks)
+		}
+	}
+}
+
+// A failure and an empty table both leave the count at zero, and the screen
+// turns that zero into a sentence about the data: "해소로 기록된 이슈가 아직
+// 없습니다". Said on behalf of a query that never ran, it is a claim about
+// rows nobody looked at.
+//
+// guards: periodRollup
+func TestAnUnreadClearanceIsNotAnEmptyOne(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("clearance_unread", "USER", nil)
+
+	// The one failure that reaches this path in the field is a query the
+	// database refuses. Renaming the table it reads reproduces that exactly.
+	if _, err := server.app.db.Exec(server.ctx(),
+		`ALTER TABLE work_item_issue_outcomes RENAME TO work_item_issue_outcomes_hidden`); err != nil {
+		t.Fatalf("hide the table: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = server.app.db.Exec(context.Background(),
+			`ALTER TABLE work_item_issue_outcomes_hidden RENAME TO work_item_issue_outcomes`)
+	})
+
+	response := server.request(http.MethodGet,
+		"/api/v1/rollups?kind=MONTH&period=2026-08&scope=SELF", nil, author)
+	if response.Code != http.StatusOK {
+		t.Fatalf("one unreadable figure lost the whole report: %d", response.Code)
+	}
+	var body struct {
+		Data struct {
+			IssueClearance issueClearance `json:"issueClearance"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode the rollup: %v", err)
+	}
+	if !body.Data.IssueClearance.Unread {
+		t.Error("the figure could not be read and the report does not say so")
 	}
 }

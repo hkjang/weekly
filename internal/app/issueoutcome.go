@@ -93,6 +93,12 @@ type issueClearance struct {
 	MedianWeeks  int    `json:"medianWeeks"`
 	LongestWeeks int    `json:"longestWeeks"`
 	LongestTitle string `json:"longestTitle,omitempty"`
+	// Unread says the question was not asked, which is a different fact from
+	// nobody having answered it. The period report survives a failure here
+	// rather than losing everything else over one figure — but a zero that came
+	// from a failed query and a zero that came from an empty table look
+	// identical, and the screen was reading the first as the second.
+	Unread bool `json:"unread,omitempty"`
 }
 
 // issueClearanceFor reads the endings recorded inside a period, for the people
@@ -116,13 +122,20 @@ func (a *App) issueClearanceFor(ctx context.Context, start, end string, ownerWhe
 	// between, counts two reports and stood for five weeks. Reading the count
 	// as a duration tells a leader obstacles clear faster than they do, and the
 	// weeks somebody was away are exactly the weeks nothing was being cleared.
-	statement := `SELECT (o.ended_week - o.started_week)/7, coalesce(w.title,'')
+	//
+	// work_items is aliased wi, and users u, because ownerWhere arrives written
+	// against those names — the caller builds one clause and hands it to this
+	// query and to decisionsInPeriod so the two can never disagree about whose
+	// work they are counting. Aliasing the same table w here made the personal
+	// clause " AND wi.user_id=$3" name a table this query does not have, and
+	// PostgreSQL refused every personal period report with 42P01.
+	statement := `SELECT (o.ended_week - o.started_week)/7, coalesce(wi.title,'')
 		FROM work_item_issue_outcomes o
-		JOIN work_items w ON w.id = o.work_item_id
-		JOIN users u ON u.id = w.user_id
+		JOIN work_items wi ON wi.id = o.work_item_id
+		JOIN users u ON u.id = wi.user_id
 		WHERE o.outcome = '` + issueOutcomeResolved + `'
 		  AND o.ended_week BETWEEN $1::date AND $2::date` + ownerWhere + `
-		ORDER BY (o.ended_week - o.started_week) DESC, w.title`
+		ORDER BY (o.ended_week - o.started_week) DESC, wi.title`
 	rows, err := a.db.Query(ctx, statement, args...)
 	if err != nil {
 		return issueClearance{}, err

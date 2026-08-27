@@ -208,13 +208,18 @@ export default function RollupPage({ session, route, notify }: {
           {/* How long obstacles took to clear. Shown as unknown rather than as
               zero until somebody has answered the question — a zero here would
               read as "nothing takes any time", which is the opposite of what an
-              empty table means. */}
+              empty table means. And when the figure could not be read at all,
+              say that: "아직 없습니다" is a claim about the data, and making it
+              on behalf of a query that never ran is how a broken one stayed
+              broken. */}
           <Card><span className="metric-label">이슈 해소</span>
-            <strong className="metric-value">{rollup.issueClearance.resolved
+            <strong className="metric-value">{!rollup.issueClearance.unread && rollup.issueClearance.resolved
               ? `${rollup.issueClearance.medianWeeks}주` : '—'}</strong>
-            <small>{rollup.issueClearance.resolved
-              ? `${rollup.issueClearance.resolved}건 해소 · 최장 ${rollup.issueClearance.longestWeeks}주${rollup.issueClearance.longestTitle ? ` (${rollup.issueClearance.longestTitle})` : ''}`
-              : '해소로 기록된 이슈가 아직 없습니다'}</small></Card>
+            <small>{rollup.issueClearance.unread
+              ? '이 기간의 해소 기록을 읽지 못했습니다'
+              : rollup.issueClearance.resolved
+                ? `${rollup.issueClearance.resolved}건 해소 · 최장 ${rollup.issueClearance.longestWeeks}주${rollup.issueClearance.longestTitle ? ` (${rollup.issueClearance.longestTitle})` : ''}`
+                : '해소로 기록된 이슈가 아직 없습니다'}</small></Card>
           <Card><span className="metric-label">보고 커버리지</span><strong className="metric-value">{insights.reportCoverage.toFixed(0)}%</strong><small>{insights.expectedWeeks}개 주차 중 {insights.reportedWeeks}개 보고</small></Card>
         </div>
 
