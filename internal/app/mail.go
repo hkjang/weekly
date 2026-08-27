@@ -601,3 +601,55 @@ func (a *App) testMail(w http.ResponseWriter, r *http.Request) {
 	}
 	writeData(w, http.StatusOK, map[string]any{"ok": true, "to": to})
 }
+
+// ---------------------------------------------------------------------------
+// What the operator can see
+// ---------------------------------------------------------------------------
+
+// mailHealthDays is how far back the administrator's figures reach. Long enough
+// to cover a fortnight of Mondays, short enough that a relay fixed last month
+// does not keep the screen red.
+const mailHealthDays = 14
+
+type mailHealthView struct {
+	Days       int        `json:"days"`
+	Sent       int        `json:"sent"`
+	Queued     int        `json:"queued"`
+	Failed     int        `json:"failed"`
+	Writers    int        `json:"writers"`
+	LastError  string     `json:"lastError"`
+	LastFailed *time.Time `json:"lastFailedAt"`
+}
+
+// adminMailHealth answers what has actually been happening to the mail.
+//
+// A writer sees their own deliveries; the operator who owns the relay saw
+// nothing. So a relay that is refusing everybody looks, from the settings
+// screen, exactly like one nobody has used yet — and the test button only says
+// whether it works this second, not whether last Monday went out.
+func (a *App) adminMailHealth(w http.ResponseWriter, r *http.Request) {
+	view := mailHealthView{Days: mailHealthDays}
+	if err := a.db.QueryRow(r.Context(), `
+		SELECT
+			count(*) FILTER (WHERE status = 'SENT'),
+			count(*) FILTER (WHERE status = 'QUEUED'),
+			count(*) FILTER (WHERE status = 'FAILED'),
+			count(DISTINCT user_id)
+		FROM report_mail_deliveries
+		WHERE created_at > now() - make_interval(days => $1)`, mailHealthDays).
+		Scan(&view.Sent, &view.Queued, &view.Failed, &view.Writers); err != nil {
+		a.logger.Error("mail health", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 현황을 읽을 수 없습니다.")
+		return
+	}
+	// The relay's own words, not a count. "3건 실패" sends an operator to a log;
+	// "받는 주소를 릴레이가 거부했습니다: 550 …" sends them to the right place.
+	if err := a.db.QueryRow(r.Context(), `
+		SELECT coalesce(error_message, ''), created_at FROM report_mail_deliveries
+		WHERE error_message <> '' AND created_at > now() - make_interval(days => $1)
+		ORDER BY created_at DESC LIMIT 1`, mailHealthDays).
+		Scan(&view.LastError, &view.LastFailed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		a.logger.Error("mail health reason", "error", err, "trace", traceIDFromContext(r.Context()))
+	}
+	writeData(w, http.StatusOK, view)
+}

@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.192.0.tar.gz
-gzip -dc weekly-v0.192.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.192.0.tar.gz | docker load
+sha256sum weekly-v0.193.0.tar.gz
+gzip -dc weekly-v0.193.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.193.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -167,6 +167,8 @@ DB와 볼륨을 한 번에 백업·검증·복구하려면 `scripts/weekly-backu
 재시도 간격이 벌어지는 이유는 실측 때문입니다. 30초 고정이던 때는 릴레이가 **2분 30초** 동안 닿지 않으면 다섯 번을 다 쓰고 영구 실패했습니다. 릴레이 재시작보다 짧습니다.
 
 발송은 제출 트랜잭션 **밖에서** 이루어집니다. 릴레이가 죽어 있어도 제출은 실패하지 않으며, 밀린 발송은 큐에 남아 다시 시도됩니다. 작성자는 `개인 설정`에서 주차별 발송 상태와, 실패했다면 릴레이가 준 사유를 그대로 봅니다.
+
+관리자 설정의 메일 카드에는 **최근 14일의 발송·대기·실패 건수와 마지막 실패 사유**가 함께 표시됩니다. 작성자는 자기 발송만 보므로, 이것이 없으면 릴레이가 전원을 거부하는 상태와 아직 아무도 쓰지 않은 상태가 운영자에게 똑같이 보입니다. 연결 시험은 지금 이 순간만 말하고 지난 월요일이 나갔는지는 말하지 않습니다.
 
 SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 암호화되어 저장되며 브라우저로 다시 전달되지 않습니다.
 

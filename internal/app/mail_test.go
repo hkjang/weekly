@@ -924,3 +924,53 @@ func mailTLSForTest(relay *fakeRelay) func() {
 	}
 	return func() { mailTLSConfig = previous }
 }
+
+// A writer sees their own deliveries. The operator who owns the relay saw
+// nothing at all, so a relay refusing everybody looked exactly like one nobody
+// had used yet — and the test button only says whether it works this second,
+// not whether last Monday went out.
+
+// guards: adminMailHealth
+func TestTheOperatorCanSeeWhatHappenedToTheMail(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	relay.refuseFor = map[string]string{"blocked@internal.test": "mailbox unavailable"}
+	server.configureRelay(relay)
+
+	fine := server.createUser("health_ok", "USER", nil)
+	if w := server.request(http.MethodPut, "/api/v1/me/mail",
+		map[string]any{"address": "ok@internal.test", "onSubmit": true}, fine); w.Code != http.StatusOK {
+		t.Fatalf("save the preference: %d %s", w.Code, w.Body.String())
+	}
+	server.submitted(fine, "2026-08-17", "가는 사람")
+	relay.awaitRelay(t, 1)
+
+	refused := server.createUser("health_bad", "USER", nil)
+	if w := server.request(http.MethodPut, "/api/v1/me/mail",
+		map[string]any{"address": "blocked@internal.test", "onSubmit": true}, refused); w.Code != http.StatusOK {
+		t.Fatalf("save the preference: %d %s", w.Code, w.Body.String())
+	}
+	server.submitted(refused, "2026-08-24", "막히는 사람")
+	server.awaitDeliveryReason()
+
+	w := server.request(http.MethodGet, "/api/v1/admin/mail/health", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read the health: %d %s", w.Code, w.Body.String())
+	}
+	data := decodeData(t, w)
+	if sent, _ := data["sent"].(float64); sent < 1 {
+		t.Errorf("sent=%v, want at least 1", data["sent"])
+	}
+	if writers, _ := data["writers"].(float64); writers != 2 {
+		t.Errorf("writers=%v, want 2 — the operator needs to know how many people this touches", data["writers"])
+	}
+	// The relay's own words, not a count. "3건 실패" sends an operator to a log.
+	if reason, _ := data["lastError"].(string); !strings.Contains(reason, "mailbox unavailable") {
+		t.Errorf("the last failure reason did not reach the operator: %q", reason)
+	}
+
+	// And it is the operator's to see, not everybody's.
+	if denied := server.request(http.MethodGet, "/api/v1/admin/mail/health", nil, fine); denied.Code != http.StatusForbidden {
+		t.Errorf("a writer read the deployment's mail health: %d", denied.Code)
+	}
+}

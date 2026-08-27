@@ -354,3 +354,10 @@ export interface EncryptionStatus { keySource: string; storedSecrets: number; re
  */
 export interface MailDelivery { id: number; weekStart: string; address: string; status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; error: string; createdAt: string; sentAt: string | null; nextAttemptAt: string | null }
 export interface MailPreference { relayReady: boolean; address: string; onSubmit: boolean; deliveries: MailDelivery[] }
+
+/**
+ * What has actually happened to the mail, for the operator who owns the relay.
+ * A writer sees their own deliveries; without this a relay refusing everybody
+ * looks exactly like one nobody has used yet.
+ */
+export interface MailHealth { days: number; sent: number; queued: number; failed: number; writers: number; lastError: string; lastFailedAt: string | null }

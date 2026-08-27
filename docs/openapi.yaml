@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.192.0
+  version: 0.193.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1174,6 +1174,33 @@ paths:
       responses:
         "200": { description: OK }
         "400": { $ref: "#/components/responses/Error" }
+  /admin/mail/health:
+    get:
+      summary: 최근 주간보고 메일 발송 현황, 관리자 전용
+      description: |
+        최근 14일의 발송·대기·실패 건수와 대상 사용자 수, 그리고 **마지막 실패 사유를 릴레이가 준
+        문장 그대로** 돌려준다. 작성자는 자기 발송만 보므로, 이것이 없으면 릴레이가 전원을 거부하는
+        상태와 아직 아무도 쓰지 않은 상태가 운영자에게 똑같이 보인다. 연결 시험은 지금 이 순간만
+        말하고, 지난 월요일이 나갔는지는 말하지 않는다.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      days: { type: integer }
+                      sent: { type: integer }
+                      queued: { type: integer }
+                      failed: { type: integer }
+                      writers: { type: integer }
+                      lastError: { type: string }
+                      lastFailedAt: { type: string, format: date-time, nullable: true }
+        "403": { $ref: "#/components/responses/Error" }
   /admin/settings/mail/test:
     post:
       summary: SMTP 연결 시험, 관리자 전용
