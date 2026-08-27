@@ -2223,6 +2223,24 @@ ERROR:  차주 계획 문장이 1가지뿐입니다. 계획 반복 배지가 모
 <p>가짜 릴레이를 <strong>주소별 거부</strong>로 고쳤습니다. 이제 미루기를 빼면 <code>the second writer's mail never went out — the refused one is still holding the queue</code> 로 정확히 떨어집니다.</p>
 <p>##### 기다리는 것과 멈춘 것</p>
 <p>작성자 화면에 <code>다음 시도</code> 시각을 함께 보입니다. 그 값이 없으면 대기 중인 건과 멈춘 건이 같아 보입니다.</p>
+<p>#### 3.10.135 v0.180.0에서 완료 — 세 시간 뒤에나 닿는 끝, 그리고 씨앗이 못 만들던 화면</p>
+<p>v0.179.0이 재시도 간격을 벌리면서 <strong>포기 상태가 실제로는 약 3시간 뒤에나 도달</strong>하게 됐습니다. 아무도 우연히 그 자리에 닿지 않는다는 뜻이고, 그래서 시험이 필요합니다.</p>
+<p>예산을 다 쓴 발송은 <code>FAILED</code> 로 바뀌고 <strong>릴레이가 마지막으로 한 말</strong>을 지녀야 합니다. 그러지 않으면 영원히 <code>대기 중</code> 으로 남아, 작성자는 오지 않을 메일을 기다립니다.</p>
+<ul>
+<li>포기 조건을 없애면 → <code>status=QUEUED after the budget ran out, want FAILED</code></li>
+<li>사유를 안 남기면 → <code>the last thing the relay said was lost: ""</code></li>
+<li>그리고 포기한 건을 다시 집지 않는지도 함께 봅니다</li>
+</ul>
+<p>##### 씨앗이 이 화면에 닿지 못했습니다</p>
+<p><code>user_mail_settings</code> 와 <code>report_mail_deliveries</code> 가 씨를 뿌린 배포에서 <strong>둘 다 비어 있었습니다.</strong> 개인 설정의 발송 카드는 언제나 빈 상태만 보여 줬습니다 — 저장된 주소도, 발송 이력도, 읽어 볼 실패 사유도 없이. 이번 주기가 여섯 번 캔 바로 그 자리입니다.</p>
+<p>다섯에 한 명이 발송을 켜 두고, 최근 12주의 <strong>제출된</strong> 보고서에 발송 기록이 붙습니다.</p>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>발송됨</td><td>621건</td></tr><tr><td>대기 중</td><td>63건 — 사유와 다음 시도 시각을 지님</td></tr><tr><td>실패</td><td>43건 — 릴레이가 준 문장 그대로</td></tr></tbody></table>
+<p>##### 처음 쓴 픽스처가 만들 수 없는 상태를 만들었습니다</p>
+<p>화면을 열어 보고 둘을 고쳤습니다.</p>
+<p><strong>하나 — 보낸 시각이 내일이었습니다.</strong> 이번 주 발송을 그 주 금요일로 찍었는데, 금요일은 아직 오지 않았습니다. <code>least(..., now() - interval '3 hours')</code> 로 눌렀습니다.</p>
+<p><strong>둘 — 작성 중 보고서에 발송 기록이 붙었습니다.</strong> 발송은 제출이 큐에 넣는 것이므로, 제출되지 않은 보고서에 딸린 발송은 제품이 만들 수 없는 행입니다. <code>r.status &lt;&gt; 'DRAFT'</code> 를 걸었습니다.</p>
+<p>##### 다양성 검사도 함께</p>
+<p>v0.177.0이 넣은 검사에 발송 상태 가짓수를 더했습니다. 세 가지 미만이면 씨앗이 실패합니다 — 보낸 것·기다리는 것·포기한 것을 구별할 수 없는 픽스처는 그 화면을 시험할 수 없기 때문입니다.</p>
 </div>
 </body>
 </html>

@@ -389,6 +389,59 @@ FROM weekly_reports r
 JOIN users u ON u.id = r.user_id
 WHERE r.id % 41 = 0;
 
+-- Who asked for their weekly report by mail, and what happened to it.
+--
+-- Both tables were empty on a seeded deployment, so 개인 설정 → 주간보고 메일
+-- 발송 only ever showed its empty state: no address saved, no delivery, no
+-- failure to read a reason from. That is the shape of gap this cycle found six
+-- times, and each time it was hiding a defect in the screen behind it.
+--
+-- One writer in five asks for it. Enough that the card is populated for anybody
+-- an operator happens to log in as, not so many that it looks like everybody.
+INSERT INTO user_mail_settings(user_id, address, on_submit)
+SELECT u.id, lower(u.username) || '@example.internal', true
+FROM users u
+WHERE (u.username LIKE 'u%' OR u.username LIKE 'hq%') AND (u.id % 5) = 0
+ON CONFLICT (user_id) DO NOTHING;
+
+-- The three states a delivery can be in, because the screen prints each one
+-- differently and only one of them was ever reachable from a fixture: sent,
+-- waiting with a reason and a time to try again, and given up on.
+--
+-- The reasons are the ones a relay actually gives. A row that says only 실패
+-- teaches the reader nothing, which is the whole argument for keeping the
+-- relay's own words.
+INSERT INTO report_mail_deliveries(report_id, user_id, address, status, attempts,
+                                   error_message, created_at, sent_at, next_attempt_at)
+SELECT r.id, r.user_id, s.address,
+       CASE WHEN (r.id % 17) = 0 THEN 'FAILED'
+            WHEN (r.id % 11) = 0 THEN 'QUEUED'
+            ELSE 'SENT' END,
+       CASE WHEN (r.id % 17) = 0 THEN 5
+            WHEN (r.id % 11) = 0 THEN 1 + (r.id % 3)
+            ELSE 1 END,
+       CASE WHEN (r.id % 17) = 0
+              THEN (ARRAY['받는 주소를 릴레이가 거부했습니다: 550 5.1.1 mailbox unavailable',
+                          '연결할 수 없습니다: dial tcp 10.20.0.25:25: i/o timeout'])[1 + (r.id % 2)]
+            WHEN (r.id % 11) = 0
+              THEN (ARRAY['연결할 수 없습니다: dial tcp 10.20.0.25:25: connect: connection refused',
+                          '릴레이가 본문을 받지 않았습니다: 451 4.3.0 temporary local problem'])[1 + (r.id % 2)]
+            ELSE '' END,
+       -- Never later than now. The first version dated the current week's
+       -- delivery from the week's Friday, which has not happened yet, so the
+       -- screen said a report had been sent tomorrow.
+       least(r.week_start + interval '4 days 16 hours', now() - interval '3 hours'),
+       CASE WHEN (r.id % 17) = 0 OR (r.id % 11) = 0 THEN NULL
+            ELSE least(r.week_start + interval '4 days 16 hours 2 minutes', now() - interval '2 hours') END,
+       CASE WHEN (r.id % 11) = 0 THEN now() + interval '16 minutes'
+            ELSE least(r.week_start + interval '4 days 16 hours', now() - interval '3 hours') END
+FROM weekly_reports r
+JOIN user_mail_settings s ON s.user_id = r.user_id
+-- Only reports that were handed in. A delivery is queued by the submission, so
+-- one attached to a 작성 중 report is a row the product cannot produce.
+WHERE r.week_start > date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 84 AND r.status <> 'DRAFT'
+ON CONFLICT DO NOTHING;
+
 -- ---------------------------------------------------------------------------
 -- What this fixture is worth, in one row.
 --
@@ -411,7 +464,8 @@ SELECT '다양성 점검' AS check,
        (SELECT count(*) FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
          WHERE r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date) AS rows_this_week,
        (SELECT count(*) FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
-         WHERE r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7) AS rows_last_week;
+         WHERE r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7) AS rows_last_week,
+       (SELECT count(DISTINCT status) FROM report_mail_deliveries) AS mail_states;
 
 SELECT (SELECT count(*) FROM organizations) AS organizations,
        (SELECT count(*) FROM users) AS users,
@@ -433,7 +487,7 @@ SELECT (SELECT count(*) FROM organizations) AS organizations,
 -- whole fixture unable to show the feature it was built for.
 DO $$
 DECLARE
-  statuses int; issues int; plans int; blanks int; wk date;
+  statuses int; issues int; plans int; blanks int; mail_states int; wk date;
 BEGIN
   wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
   SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
@@ -453,5 +507,10 @@ BEGIN
   END IF;
   IF blanks = 0 THEN
     RAISE EXCEPTION '실적이 빈 줄이 하나도 없습니다. 보고 품질 점검의 네 규칙 중 하나가 실행되지 않습니다.';
+  END IF;
+
+  SELECT count(DISTINCT status) INTO mail_states FROM report_mail_deliveries;
+  IF mail_states < 3 THEN
+    RAISE EXCEPTION '메일 발송 상태가 %가지뿐입니다. 개인 설정의 발송 이력에서 보낸 것·기다리는 것·포기한 것을 구별할 수 없습니다.', mail_states;
   END IF;
 END $$;

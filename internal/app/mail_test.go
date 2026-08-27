@@ -609,3 +609,55 @@ func TestOneRefusedAddressDoesNotHoldUpEverybodyElse(t *testing.T) {
 		t.Errorf("the refused delivery is due again immediately, so the queue will spin on it: %v", next)
 	}
 }
+
+// The end of the queue. With the retries now spread over about three hours,
+// nobody will reach this state by accident again — which is exactly why it
+// needs a test: a delivery that is given up on has to say so and carry the last
+// reason, or it sits as 대기 중 forever and the writer waits for a mail that is
+// never coming.
+
+// guards: sendNextQueuedMail, markMailFailed
+func TestADeliveryThatRunsOutOfTriesSaysSoAndKeepsTheLastReason(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	relay.refuse = "mailbox unavailable"
+	server.configureRelay(relay)
+	// One try, so the budget is spent on the first refusal rather than three
+	// hours from now.
+	if w := server.request(http.MethodPut, "/api/v1/admin/settings",
+		map[string]any{"settings": map[string]string{"mail.max_attempts": "1"}}, server.admin); w.Code != http.StatusOK {
+		t.Fatalf("set the attempt budget: %d %s", w.Code, w.Body.String())
+	}
+
+	writer := server.createUser("mail_giveup", "USER", nil)
+	if w := server.request(http.MethodPut, "/api/v1/me/mail",
+		map[string]any{"address": "nowhere@internal.test", "onSubmit": true}, writer); w.Code != http.StatusOK {
+		t.Fatalf("save the preference: %d %s", w.Code, w.Body.String())
+	}
+	server.submitted(writer, "2026-08-24", "받는 곳이 없는 주")
+
+	status, reason, attempts := server.awaitDelivery("FAILED")
+	if status != "FAILED" {
+		t.Fatalf("status=%s after the budget ran out, want FAILED — the writer would wait forever", status)
+	}
+	if attempts != 1 {
+		t.Errorf("attempts=%d, want 1 — the budget was not respected", attempts)
+	}
+	if !strings.Contains(reason, "mailbox unavailable") {
+		t.Errorf("the last thing the relay said was lost: %q", reason)
+	}
+
+	// And it is not picked up again: a row that has been given up on must not
+	// keep the worker busy.
+	before := len(relay.received())
+	server.app.sendNextQueuedMail(server.ctx())
+	if len(relay.received()) != before {
+		t.Error("a delivery that was given up on was tried again")
+	}
+
+	// The writer reads the verdict, not just the silence.
+	w := server.request(http.MethodGet, "/api/v1/me/mail", nil, writer)
+	if !strings.Contains(w.Body.String(), "FAILED") || !strings.Contains(w.Body.String(), "mailbox unavailable") {
+		t.Errorf("the screen does not say it was given up on: %s", w.Body.String())
+	}
+}
