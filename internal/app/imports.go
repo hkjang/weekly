@@ -861,7 +861,12 @@ func (a *App) processImportFile(ctx context.Context, jobID, fileID int64, filena
 	input = trimRunes(input, cfg.MaxInput)
 	result, raw, err := callWeeklyAI(ctx, cfg, "PPTX_NORMALIZED", input)
 	if err != nil {
-		a.failImportFileWithRaw(ctx, fileID, extracted.Normalized, err.Error())
+		// The same failure the administrator's connection test explains in a
+		// sentence was written onto the file card as the raw Go error — an
+		// import against a gateway answering 500 said "AI endpoint returned
+		// HTTP 500" in English, on a screen whose every other failure is a
+		// Korean sentence saying what to do about it.
+		a.failImportFileWithRaw(ctx, fileID, extracted.Normalized, aiUserMessage(err))
 		return
 	}
 	decision := finalizeImportedAIResult(&result, detected, extracted, a.setting(ctx, "workflow.week_start", "MONDAY"), location)

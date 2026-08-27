@@ -2582,6 +2582,21 @@ GET    /api/v1/me</div>
 2|NOTHING_TO_IMPORT   ← 갇혀 있던 작업. 이관이 풀어 주었습니다
 업로드 응답: {&quot;id&quot;:3,&quot;status&quot;:&quot;NOTHING_TO_IMPORT&quot;}</div>
 <p>기존 시험이 *"일부만 실패했으면 PARTIAL"* 을 이미 정해 두었으므로 그 결정을 따랐고, 두 경로가 어긋나던 부분만 없앴습니다.</p>
+<p>#### 3.10.158 v0.203.0에서 완료 — 같은 고장을 한 화면은 설명하고 다른 화면은 영어로 흘렸습니다</p>
+<p>게이트웨이가 있으니 이제 <strong>AI 가 고장 났을 때</strong>도 걸을 수 있습니다. 일부러 망가진 게이트웨이 여덟 개를 세워 관리자 연결 시험에 물었습니다.</p>
+<table><thead><tr><th>게이트웨이</th><th>화면이 한 말</th></tr></thead><tbody><tr><td>HTTP 500</td><td>게이트웨이 쪽 문제이므로 이 설정을 바꿔도 해결되지 않습니다</td></tr><tr><td>HTTP 401</td><td>관리자 설정의 AI API Key를 확인하세요</td></tr><tr><td>HTTP 404</td><td>Endpoint가 <code>/v1/chat/completions</code> 로 끝나는지 확인하세요</td></tr><tr><td>HTTP 429</td><td>요청 한도를 초과했다고 답했습니다. 잠시 후 다시 시도하세요</td></tr><tr><td>로그인 HTML</td><td>프록시나 로그인 페이지가 앞에 있는지 확인하세요</td></tr><tr><td>JSON 아님</td><td>〃</td></tr><tr><td>스키마 불충족</td><td>모델이 Structured Output을 지원하는지 확인하세요</td></tr><tr><td>죽은 포트</td><td>주소와 사내망 접근 경로를 확인하세요</td></tr></tbody></table>
+<p>여덟 가지가 전부 다르고 전부 무엇을 하라고 말합니다. <strong>좋은 제품입니다.</strong></p>
+<p>##### 그런데 가져오기는 같은 고장을 이렇게 말했습니다</p>
+<div class="phase-box">AI endpoint returned HTTP 500</div>
+<p>Go 오류 문자열 그대로, 영어로, 나머지 모든 실패가 한국어 문장인 화면 위에 놓입니다. <code>processImportFile</code> 만 <code>aiUserMessage(err)</code> 를 거치지 않고 <code>err.Error()</code> 를 그대로 적고 있었습니다. 한 줄입니다.</p>
+<p>일괄 가져오기를 돌리는 사람은 관리자 화면을 보고 있지 않습니다. 파일 카드에 적힌 그 한 줄이 그 사람이 받는 전부입니다.</p>
+<p>##### 배포에서 다시 걸었습니다</p>
+<div class="phase-box">500     → AI Gateway가 오류로 응답했습니다(HTTP 500). 게이트웨이 쪽 문제이므로…
+401     → AI Gateway가 인증을 거부했습니다(HTTP 401). 관리자 설정의 AI API Key를…
+404     → AI Gateway 주소에서 해당 경로를 찾지 못했습니다(HTTP 404). Endpoint가…
+HTML    → AI Gateway 주소가 JSON이 아닌 응답을 돌려줬습니다. 프록시나 로그인…
+죽은 포트 → AI Gateway 주소에 연결하지 못했습니다. 주소와 사내망 접근 경로를…</div>
+<p>시험은 게이트웨이가 500 을 돌려주게 해 놓고 <strong>파일에 남은 말이 관리자 화면이 하는 말과 글자까지 같은지</strong>를 봅니다. 고치기 전 코드에 대고 돌려 실제로 실패하는 것을 확인했습니다.</p>
 </div>
 </body>
 </html>
