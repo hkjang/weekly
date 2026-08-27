@@ -2349,6 +2349,23 @@ Exception in thread Thread-7 (writer):
 <p>시험은 "도착했다" 로 만족하지 않습니다. 암호화된 길로 갔는지, 인증을 실제로 했는지를 <strong>릴레이가 기록</strong>해 확인합니다 — 메일은 평문으로 익명 발송해도 도착하니까요.</p>
 <table><thead><tr><th>뒤집은 것</th><th>결과</th></tr></thead><tbody><tr><td>STARTTLS 실패를 무시</td><td>잡힘</td></tr><tr><td>인증을 건너뜀</td><td>잡힘</td></tr><tr><td>인증 실패를 무시</td><td>잡힘</td></tr></tbody></table>
 <p>틀린 비밀번호가 <strong>조용히 익명 발송되지 않는지</strong> 도 따로 봅니다.</p>
+<p>#### 3.10.142 v0.187.0에서 완료 — 변이 검사가 문자열 속 부등호를 세고 있었습니다</p>
+<p><code>appendSlidesToPPTX</code> 에 남은 변이를 보러 갔다가, 변이 자리가 <strong>문자열 리터럴 안</strong>이라는 것을 알았습니다.</p>
+<div class="phase-box">relations += fmt.Sprintf(`&lt;Relationship Id=&quot;%s&quot; .../&gt;`, ...)
+                          ↑ 이 &lt; 를 &gt; 로 바꾼 것이 &quot;아무도 안 잡음&quot; 으로 보고됐습니다</div>
+<p><code>mutate()</code> 는 <strong>줄 첫머리가 <code>//</code> 인 줄만</strong> 건너뜁니다. 문자열 안은 그대로 후보입니다. 재 봤습니다.</p>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>internal/app</code> 의 변이 후보</td><td>4,163개</td></tr><tr><td>문자열·주석 안</td><td><strong>1,223개 (29.4%)</strong></td></tr><tr><td><code>pptx.go</code> 한 파일</td><td>683개</td></tr></tbody></table>
+<p>OpenXML 을 손으로 만드는 패키지라 파일이 대부분 꺾쇠입니다. 그 결과가 "깨진 <code>&lt;Relationship</code> 태그를 아무 시험도 못 잡았다" — 참이지만 쓸모없고, <strong>진짜 발견을 덮습니다.</strong> 이번 창 내내 이 도구의 출력을 신호로 읽어 왔습니다.</p>
+<p>문자열·룬·주석 안을 건너뛰게 했습니다. Go 파서가 아니라 스캐너입니다 — 이 자리에 연산자가 들어갈 수 있는 문법은 그게 전부입니다.</p>
+<p>##### 고치면서 제가 한 실수</p>
+<p>첫 판에서 마스크를 <code>"".join(lines)</code> 로 계산했습니다. 그 <code>lines</code> 는 <code>splitlines()</code> 결과라 줄바꿈이 없어, 오프셋이 <strong>줄마다 1씩 밀렸습니다.</strong> 결과는 "0개 적용" — 진짜 후보 19개까지 전부 걸러졌습니다.</p>
+<p>"0개 적용, 모두 잡힘" 은 좋은 소식처럼 보입니다. 그대로 넘어갔으면 도구를 조용히 죽여 놓고 통과를 자축할 뻔했습니다. 마스크를 직접 검사해서 잡았습니다.</p>
+<p>##### 그래서 진짜 둘이 남았습니다</p>
+<p><strong>하나 — <code>highestSlide</code> 가 최대가 아니라 마지막이 될 수 있었습니다.</strong></p>
+<div class="phase-box">if number, convErr := strconv.Atoi(match[1]); convErr == nil &amp;&amp; number &gt; highestSlide {</div>
+<p><code>&amp;&amp;</code> 를 <code>||</code> 로 바꾸면 조건이 항상 참이 되어 <code>highestSlide</code> 는 <strong>zip 에서 마지막으로 본 슬라이드 번호</strong>가 됩니다. zip 은 순서를 약속하지 않습니다. 슬라이드가 내림차순으로 실린 패키지에서는 새 캡처가 <code>slide2</code> 를 다시 쓰고, <strong>보고서의 한 페이지가 캡처로 덮입니다.</strong></p>
+<p>슬라이드를 내림차순으로 다시 쓴 덱으로 시험을 넣었습니다. 변이를 넣으면 <code>the deck went from 4 slides to 4, want 5 — a slide was written over</code> 로 떨어집니다.</p>
+<p><strong>둘 — 관측될 수 없는 비교였습니다.</strong> <code>strings.Index(types, "&lt;Override") &gt;= 0</code> 의 <code>&gt;=</code> 는 <code>&gt;</code> 와 다를 수 없습니다. 그 부분은 XML 선언으로 시작하므로 오프셋 0 에 override 가 올 수 없습니다. 시험 대신 주석을 달았습니다 — 다음 사람이 같은 자리를 또 쫓지 않도록.</p>
 </div>
 </body>
 </html>

@@ -207,15 +207,98 @@ def find_function(package_dir, name):
     return None, 0, 0
 
 
+def code_positions(text):
+    """A parallel list saying which characters are code.
+
+    A mutation inside a string literal is not a mutation of behaviour, it is a
+    typo in data. This package builds OpenXML by hand, so its files are mostly
+    angle brackets in raw strings: measured across internal/app, 1,223 of 4,163
+    candidates — 29.4%, and the majority in every pptx file — fell inside a
+    string or a comment. Those runs reported "no test caught it" about a broken
+    `<Relationship` tag, which is true and useless, and drowned the findings
+    that were about logic.
+
+    This is a scanner, not a Go parser: it tracks raw strings, interpreted
+    strings, runes, and both comment forms, which is all the syntax an operator
+    in this position can appear inside.
+    """
+    mask = [True] * len(text)
+    index, length, state = 0, len(text), None
+    while index < length:
+        character = text[index]
+        if state is None:
+            if character == "`":
+                state, mask[index] = "raw", False
+                index += 1
+                continue
+            if character == '"':
+                state, mask[index] = "string", False
+                index += 1
+                continue
+            if character == "'":
+                state, mask[index] = "rune", False
+                index += 1
+                continue
+            if character == "/" and index + 1 < length and text[index + 1] == "/":
+                end = text.find("\n", index)
+                end = length if end < 0 else end
+                for position in range(index, end):
+                    mask[position] = False
+                index = end
+                continue
+            if character == "/" and index + 1 < length and text[index + 1] == "*":
+                end = text.find("*/", index)
+                end = length if end < 0 else end + 2
+                for position in range(index, end):
+                    mask[position] = False
+                index = end
+                continue
+            index += 1
+            continue
+        mask[index] = False
+        if state == "raw":
+            if character == "`":
+                state = None
+        else:
+            if character == "\\":
+                if index + 1 < length:
+                    mask[index + 1] = False
+                index += 2
+                continue
+            # An unterminated quote at a line end is a scanner error, not Go;
+            # dropping the state keeps one bad line from swallowing the file.
+            if character == "\n" or (state == "string" and character == '"') or \
+               (state == "rune" and character == "'"):
+                state = None
+        index += 1
+    return mask
+
+
 def mutate(lines, start, end):
     """Yield (mutated_lines, description) for one change at a time."""
+    # Computed over the whole file because a raw string spans lines, and a line
+    # read on its own cannot tell whether it is inside one.
+    #
+    # The newline has to be put back. These lines come from splitlines(), which
+    # drops it, so joining them without it shifts every offset by the number of
+    # lines above — the mask then answers about the wrong characters and, in the
+    # file this was first tried on, refused all nineteen real candidates.
+    text = "\n".join(lines)
+    mask = code_positions(text)
+    offsets, running = [], 0
+    for line in lines:
+        offsets.append(running)
+        running += len(line) + 1
     for pattern, replacement, description in MUTATIONS:
         compiled = re.compile(pattern)
         for number in range(start, end):
             line = lines[number]
             if line.lstrip().startswith("//"):
                 continue
+            base = offsets[number]
             for match in list(compiled.finditer(line)):
+                if not all(mask[base + match.start():base + match.end()]):
+                    continue
                 changed = list(lines)
                 changed[number] = line[:match.start()] + replacement + line[match.end():]
                 yield changed, f"{description} at line {number + 1}"

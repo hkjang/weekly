@@ -7,8 +7,10 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -385,4 +387,100 @@ func countReads(reads map[string]int) int {
 		total += count
 	}
 	return total
+}
+
+// reorderedDeck rewrites a package with its slide parts listed in descending
+// order. A zip has no required order and a real one is whatever the writer
+// happened to emit, so a reader that treats "the last slide part I saw" as
+// "the highest slide number" is reading an accident.
+func reorderedDeck(t *testing.T, body []byte) []byte {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type part struct {
+		name string
+		data []byte
+	}
+	slides, others := []part{}, []part{}
+	for _, file := range reader.File {
+		opened, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(opened)
+		opened.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slideNumberPattern.MatchString(file.Name) {
+			slides = append(slides, part{file.Name, data})
+			continue
+		}
+		others = append(others, part{file.Name, data})
+	}
+	sort.Slice(slides, func(x, y int) bool { return slides[x].name > slides[y].name })
+	if len(slides) < 2 {
+		t.Fatalf("the template has %d slides, so the order cannot be wrong", len(slides))
+	}
+
+	var out bytes.Buffer
+	writer := zip.NewWriter(&out)
+	for _, item := range append(others, slides...) {
+		entry, err := writer.Create(item.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(item.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+// The number a new slide gets has to be one past the highest that exists, not
+// one past the last one the reader happened to walk over. A zip does not
+// promise an order; treating the last as the highest names the new slide over
+// one that is already there, and the capture replaces a page of the report.
+
+// guards: appendSlidesToPPTX
+func TestANewSlideIsNumberedPastEveryExistingOneWhateverOrderTheyAreIn(t *testing.T) {
+	template, err := referenceStylePPTX()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shuffled := reorderedDeck(t, template)
+	before, beforeNames := readDeck(t, shuffled)
+
+	image := samplePNG(t, 400, 300)
+	items := []storedAttachment{captureAttachment(1, "capture.png", "캡처", placementAfter, 400, 300)}
+	width, height := presentationSlideSize(shuffled)
+	slides := attachmentSlides(items, width, height, openBodies(map[string][]byte{"capture.png": image}))
+
+	result, err := appendSlidesToPPTX(shuffled, nil, slides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, afterNames := readDeck(t, result)
+
+	if len(after) != len(before)+1 {
+		t.Fatalf("the deck went from %d slides to %d, want %d — a slide was written over",
+			len(before), len(after), len(before)+1)
+	}
+	// Every page that was there is still there, byte for byte.
+	for index := range before {
+		if before[index] != after[index] {
+			t.Errorf("slide %d changed when a capture was appended", index+1)
+		}
+	}
+	for name := range beforeNames {
+		if !afterNames[name] {
+			t.Errorf("the package lost %s", name)
+		}
+	}
+	validatePPTXXML(t, result)
 }

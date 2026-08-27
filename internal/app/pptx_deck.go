@@ -277,6 +277,11 @@ func appendSlidesToPPTX(template []byte, before, after []builtSlide) ([]byte, er
 	}
 	if inserted != "" {
 		// Defaults must precede overrides in the package content types part.
+		//
+		// >= rather than > is deliberate and unobservable: the part opens with
+		// the XML declaration and the <Types> element, so an override can never
+		// sit at offset zero. A mutation run flags this every time; it is not a
+		// missing test, it is a comparison whose two forms cannot differ here.
 		if index := strings.Index(types, "<Override"); index >= 0 {
 			types = types[:index] + inserted + types[index:]
 		} else {
