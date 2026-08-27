@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.189.0.tar.gz
-gzip -dc weekly-v0.189.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.189.0.tar.gz | docker load
+sha256sum weekly-v0.190.0.tar.gz
+gzip -dc weekly-v0.190.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.190.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -246,7 +246,7 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 
 ## 경영 요약
 
-팀장 이상이 볼 수 있는 `경영 요약`은 전사 업무 중 지금 확인이 필요한 5~10건만 선정합니다.
+팀장 이상이 볼 수 있는 `경영 요약`은 전사 업무 중 지금 확인이 필요한 것을 **최대 10건** 선정합니다. 하한은 없습니다 — 조용한 주에는 두 건일 수도, 한 건도 없을 수도 있고, 그때는 무엇을 봤는지 함께 말합니다.
 
 선정 점수는 관측 가능한 사실의 합이며 **모든 항목에 선정 근거를 함께 표시합니다**. 근거를 볼 수 없는 요약은 읽는 사람이 반박할 수 없고, 반박할 수 없는 요약은 판단에 쓸 수 없습니다.
 
@@ -257,7 +257,11 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 | 진척 정체 | 주당 +10 |
 | 보고 누락 | 주당 +5 |
 | 조직 간 중복 의심 | +25 |
+| 마감일 초과 | +30 및 초과 주당 +5 |
+| 마감일 초과 예상 | +25 |
 | 4주 이상 진행한 업무의 완료 | +20 및 주당 +1 |
+
+**동점으로 잘렸으면 그렇다고 말합니다.** 가중치가 40·25·20처럼 성글기 때문에 열 자리를 두고 여러 업무가 같은 점수로 겹치는 일이 흔합니다. 그럴 때 화면은 *"아래 10건과 같은 점수 이상인 업무가 N건 있습니다"* 라고 알립니다 — 열 건이 전부인지, 스물두 건 중 열 건인지는 읽는 사람이 알아야 합니다.
 
 완료 보고도 함께 선정합니다. 문제만 모으는 요약은 곧 신뢰를 잃습니다. 반대로 이미 완료된 업무의 과거 이슈 이력은 위험으로 집계하지 않으며, 매주 100%로 보고되는 운영성 업무는 완료로 집계하지 않습니다.
 

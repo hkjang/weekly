@@ -24,6 +24,22 @@ const (
 	// The digest is a briefing, not a list. Past ten entries nobody reads it.
 	digestMaximumEntries = 10
 	digestMinimumScore   = 20
+
+	// What each observable fact is worth. Named rather than written into the
+	// calls, because README publishes this table as the product's reasoning —
+	// "근거를 볼 수 없는 요약은 읽는 사람이 반박할 수 없다" — and a published
+	// number that nothing pairs with the code drifts. Two rows of that table
+	// had already gone missing before this was noticed.
+	digestWeightDecision       = 40
+	digestWeightIssuePerWeek   = 10
+	digestWeightStalledPerWeek = 10
+	digestWeightOverdue        = 30
+	digestWeightOverduePerWeek = 5
+	digestWeightDueAtRisk      = 25
+	digestWeightSilentPerWeek  = 5
+	digestWeightDuplicate      = 25
+	digestWeightDone           = 20
+	digestWeightDonePerWeek    = 1
 )
 
 type meetingEntry struct {
@@ -353,13 +369,13 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 		}
 
 		if ask := strings.TrimSpace(item.LatestManagementAsk); ask != "" {
-			add(40, "DECISION", "상위 조직 결정·자원 요청이 열려 있습니다.")
+			add(digestWeightDecision, "DECISION", "상위 조직 결정·자원 요청이 열려 있습니다.")
 			kind, headline = "DECISION", "결정 대기"
 		}
 		// Issue weeks are historical. Counting them for finished work reported
 		// the completed task as an open risk, which is the opposite of true.
 		if item.IssueRunWeeks >= cfg.PersistentIssueWeeks && !item.Completed {
-			add(10*item.IssueRunWeeks, "ISSUE", fmt.Sprintf("이슈가 %d주째 지속되고 있습니다.", item.IssueRunWeeks))
+			add(digestWeightIssuePerWeek*item.IssueRunWeeks, "ISSUE", fmt.Sprintf("이슈가 %d주째 지속되고 있습니다.", item.IssueRunWeeks))
 			if kind == "" {
 				kind, headline = "RISK", "장기 이슈"
 			}
@@ -370,7 +386,7 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 			// 타 조직 대기 they connect two teams instead. Same stopped work,
 			// different action, so it must not read the same.
 			if note, waiting := blocked[item.ID]; waiting {
-				add(10*item.StalledWeeks, "BLOCKED",
+				add(digestWeightStalledPerWeek*item.StalledWeeks, "BLOCKED",
 					fmt.Sprintf("진척이 %d주째 멈춰 있고, %s", item.StalledWeeks, note.sentence()))
 				if kind == "" {
 					if note.CrossOrg {
@@ -380,7 +396,7 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 					}
 				}
 			} else {
-				add(10*item.StalledWeeks, "STALLED", fmt.Sprintf("진척이 %d주째 멈춰 있습니다.", item.StalledWeeks))
+				add(digestWeightStalledPerWeek*item.StalledWeeks, "STALLED", fmt.Sprintf("진척이 %d주째 멈춰 있습니다.", item.StalledWeeks))
 				if kind == "" {
 					kind, headline = "RISK", "진척 정체"
 				}
@@ -405,21 +421,21 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 			if late < 0 {
 				late = 0
 			}
-			add(30+5*late, "DEADLINE", fmt.Sprintf("마감일 %s이(가) 지났고 진척은 %d%%입니다.", item.DueOutlook.DueDate, item.Progress))
+			add(digestWeightOverdue+digestWeightOverduePerWeek*late, "DEADLINE", fmt.Sprintf("마감일 %s이(가) 지났고 진척은 %d%%입니다.", item.DueOutlook.DueDate, item.Progress))
 			if kind == "" {
 				kind, headline = "RISK", "기한 초과"
 			}
 		case dueOutlookAtRisk:
-			add(25, "DEADLINE", fmt.Sprintf("마감일은 %s입니다. %s", item.DueOutlook.DueDate, item.DueOutlook.Note))
+			add(digestWeightDueAtRisk, "DEADLINE", fmt.Sprintf("마감일은 %s입니다. %s", item.DueOutlook.DueDate, item.DueOutlook.Note))
 			if kind == "" {
 				kind, headline = "RISK", "기한 초과 예상"
 			}
 		}
 		if item.SilentWeeks > 0 && !item.Completed {
-			add(5*item.SilentWeeks, "SILENT", fmt.Sprintf("%d주간 보고가 누락됐습니다.", item.SilentWeeks))
+			add(digestWeightSilentPerWeek*item.SilentWeeks, "SILENT", fmt.Sprintf("%d주간 보고가 누락됐습니다.", item.SilentWeeks))
 		}
 		if link, duplicated := duplicateByItem[item.ID]; duplicated {
-			add(25, "DUPLICATE", fmt.Sprintf("%s의 '%s'와(과) 중복 가능성이 있습니다.",
+			add(digestWeightDuplicate, "DUPLICATE", fmt.Sprintf("%s의 '%s'와(과) 중복 가능성이 있습니다.",
 				link.Right.OrganizationName, link.Right.Title))
 			if kind == "" {
 				kind, headline = "DUPLICATE", "중복 투자 의심"
@@ -435,7 +451,7 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 			// minimum four weeks and finished is worth reporting, and scoring it
 			// just below the cut-off would have silently dropped exactly the
 			// case this rule exists for.
-			add(20+item.ReportedWeeks, "DONE", fmt.Sprintf("%d주간 진행한 업무가 완료됐습니다.", item.ReportedWeeks))
+			add(digestWeightDone+digestWeightDonePerWeek*item.ReportedWeeks, "DONE", fmt.Sprintf("%d주간 진행한 업무가 완료됐습니다.", item.ReportedWeeks))
 			if kind == "" {
 				kind, headline = "PROGRESS", "주요 업무 완료"
 			}

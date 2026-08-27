@@ -213,6 +213,17 @@ func (a *App) requireRole(roles ...string) func(http.Handler) http.Handler {
 func (a *App) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := currentPrincipal(r.Context())
+		// Only a session is at risk here: the attack this stops is a browser
+		// sending somebody's cookie from a page they did not open. A personal
+		// API key is carried deliberately in a header and has no such problem,
+		// so it is not asked where it came from.
+		//
+		// The AuthType half of this cannot be observed today — every write with
+		// a key is already refused by apiKeyRequestAllowed, which runs first —
+		// and a mutation run reports it as unguarded every time. It is written
+		// this way regardless, because the day a key gets a write scope is the
+		// day it becomes load-bearing, and discovering that then means asking a
+		// script for an Origin header it has no reason to send.
 		if p != nil && p.AuthType == "session" {
 			origin := r.Header.Get("Origin")
 			if origin == "" {
