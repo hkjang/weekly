@@ -2366,6 +2366,22 @@ Exception in thread Thread-7 (writer):
 <p><code>&amp;&amp;</code> 를 <code>||</code> 로 바꾸면 조건이 항상 참이 되어 <code>highestSlide</code> 는 <strong>zip 에서 마지막으로 본 슬라이드 번호</strong>가 됩니다. zip 은 순서를 약속하지 않습니다. 슬라이드가 내림차순으로 실린 패키지에서는 새 캡처가 <code>slide2</code> 를 다시 쓰고, <strong>보고서의 한 페이지가 캡처로 덮입니다.</strong></p>
 <p>슬라이드를 내림차순으로 다시 쓴 덱으로 시험을 넣었습니다. 변이를 넣으면 <code>the deck went from 4 slides to 4, want 5 — a slide was written over</code> 로 떨어집니다.</p>
 <p><strong>둘 — 관측될 수 없는 비교였습니다.</strong> <code>strings.Index(types, "&lt;Override") &gt;= 0</code> 의 <code>&gt;=</code> 는 <code>&gt;</code> 와 다를 수 없습니다. 그 부분은 XML 선언으로 시작하므로 오프셋 0 에 override 가 올 수 없습니다. 시험 대신 주석을 달았습니다 — 다음 사람이 같은 자리를 또 쫓지 않도록.</p>
+<p>#### 3.10.143 v0.188.0에서 완료 — 자기 존재 이유를 지키지 않던 코드</p>
+<p>v0.187.0이 변이 검사에서 소음 29%를 걷어내자, 그 아래 있던 것이 나왔습니다.</p>
+<div class="phase-box">// The template is four pages. A week with one task used to export four,
+// three of them holding nothing but the column headers and a pair of
+// dashes. That deck goes into a meeting, and nobody reads past the first
+// blank page wondering whether the rest failed to load.
+...
+if slideIndex &gt;= used {</div>
+<p><code>&gt;=</code> 를 <code>&gt;</code> 로 바꾸면 <strong>빈 페이지가 한 장 돌아옵니다.</strong> 아무 시험도 실패하지 않았습니다.</p>
+<p>##### 옆에 시험이 있었는데도</p>
+<p><code>TestTheDeckGrowsWithTheWorkAndStaysOpenable</code> 이 같은 코드를 덮고 있습니다. 그런데 그것이 확인하는 것은 <strong>덱의 내부 정합성</strong>입니다 — 슬라이드 수와 목록·콘텐츠 타입·관계의 수가 서로 맞는지. 빈 페이지가 하나 더 있어도 <strong>네 숫자가 모두 사이좋게 하나씩 늘어납니다.</strong></p>
+<p>즉 이 코드가 존재하는 이유 — 주석이 문단으로 적어 둔 그것 — 만 빠져 있었습니다.</p>
+<p>한 건짜리 주를 내보내 <strong>정확히 한 장</strong>인지 봅니다. 변이를 넣으면 <code>one task exported 2 pages — the extra ones carry only headers and dashes</code> 로 떨어집니다.</p>
+<p>##### 이번 창에서 반복된 모양</p>
+<table><thead><tr><th>릴리스</th><th>시험은 있었지만</th></tr></thead><tbody><tr><td>v0.175</td><td>시험이 제품 로직을 자기 안에 베껴 두고 사본을 검사</td></tr><tr><td>v0.176</td><td>픽스처가 동점 20건뿐이라 절반만 보임</td></tr><tr><td>v0.186</td><td>거부 목록의 각 항목이 두 이유로 걸려 조항 하나를 지워도 통과</td></tr><tr><td>v0.188</td><td>시험이 <strong>덱의 정합성</strong>을 보고, <strong>왜 그렇게 만드는지</strong>는 안 봄</td></tr></tbody></table>
+<p>네 번 다 시험은 통과하고 있었습니다.</p>
 </div>
 </body>
 </html>

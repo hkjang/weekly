@@ -502,3 +502,59 @@ func TestADeckWithBothAnIssuePageAndCapturesStaysValid(t *testing.T) {
 		t.Error("the ask was lost when the captures were added")
 	}
 }
+
+// The reason this code exists, in its own words: "The template is four pages. A
+// week with one task used to export four, three of them holding nothing but the
+// column headers and a pair of dashes. That deck goes into a meeting, and
+// nobody reads past the first blank page wondering whether the rest failed to
+// load."
+//
+// Nothing checked it. The test beside this one asks whether the deck is
+// internally consistent — the same number of slides, listings, content types
+// and relationships — which stays true with a blank page in it. Moving the
+// comparison that drops the spares by one brings the blank pages back and every
+// one of those counts still agrees.
+
+// guards: renderReferencePPTX
+func TestADeckCarriesNoPageThatHoldsNothing(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("deck_blank", "USER", nil)
+
+	// One task. The built-in template has four pages, so three of them have
+	// nothing to put on them.
+	id, version := server.draft(author, "2026-08-24", "한 건짜리 주")
+	filled := server.request(http.MethodPut, fmt.Sprintf("/api/v1/reports/%d", id), map[string]any{
+		"summary": "한 건짜리 주", "version": version,
+		"items": []map[string]any{{"category": "개발", "title": "유일한 업무",
+			"currentResult": "진행했습니다", "nextPlan": "이어서 합니다", "issue": "", "progress": 40}},
+	}, author)
+	if filled.Code != http.StatusOK {
+		t.Fatalf("fill: %d %s", filled.Code, filled.Body.String())
+	}
+
+	export := server.request(http.MethodGet, fmt.Sprintf("/api/v1/reports/%d/export.pptx", id), nil, author)
+	if export.Code != http.StatusOK {
+		t.Fatalf("export: %d %s", export.Code, export.Body.String())
+	}
+	text, names := deckText(t, export.Body.Bytes())
+
+	slides := 0
+	for _, name := range names {
+		if strings.HasPrefix(name, "ppt/slides/slide") && strings.HasSuffix(name, ".xml") && !strings.Contains(name, "_rels") {
+			slides++
+		}
+	}
+	if slides != 1 {
+		t.Errorf("one task exported %d pages — the extra ones carry only headers and dashes", slides)
+	}
+	if !strings.Contains(text, "유일한 업무") {
+		t.Errorf("the one task is not in the deck:\n%s", text[:min(len(text), 400)])
+	}
+
+	// And the template's spare pages must be gone from the listing too, or the
+	// file names slides that are not there.
+	presentation := partOf(t, export.Body.Bytes(), "ppt/presentation.xml")
+	if listed := strings.Count(presentation, "<p:sldId "); listed != slides {
+		t.Errorf("the deck holds %d slides but its order names %d", slides, listed)
+	}
+}

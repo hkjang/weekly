@@ -4485,3 +4485,37 @@ if number, convErr := strconv.Atoi(match[1]); convErr == nil && number > highest
 슬라이드를 내림차순으로 다시 쓴 덱으로 시험을 넣었습니다. 변이를 넣으면 `the deck went from 4 slides to 4, want 5 — a slide was written over` 로 떨어집니다.
 
 **둘 — 관측될 수 없는 비교였습니다.** `strings.Index(types, "<Override") >= 0` 의 `>=` 는 `>` 와 다를 수 없습니다. 그 부분은 XML 선언으로 시작하므로 오프셋 0 에 override 가 올 수 없습니다. 시험 대신 주석을 달았습니다 — 다음 사람이 같은 자리를 또 쫓지 않도록.
+
+#### 3.10.143 v0.188.0에서 완료 — 자기 존재 이유를 지키지 않던 코드
+
+v0.187.0이 변이 검사에서 소음 29%를 걷어내자, 그 아래 있던 것이 나왔습니다.
+
+```go
+// The template is four pages. A week with one task used to export four,
+// three of them holding nothing but the column headers and a pair of
+// dashes. That deck goes into a meeting, and nobody reads past the first
+// blank page wondering whether the rest failed to load.
+...
+if slideIndex >= used {
+```
+
+`>=` 를 `>` 로 바꾸면 **빈 페이지가 한 장 돌아옵니다.** 아무 시험도 실패하지 않았습니다.
+
+##### 옆에 시험이 있었는데도
+
+`TestTheDeckGrowsWithTheWorkAndStaysOpenable` 이 같은 코드를 덮고 있습니다. 그런데 그것이 확인하는 것은 **덱의 내부 정합성**입니다 — 슬라이드 수와 목록·콘텐츠 타입·관계의 수가 서로 맞는지. 빈 페이지가 하나 더 있어도 **네 숫자가 모두 사이좋게 하나씩 늘어납니다.**
+
+즉 이 코드가 존재하는 이유 — 주석이 문단으로 적어 둔 그것 — 만 빠져 있었습니다.
+
+한 건짜리 주를 내보내 **정확히 한 장**인지 봅니다. 변이를 넣으면 `one task exported 2 pages — the extra ones carry only headers and dashes` 로 떨어집니다.
+
+##### 이번 창에서 반복된 모양
+
+| 릴리스 | 시험은 있었지만 |
+| --- | --- |
+| v0.175 | 시험이 제품 로직을 자기 안에 베껴 두고 사본을 검사 |
+| v0.176 | 픽스처가 동점 20건뿐이라 절반만 보임 |
+| v0.186 | 거부 목록의 각 항목이 두 이유로 걸려 조항 하나를 지워도 통과 |
+| v0.188 | 시험이 **덱의 정합성**을 보고, **왜 그렇게 만드는지**는 안 봄 |
+
+네 번 다 시험은 통과하고 있었습니다.
