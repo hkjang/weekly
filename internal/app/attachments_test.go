@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -315,4 +316,73 @@ func TestAppendSlidesPlacesBothGroupsInOnePass(t *testing.T) {
 			t.Errorf("slide id %s ended up in the middle instead of at an end", match[1])
 		}
 	}
+}
+
+// Twenty captures at ten megabytes each is what the administrator screen lets a
+// deployment configure, so an export can be asked to carry two hundred
+// megabytes of images. Reading them all up front to plan the slides would hold
+// every one of them at once, and the geometry the planning needs is already in
+// the stored width and height — so the bytes must not be touched until the
+// moment each image is written into the package.
+//
+// Measured on a seeded deployment: twenty captures totalling 44.9 MB took the
+// container from 78 MiB to 235 MiB, about 3.5× the payload. That is with the
+// reads deferred. Holding them eagerly adds the whole payload again.
+
+// guards: attachmentSlides, appendSlidesToPPTX
+func TestCaptureBytesAreNotReadUntilTheyAreWritten(t *testing.T) {
+	template, err := referenceStylePPTX()
+	if err != nil {
+		t.Fatal(err)
+	}
+	width, height := presentationSlideSize(template)
+
+	const captures = 6
+	items := []storedAttachment{}
+	bodies := map[string][]byte{}
+	reads := map[string]int{}
+	for index := 0; index < captures; index++ {
+		name := fmt.Sprintf("capture-%d.png", index)
+		items = append(items, captureAttachment(int64(index+1), name, "", placementAfter, 640, 480))
+		bodies[name] = samplePNG(t, 640, 480)
+	}
+	open := func(item storedAttachment) (func() ([]byte, error), bool) {
+		body, ok := bodies[item.StoredPath]
+		if !ok {
+			return nil, false
+		}
+		return func() ([]byte, error) { reads[item.StoredPath]++; return body, nil }, true
+	}
+
+	slides := attachmentSlides(items, width, height, open)
+	if len(slides) != captures {
+		t.Fatalf("built %d slides, want %d", len(slides), captures)
+	}
+	// Planning is geometry. Nothing here needs a pixel.
+	if total := countReads(reads); total != 0 {
+		t.Fatalf("%d capture(s) were read while the slides were only being planned — a full export's images would be resident at once", total)
+	}
+
+	if _, err := appendSlidesToPPTX(template, nil, slides); err != nil {
+		t.Fatal(err)
+	}
+	// And once each when they are written: reading an image twice doubles the
+	// disk traffic of every export and is the kind of thing a refactor adds
+	// without anybody noticing.
+	for name, count := range reads {
+		if count != 1 {
+			t.Errorf("%s was read %d times, want 1", name, count)
+		}
+	}
+	if total := countReads(reads); total != captures {
+		t.Errorf("%d of %d captures reached the package", total, captures)
+	}
+}
+
+func countReads(reads map[string]int) int {
+	total := 0
+	for _, count := range reads {
+		total += count
+	}
+	return total
 }

@@ -2241,6 +2241,19 @@ ERROR:  차주 계획 문장이 1가지뿐입니다. 계획 반복 배지가 모
 <p><strong>둘 — 작성 중 보고서에 발송 기록이 붙었습니다.</strong> 발송은 제출이 큐에 넣는 것이므로, 제출되지 않은 보고서에 딸린 발송은 제품이 만들 수 없는 행입니다. <code>r.status &lt;&gt; 'DRAFT'</code> 를 걸었습니다.</p>
 <p>##### 다양성 검사도 함께</p>
 <p>v0.177.0이 넣은 검사에 발송 상태 가짓수를 더했습니다. 세 가지 미만이면 씨앗이 실패합니다 — 보낸 것·기다리는 것·포기한 것을 구별할 수 없는 픽스처는 그 화면을 시험할 수 없기 때문입니다.</p>
+<p>#### 3.10.136 v0.181.0에서 완료 — 운영자에게 절반만 알려 준 메모리</p>
+<p>관리자 화면의 캡처 첨부 설명이 이렇게 말하고 있었습니다.</p>
+<blockquote>요청 하나가 쓰는 메모리는 대략 <strong>한 보고서의 첨부 총량</strong>입니다. 즉 <code>보고서당 최대 캡처 수 × 캡처 파일당 최대 MB</code>가 상한입니다.</blockquote>
+<p>씨앗은 <code>report_attachments</code> 를 만들지 못하므로 이 경로는 <strong>한 번도 규모에서 밟힌 적이 없었습니다.</strong> 캡처를 만들어 실제 API로 올리고 재 봤습니다.</p>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>첨부</td><td>캡처 20장 · 44.9MB</td></tr><tr><td>내보내기 전</td><td>78MiB</td></tr><tr><td>피크</td><td><strong>235MiB</strong></td></tr><tr><td>상승</td><td><strong>157MiB = 3.5배</strong></td></tr></tbody></table>
+<p>두 번 반복해 156MiB·157MiB로 재현했습니다.</p>
+<p>기본값 20장 × 10MB 라면 요청 하나가 <strong>약 700MB</strong>입니다. 안내대로 200MB를 잡은 운영자는 내보내기 한 번에 OOM 으로 죽습니다. 폐쇄망에서 컨테이너 한도를 그 문장 보고 정합니다.</p>
+<p>##### 어디서 불어나는가</p>
+<p>이미지는 이미 <strong>하나씩</strong> 읽습니다 — <code>slideMedia.Load</code> 가 함수이고, 주석이 그렇게 하는 이유까지 적어 두었습니다. 불어나는 것은 완성된 덱 자체입니다. <code>Content-Length</code> 를 세려면 파일을 다 만들어 들고 있어야 하고, zip 을 새로 쓰는 동안 입력과 출력이 함께 있습니다.</p>
+<p>그래서 코드를 바꾸는 대신 <strong>실측한 값을 말하게</strong> 했습니다.</p>
+<p>##### 그런데 그 "하나씩"을 지키는 것이 없었습니다</p>
+<p>주석은 "deferring the read is what keeps a whole export's worth of images from being resident at once" 라고 주장하는데, 그 주장을 검사하는 시험이 없었습니다. 누가 <code>Load</code> 를 바이트로 되돌려도 아무것도 실패하지 않습니다 — 그리고 그 순간 메모리는 3.5배에서 4.5배가 됩니다.</p>
+<p>시험을 넣었습니다. 계획 단계에서 한 장이라도 읽으면 <code>6 capture(s) were read while the slides were only being planned</code>, 한 장을 두 번 읽으면 <code>read 2 times, want 1</code> 로 떨어집니다.</p>
 </div>
 </body>
 </html>
