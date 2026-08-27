@@ -16,7 +16,7 @@
 | `authz-check.py` | 거절 규칙을 지우면 조용해지는 시험 | 수 분 | 권한 규칙을 손댔을 때 |
 | `scale-check.py` | 규모에서만 보이는 응답 크기·지연·상한 표기 | 배포 하나 필요 | 조회 경로를 손댔을 때 |
 | `load-check.py` | 월요일 아침의 동시성 — 특히 메모리 | 배포 하나 필요 · **데이터를 덮어씀** | 인증·저장 경로를 손댔을 때 |
-| `backup-check.sh` | 복구 스크립트가 실제로 되돌리는지 | 컨테이너 필요 | 백업·복구를 손댔을 때 |
+| `backup-check.sh` | 복구 스크립트가 실제로 되돌리는지 — 첨부와 **비밀의 두 쪽** 모두 | 컨테이너 필요 | 백업·복구를 손댔을 때 |
 | `release-check.sh` | 태그는 있는데 릴리스가 없는 것 | 즉시 | 릴리스 뒤 |
 
 CI 는 이 중 `go test`·`go vet`·`guard-check`·`modal-close-check`·`openapi-check`·`version-check`·`release-check`·`mutation-check --changed` 를 돌립니다. 릴리스 워크플로는 **산출물을 망가뜨릴 수 있는 것만** 돌립니다 — 잘못된 가드 표시는 tarball 을 망가뜨리지 않으므로 거기 없습니다.
@@ -78,4 +78,4 @@ python3 scripts/fake-confluence.py 18900 --pages 120
 | `release-check.sh` | v0.150.0 이 태그만 남고 릴리스가 만들어지지 않았습니다 |
 | `scale-check.py` | 23.6MB 업무 목록, 새로고침마다 뒤바뀌는 순위, 아무도 그리지 않는 522KB |
 | `load-check.py` | 월요일 아침 300명의 Argon2id 예약이 컨테이너를 죽였습니다 |
-| `backup-check.sh` | 모든 릴리스 노트가 복구를 권했고, 아무도 그것을 돌려 본 적이 없었습니다 |
+| `backup-check.sh` | 모든 릴리스 노트가 복구를 권했고, 아무도 그것을 돌려 본 적이 없었습니다. 그 뒤에도 검사는 첨부만 보고 **비밀은 보지 않았습니다** — 첨부가 다 돌아와도 비밀이 안 풀리면 서비스는 기동조차 하지 않습니다 |

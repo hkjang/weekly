@@ -23,6 +23,11 @@ for tool in psql pg_dump pg_restore tar; do
   command -v "$tool" >/dev/null 2>&1 || { echo "required tool not found: $tool" >&2; exit 3; }
 done
 
+sha_of_file() {
+  # coreutils and busybox spell it differently; both print the digest first.
+  { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; } | cut -d' ' -f1
+}
+
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -71,7 +76,22 @@ state="$work/state"
 mkdir -p "$state/attachments/1"
 printf 'first file\n'  > "$state/attachments/1/$one.png"
 printf 'second file\n' > "$state/attachments/1/$two.png"
-printf 'not a real key\n' > "$state/instance.key"
+# A secret has two halves and they have to come back together: the key that
+# lives only on the volume, and the ciphertext that lives only in the database.
+# The restore instructions end by telling the operator to check exactly this —
+# "If secrets read as 복호화할 수 없음, WEEKLY_ENCRYPTION_KEY does not match" —
+# and the check did not. It asserted the key file existed, which an empty file
+# also does, and never looked at the encrypted rows at all. A recovery that
+# returns every attachment and no working secrets does not start: the service
+# refuses to boot rather than run without its OIDC client secret.
+printf 'not a real key, but these exact bytes\n' > "$state/instance.key"
+key_before=$(sha_of_file "$state/instance.key")
+psql "$src" -q -o /dev/null -v ON_ERROR_STOP=1 <<SQL
+INSERT INTO app_settings(key, value, secret) VALUES
+  ('confluence.password', 'enc:v1:BACKUPCHECKCIPHERTEXT==', true),
+  ('service.name', '복구 시험 서비스', false)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, secret = EXCLUDED.secret;
+SQL
 
 say "4/7 backup"
 mkdir -p "$work/out"
@@ -107,7 +127,18 @@ for digest in "$one" "$two"; do
   cmp -s "$original" "$came_back" || fail "attachment file $digest.png came back with different bytes"
 done
 [ -f "$restored/instance.key" ] || fail "instance.key did not come back"
+[ "$(sha_of_file "$restored/instance.key")" = "$key_before" ] \
+  || fail "instance.key came back with different bytes — every secret setting is unreadable"
 say "  attachment files: identical to the originals"
+
+# The other half. Without the ciphertext the key decrypts nothing, and without
+# the key the ciphertext is noise; the point is that one restore returns both.
+cipher=$(psql "$dst" -tAc "SELECT value FROM app_settings WHERE key = 'confluence.password'")
+[ "$cipher" = 'enc:v1:BACKUPCHECKCIPHERTEXT==' ] \
+  || fail "the encrypted setting came back as '$cipher'"
+plain=$(psql "$dst" -tAc "SELECT value FROM app_settings WHERE key = 'service.name'")
+[ "$plain" = '복구 시험 서비스' ] || fail "a plain setting came back as '$plain'"
+say "  secrets: key bytes and ciphertext both intact"
 
 # Nothing the backup did not contain may be left behind pretending to be data.
 stale="$restored/attachments/1/stale.png"

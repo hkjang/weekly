@@ -5287,3 +5287,40 @@ B 는 되돌린 직후 **스스로 그것을 집어 갔고**, 같은 PPTX 를 �
 ##### `strategy: Recreate`
 
 한 줄입니다. 시험은 매니페스트를 읽어 `replicas: 1` · `Recreate` · `ReadWriteOnce` 가 함께 있는지 보고, compose 가 두 벌을 띄우지 않는지도 확인합니다. 이유는 매니페스트와 README 양쪽에 적었습니다 — 다음에 누가 `RollingUpdate` 로 되돌리려 할 때 읽을 자리는 코드가 아니라 거기입니다.
+
+#### 3.10.167 v0.212.0에서 완료 — 복구 검사가 첨부만 보고 비밀은 보지 않았습니다
+
+`backup-check.sh` 는 *"복구 스크립트가 실제로 되돌릴 수 있는지 증명한다"* 는 이유로 있습니다. 현재 스키마에 대고 돌리니 **통과합니다** — 덤프·아카이브·검증·복구가 왕복하고, 빠진 첨부는 실패로 보고합니다.
+
+그런데 `weekly-backup.sh restore` 는 마지막에 이렇게 안내합니다.
+
+> `If secrets read as 복호화할 수 없음, WEEKLY_ENCRYPTION_KEY does not match the one in use when this backup was taken.`
+
+작성자는 그것이 중요하다는 것을 알고 있었습니다. **검사는 그것을 보지 않았습니다.**
+
+##### 비밀에는 쪽이 둘 있습니다
+
+| 어디에 | 무엇이 |
+| --- | --- |
+| 상태 볼륨 | `instance.key` — 이것 없이는 암호문이 잡음입니다 |
+| PostgreSQL | `enc:v1:…` 암호문 — 이것 없이는 키가 아무것도 풀지 않습니다 |
+
+검사가 한 확인은 `[ -f "$restored/instance.key" ]` 하나였습니다. **빈 파일도 통과합니다.** 그리고 암호화된 설정 행은 아예 넣지도, 보지도 않았습니다.
+
+첨부가 전부 돌아와도 비밀이 안 풀리면 서비스는 **기동조차 하지 않습니다** — 이 제품은 복호화할 수 없는 상태로 뜨느니 멈추는 쪽을 고릅니다. 오늘 제가 볼륨 없이 컨테이너를 갈아 끼웠을 때 직접 그것을 봤습니다.
+
+##### 두 쪽이 함께 돌아오는지 봅니다
+
+키의 바이트를 백업 전에 재고 복구 뒤에 견주며, 암호문과 평문 설정을 하나씩 심어 그대로 돌아오는지 봅니다.
+
+```
+attachment files: identical to the originals
+secrets: key bytes and ciphertext both intact
+```
+
+새 확인이 실제로 실패를 잡는지도 확인했습니다.
+
+```
+복구가 키를 비워 두면 → instance.key came back with different bytes — every secret setting is unreadable
+암호문이 사라지면     → the encrypted setting came back as ''
+```
