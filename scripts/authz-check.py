@@ -109,6 +109,11 @@ def main():
         return 2
 
     unguarded = []
+    # Sites whose removal did not compile. Nothing was learned about those, and
+    # counting them as kept is the very confusion this check exists to catch:
+    # "a test named after a rule is not the same as a test of that rule", and a
+    # site nobody could test is not a site somebody is watching.
+    unlearned = []
     for number, (path, index, line) in enumerate(found, start=1):
         original = path.read_text(encoding="utf-8")
         lines = original.split("\n")
@@ -123,13 +128,21 @@ def main():
             mark = "!"
         elif "build failed" in output or "cannot use" in output:
             mark = "?"   # removing it did not compile; nothing was learned
+            unlearned.append((path, index, line))
         else:
             mark = "."
         print(f"  {mark}  [{number}/{len(found)}] {path.name}:{index + 1}  {line[:66]}")
 
     print()
+    if unlearned:
+        print(f"{len(unlearned)}곳은 지워도 컴파일되지 않아 이 방법으로는 알 수 없습니다:")
+        for path, index, line in unlearned:
+            print(f"  {path.relative_to(ROOT)}:{index + 1}\n    {line}")
+        print("  이 자리들은 다른 방법으로 확인해야 합니다.\n")
     if not unguarded:
-        print(f"권한 검사: {len(found)}곳 모두, 없애면 시험이 알아차립니다.")
+        confirmed = len(found) - len(unlearned)
+        print(f"권한 검사: {confirmed}곳은 없애면 시험이 알아차립니다"
+              + (f". 나머지 {len(unlearned)}곳은 알 수 없습니다." if unlearned else "."))
         return 0
     print(f"{len(unguarded)}곳은 없애도 아무도 알아차리지 못합니다:")
     for path, index, line in unguarded:

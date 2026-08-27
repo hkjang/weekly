@@ -75,6 +75,12 @@ type meetingSection struct {
 // the screen said there were any.
 const meetingSectionLimit = 40
 
+// meetingHistoryWeeks is how far back the agenda reads to age its figures.
+// Measured on a seeded deployment of 52 weeks: no issue run reached past this
+// window, so the bound costs the agenda nothing and saves it reading a year of
+// rows to answer about months.
+const meetingHistoryWeeks = 26
+
 // orderMeetingEntries puts the rows a room should hear first at the top, so
 // that cutting the tail cuts the least important thing rather than the highest
 // work item id.
@@ -251,16 +257,22 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 		week = currentWeekStart(time.Now().In(a.serviceLocation(r.Context())),
 			a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
 	}
-	if _, err := time.Parse("2006-01-02", week); err != nil {
+	parsed, err := time.Parse("2006-01-02", week)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_WEEK", "주차는 YYYY-MM-DD 형식이어야 합니다.")
 		return
 	}
 	// Load a little history so ageing figures are right, not just the two weeks
-	// the agenda compares.
-	since := ""
-	if parsed, err := time.Parse("2006-01-02", week); err == nil {
-		since = parsed.AddDate(0, 0, -7*26).Format("2006-01-02")
-	}
+	// the agenda compares — and no more than that, because the whole corpus is
+	// a lot to read for figures that only look back months.
+	//
+	// The week was parsed twice, once to reject a bad one and once to find this
+	// bound, and the second parse could not fail after the first had returned.
+	// A mutation sweep found that: flipping its `err == nil` to `err != nil`
+	// dropped the bound entirely and no test noticed, because a branch that
+	// cannot be taken is not a branch anybody wrote a test for. One parse, used
+	// for both.
+	since := parsed.AddDate(0, 0, -7*meetingHistoryWeeks).Format("2006-01-02")
 	items, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, scope == scopeSelf), since)
 	if err != nil {
 		a.logger.Error("meeting mode", "error", err, "trace", traceIDFromContext(r.Context()))
