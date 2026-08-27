@@ -81,3 +81,76 @@ func TestMCPOriginValidation(t *testing.T) {
 		}
 	}
 }
+
+// The endpoint analysis is what an administrator opens to ask whether the
+// service is healthy. A call to an API path this build does not serve matches
+// the catch-all that also serves the application shell, so both were recorded
+// as "/". Measured on a deployment: GET / came back as 55 requests at 78%
+// refused — twelve page loads and forty-three calls to a path that is not
+// there. One row, two unrelated facts, and a percentage true of neither.
+
+// guards: requestMetrics, isAPIPath
+func TestAnUnknownAPIPathIsNotFiledUnderTheSiteRoot(t *testing.T) {
+	server := newTestServer(t)
+	// Through the whole chain, not the mux. The harness calls the mux directly,
+	// so the metrics middleware — and the route name it decides — is not on the
+	// path any other test takes.
+	handler := server.app.Handler()
+	send := func(path string, cookie *http.Cookie) int {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("Origin", "http://"+r.Host)
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	// The shell, which is the route genuinely called "/".
+	if code := send("/", nil); code != http.StatusOK {
+		t.Fatalf("the application shell did not load: %d", code)
+	}
+	// An API path this build does not serve.
+	if code := send("/api/v1/there-is-no-such-thing", nil); code != http.StatusNotFound {
+		t.Fatalf("an unknown API path answered %d, want 404", code)
+	}
+	// And a 404 from a route that does exist, which must keep its own pattern
+	// rather than being swept in with the unknown ones.
+	if code := send("/api/v1/reports/99999999", server.admin); code != http.StatusNotFound {
+		t.Fatalf("a missing report answered %d, want 404", code)
+	}
+
+	counts := map[string]int64{}
+	rows, err := server.app.db.Query(server.ctx(),
+		`SELECT route, sum(request_count) FROM api_request_metrics GROUP BY route`)
+	if err != nil {
+		t.Fatalf("read the metrics: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var route string
+		var count int64
+		if err := rows.Scan(&route, &count); err != nil {
+			t.Fatal(err)
+		}
+		counts[route] = count
+	}
+
+	if counts[unknownAPIRoute] == 0 {
+		t.Errorf("the unknown API path was not recorded as one: %v", counts)
+	}
+	// The shell's own row must not carry it. Mixed together, the refusal rate
+	// on "/" describes neither the site nor the caller.
+	for route, count := range counts {
+		if route == "/" && count != 1 {
+			t.Errorf("the site root carries %d requests, want only the page load: %v", count, counts)
+		}
+	}
+	// A 404 from a real route keeps its pattern, so an administrator can still
+	// see which endpoint is being asked for things that are not there.
+	if counts["GET /api/v1/reports/{id}"] == 0 {
+		t.Errorf("a 404 from a route that exists lost its own name: %v", counts)
+	}
+}

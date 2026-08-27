@@ -81,6 +81,17 @@ func (w *metricsWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
+// unknownAPIRoute is what the endpoint analysis calls a request for an API path
+// this build does not serve. It is a label, not a pattern, and is spelled so it
+// cannot be mistaken for one.
+const unknownAPIRoute = "(unknown API path)"
+
+// isAPIPath reports whether this request was meant for the API rather than the
+// application shell. The catch-all serves both.
+func isAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/mcp")
+}
+
 func (a *App) requestMetrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -89,6 +100,18 @@ func (a *App) requestMetrics(next http.Handler) http.Handler {
 		route := r.Pattern
 		if route == "" {
 			route = "unmatched"
+		}
+		// A call to an API path that does not exist matches the catch-all that
+		// serves the application shell, so it was recorded as "/" beside real
+		// page loads. Measured on a deployment: GET / came back as 55 requests
+		// at 78% refused — twelve of them the site opening normally and
+		// forty-three of them somebody calling a path that is not there. One
+		// row, two unrelated facts, and a percentage that is true of neither.
+		//
+		// A 404 from a route that does exist keeps its own pattern, so only the
+		// catch-all is relabelled here.
+		if route == "/" && mw.status == http.StatusNotFound && isAPIPath(r.URL.Path) {
+			route = unknownAPIRoute
 		}
 		duration := time.Since(started).Milliseconds()
 		if duration < 0 {

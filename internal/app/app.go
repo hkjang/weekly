@@ -295,7 +295,10 @@ func (a *App) versionInfo(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *App) serveSPA(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
+	// Same question the metrics middleware asks about the same request, so it
+	// is asked in one place: this decides the answer, that decides what the
+	// request is called in the endpoint analysis, and the two must not drift.
+	if isAPIPath(r.URL.Path) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "요청한 API가 없습니다.")
 		return
 	}
