@@ -108,6 +108,12 @@ func validMailAddress(value string) bool {
 		return false
 	}
 	parsed, err := mail.ParseAddress(value)
+	// The last two are belt and braces: nothing that survives the line above is
+	// known to parse into a different address or carry a second @. They are
+	// kept because what net/mail accepts is not this package's to promise, and
+	// the cost of being wrong here is a header we built carrying somebody
+	// else's address. A mutation of either is therefore not observable, which
+	// is the expected result rather than a missing test.
 	return err == nil && parsed.Address == value && strings.Count(value, "@") == 1
 }
 
@@ -162,6 +168,15 @@ func buildMailMessage(from, fromName, to, subject, body string) []byte {
 	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + wrapped.String())
 }
 
+// mailTLSConfig builds the client's TLS settings for one relay.
+//
+// A seam, and the reason for it is worth stating: an internal relay's
+// certificate is signed by nobody a test process trusts, so without this the
+// encrypted branch — the one where a password is at stake — could not be
+// exercised at all, and a mutation run confirmed that both it and the
+// authentication that follows were unguarded. Production never replaces this.
+var mailTLSConfig = func(host string) *tls.Config { return &tls.Config{ServerName: host} }
+
 // sendMail delivers one message and returns the relay's own refusal on failure.
 func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, body string) error {
 	if reason := settings.unusable(); reason != "" {
@@ -176,7 +191,7 @@ func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, 
 	var connection net.Conn
 	var err error
 	if settings.Security == "TLS" {
-		connection, err = tls.DialWithDialer(dialer, "tcp", address, &tls.Config{ServerName: settings.Host})
+		connection, err = tls.DialWithDialer(dialer, "tcp", address, mailTLSConfig(settings.Host))
 	} else {
 		connection, err = dialer.DialContext(ctx, "tcp", address)
 	}
@@ -195,7 +210,7 @@ func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, 
 	defer client.Close()
 
 	if settings.Security == "STARTTLS" {
-		if err := client.StartTLS(&tls.Config{ServerName: settings.Host}); err != nil {
+		if err := client.StartTLS(mailTLSConfig(settings.Host)); err != nil {
 			return fmt.Errorf("STARTTLS에 실패했습니다: %w", err)
 		}
 	}

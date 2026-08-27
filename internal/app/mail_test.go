@@ -3,10 +3,17 @@ package app
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
+	"net/mail"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +36,16 @@ type fakeRelay struct {
 	// to test that a refused delivery does not hold up the ones behind it: the
 	// refusal has to still be there when the next one is tried.
 	refuseFor map[string]string
+	// tlsConfig, when set, makes the relay advertise STARTTLS and upgrade on it.
+	tlsConfig *tls.Config
+	authUser  string
+	authPass  string
+	// secured and authed record what the client actually did, because "the mail
+	// arrived" is true whether or not it took the encrypted, authenticated road.
+	secured bool
+	authed  bool
+	// certificate is what the client must be told to trust.
+	certificate *x509.Certificate
 }
 
 func startFakeRelay(t *testing.T) *fakeRelay {
@@ -62,6 +79,7 @@ func (relay *fakeRelay) handle(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	say := func(line string) { fmt.Fprintf(conn, "%s\r\n", line) }
+	_ = say
 	say("220 relay.test ESMTP")
 	var body strings.Builder
 	inData := false
@@ -87,7 +105,51 @@ func (relay *fakeRelay) handle(conn net.Conn) {
 		switch {
 		case strings.HasPrefix(command, "EHLO"), strings.HasPrefix(command, "HELO"):
 			say("250-relay.test")
-			say("250 SIZE 10485760")
+			say("250-SIZE 10485760")
+			relay.mu.Lock()
+			offerTLS := relay.tlsConfig != nil && !relay.secured
+			offerAuth := relay.authUser != ""
+			relay.mu.Unlock()
+			if offerTLS {
+				say("250-STARTTLS")
+			}
+			if offerAuth {
+				say("250-AUTH PLAIN")
+			}
+			say("250 8BITMIME")
+		case command == "STARTTLS":
+			if relay.tlsConfig == nil {
+				say("502 5.5.1 not supported")
+				continue
+			}
+			say("220 2.0.0 Ready to start TLS")
+			secure := tls.Server(conn, relay.tlsConfig)
+			if err := secure.Handshake(); err != nil {
+				return
+			}
+			relay.mu.Lock()
+			relay.secured = true
+			relay.mu.Unlock()
+			conn = secure
+			reader = bufio.NewReader(conn)
+			say = func(line string) { fmt.Fprintf(conn, "%s\r\n", line) }
+		case strings.HasPrefix(command, "AUTH PLAIN"):
+			// The credential rides in the command or on the next line; the
+			// client here always puts it in the command.
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "AUTH PLAIN"))
+			raw, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(payload))
+			parts := strings.Split(string(raw), "\x00")
+			relay.mu.Lock()
+			wantUser, wantPass := relay.authUser, relay.authPass
+			relay.mu.Unlock()
+			if decodeErr != nil || len(parts) != 3 || parts[1] != wantUser || parts[2] != wantPass {
+				say("535 5.7.8 authentication failed")
+				continue
+			}
+			relay.mu.Lock()
+			relay.authed = true
+			relay.mu.Unlock()
+			say("235 2.7.0 Authentication successful")
 		case strings.HasPrefix(command, "RCPT TO"):
 			relay.mu.Lock()
 			reason := relay.refuse
@@ -291,6 +353,30 @@ func TestOnlyAPlainAddressIsAccepted(t *testing.T) {
 	} {
 		if validMailAddress(bad) {
 			t.Errorf("%q was accepted", bad)
+		}
+	}
+
+	// Each reason on its own. The list above rejects every entry for more than
+	// one reason at a time, so any single clause could be deleted and the whole
+	// thing still pass — which is what a mutation run found. These differ from
+	// a good address in exactly one way each.
+	tooLong := strings.Repeat("a", 320) + "@b.test"
+	if len(tooLong) <= 320 {
+		t.Fatalf("the fixture is %d characters, so the length rule proves nothing", len(tooLong))
+	}
+	if parsed, err := mail.ParseAddress(tooLong); err != nil || parsed.Address != tooLong {
+		t.Fatalf("the long fixture is malformed for another reason, so it does not test length: %v", err)
+	}
+	if validMailAddress(tooLong) {
+		t.Error("an address past the column's limit was accepted — it would be truncated on the way into storage")
+	}
+	if validMailAddress("") || validMailAddress("   ") {
+		t.Error("an empty address was accepted")
+	}
+	for _, character := range []string{"<", ">", ",", ";", "\r", "\n", " ", "\t", "\""} {
+		candidate := "a" + character + "b@c.test"
+		if validMailAddress(candidate) {
+			t.Errorf("%q was accepted, and it would end the header it is written into", candidate)
 		}
 	}
 }
@@ -660,4 +746,181 @@ func TestADeliveryThatRunsOutOfTriesSaysSoAndKeepsTheLastReason(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "FAILED") || !strings.Contains(w.Body.String(), "mailbox unavailable") {
 		t.Errorf("the screen does not say it was given up on: %s", w.Body.String())
 	}
+}
+
+// The body is base64 so a relay that is not 8-bit clean cannot mangle Korean,
+// and base64 in a mail body has to be wrapped: RFC 2045 puts the limit at 76
+// characters and some relays refuse or rewrite longer lines.
+//
+// A short body is one line however the wrapping arithmetic is written, so the
+// test that covered this could not see the bounds at all — a mutation run moved
+// them in three different ways and nothing failed. A real report is long.
+
+// guards: buildMailMessage
+func TestALongBodyIsWrappedAndSurvivesTheRoundTrip(t *testing.T) {
+	// Long enough that the encoding runs to many lines, and Korean so a byte
+	// that is not ASCII is in every one of them.
+	body := strings.Repeat("주간보고 본문 한 줄입니다. 이슈와 계획이 함께 들어갑니다.\n", 60)
+	message := string(buildMailMessage("weekly@internal.test", "주간보고", "reader@internal.test", "제목", body))
+
+	head, encoded, found := strings.Cut(message, "\r\n\r\n")
+	if !found {
+		t.Fatal("the message has no body")
+	}
+	if !strings.Contains(head, "Content-Transfer-Encoding: base64") {
+		t.Fatalf("the body is not declared base64:\n%s", head)
+	}
+
+	lines := strings.Split(strings.TrimRight(encoded, "\r\n"), "\r\n")
+	if len(lines) < 5 {
+		t.Fatalf("the fixture encoded to %d lines, so the wrapping proves nothing", len(lines))
+	}
+	for index, line := range lines {
+		if len(line) > 76 {
+			t.Errorf("line %d is %d characters, past the 76 a relay will accept", index+1, len(line))
+		}
+		if line == "" {
+			t.Errorf("line %d is empty, which ends the body early for a strict reader", index+1)
+		}
+	}
+
+	// And it has to come back. Wrapping that drops or duplicates a character
+	// produces lines of a legal length carrying the wrong report.
+	decoded, err := base64.StdEncoding.DecodeString(strings.Join(lines, ""))
+	if err != nil {
+		t.Fatalf("the wrapped body is not valid base64: %v", err)
+	}
+	if string(decoded) != body {
+		t.Errorf("the body did not survive the round trip: %d bytes in, %d out", len(body), len(decoded))
+	}
+}
+
+// A relay that offers STARTTLS and demands a password. This is the mode an
+// operator has to use to authenticate — Go will not put a password on a plain
+// connection — and nothing exercised it: every test above uses NONE, so the
+// STARTTLS branch and the AUTH branch could both be inverted and the suite
+// stayed green.
+func startTLSRelay(t *testing.T, username, password string) *fakeRelay {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	config := selfSignedTLS(t)
+	relay := &fakeRelay{listener: listener, tlsConfig: config, authUser: username, authPass: password,
+		certificate: config.Certificates[0].Leaf}
+	go relay.serve()
+	t.Cleanup(func() { listener.Close() })
+	return relay
+}
+
+// selfSignedTLS is a certificate for 127.0.0.1, valid for the length of a test.
+func selfSignedTLS(t *testing.T) *tls.Config {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "127.0.0.1"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("certificate: %v", err)
+	}
+	parsed, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+	return &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key, Leaf: parsed}}}
+}
+
+// The encrypted, authenticated road. Every other test here uses a plain relay,
+// so both branches that make this mode work could be inverted without a failure
+// — a mutation run found exactly that. This is the mode where a password is at
+// stake, which makes it the one worth a certificate in a test.
+
+// guards: sendMail
+func TestAPasswordOnlyTravelsOverAnEncryptedConnection(t *testing.T) {
+	relay := startTLSRelay(t, "weekly", "s3cret")
+	host, port := relay.hostPort()
+	settings := mailSettings{
+		Enabled: true, Host: host, Port: port, Security: "STARTTLS",
+		Username: "weekly", Password: "s3cret",
+		From: "weekly@internal.test", FromName: "주간보고",
+		Timeout: 10 * time.Second, MaxAttempts: 3,
+	}
+	if reason := settings.unusable(); reason != "" {
+		t.Fatalf("a STARTTLS relay with an account was refused: %s", reason)
+	}
+
+	app := &App{}
+	// The certificate is self-signed, which is what an internal relay looks
+	// like; the client must be told to accept this one rather than every one.
+	restore := mailTLSForTest(relay)
+	defer restore()
+
+	if err := app.sendMail(context.Background(), settings, "reader@internal.test", "제목", "본문"); err != nil {
+		t.Fatalf("send over STARTTLS: %v", err)
+	}
+	if messages := relay.received(); len(messages) != 1 {
+		t.Fatalf("the relay received %d messages, want 1", len(messages))
+	}
+
+	relay.mu.Lock()
+	secured, authed := relay.secured, relay.authed
+	relay.mu.Unlock()
+	// "It arrived" is true whether or not it took the encrypted road, so the
+	// two facts that matter are recorded by the relay rather than inferred.
+	if !secured {
+		t.Error("the message went out without upgrading to TLS, and the password with it")
+	}
+	if !authed {
+		t.Error("the relay was never authenticated against, so the account setting did nothing")
+	}
+}
+
+// And a wrong password has to fail loudly rather than send anonymously.
+
+// guards: sendMail
+func TestAWrongPasswordDoesNotSendAnyway(t *testing.T) {
+	relay := startTLSRelay(t, "weekly", "s3cret")
+	host, port := relay.hostPort()
+	settings := mailSettings{
+		Enabled: true, Host: host, Port: port, Security: "STARTTLS",
+		Username: "weekly", Password: "wrong",
+		From: "weekly@internal.test", Timeout: 10 * time.Second, MaxAttempts: 3,
+	}
+	app := &App{}
+	restore := mailTLSForTest(relay)
+	defer restore()
+
+	err := app.sendMail(context.Background(), settings, "reader@internal.test", "제목", "본문")
+	if err == nil {
+		t.Fatal("a wrong password was accepted")
+	}
+	if !strings.Contains(err.Error(), "인증") {
+		t.Errorf("the failure does not name authentication, so an operator would look elsewhere: %v", err)
+	}
+	if messages := relay.received(); len(messages) != 0 {
+		t.Errorf("the relay received %d messages after a failed login", len(messages))
+	}
+}
+
+// mailTLSForTest makes the client trust this relay's certificate and returns a
+// function that puts the production behaviour back.
+func mailTLSForTest(relay *fakeRelay) func() {
+	previous := mailTLSConfig
+	pool := x509.NewCertPool()
+	pool.AddCert(relay.certificate)
+	mailTLSConfig = func(host string) *tls.Config {
+		return &tls.Config{ServerName: host, RootCAs: pool}
+	}
+	return func() { mailTLSConfig = previous }
 }
