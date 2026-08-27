@@ -462,6 +462,8 @@ func TestAggregateDoesNotGuessWithinOneOwner(t *testing.T) {
 // The weekly series travels only for the rows a chart can draw. On a year-wide
 // organisation view it was 522 KB of an 885 KB response, all of it per-week
 // text for tasks the timeline never plots — the table below reads none of it.
+
+// guards: trimTimelineSeries
 func TestRollupSendsTheWeeklySeriesOnlyForTheRowsThatAreDrawn(t *testing.T) {
 	items := make([]rollupItem, rollupTimelineItems+5)
 	for index := range items {
@@ -470,12 +472,11 @@ func TestRollupSendsTheWeeklySeriesOnlyForTheRowsThatAreDrawn(t *testing.T) {
 			Weeks: []rollupItemWeek{{WeekStart: "2026-06-01", Progress: 10}, {WeekStart: "2026-06-08", Progress: 20}},
 		}
 	}
-	view := rollupView{Items: items, TimelineItems: rollupTimelineItems}
-	for index := range view.Items {
-		if index >= rollupTimelineItems {
-			view.Items[index].Weeks = nil
-		}
-	}
+	// Through the same function the handler calls. This test used to copy the
+	// trimming loop into itself and check its own copy, which meant the handler
+	// could keep or drop one row more than it says it does and nothing failed.
+	view := rollupView{Items: items}
+	trimTimelineSeries(&view)
 	body, err := json.Marshal(view)
 	if err != nil {
 		t.Fatal(err)

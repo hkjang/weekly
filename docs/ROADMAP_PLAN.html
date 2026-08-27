@@ -2133,6 +2133,30 @@ if target == p.ID {          // != 로 뒤집어도 아무도 몰랐습니다
 <blockquote>7개 업무 확인 · 규칙 점검에서 걸리는 것이 없습니다. 진척도 역행, 같은 계획 반복, 계획한 일의 빈 실적, 지속되는 이슈 네 가지를 봤습니다.</blockquote>
 <p>##### 네 번째입니다</p>
 <p>v0.171 변화 종류, v0.172 보고서 상태, v0.173 반려 사유, 그리고 이번 계획 문장. <strong>픽스처를 성글게 만들 때마다 바로 다음에 제품 결함이 하나씩 나왔습니다.</strong> 이번 것은 특히 그렇습니다 — 지적 0건인 사람이 한 명도 없는 동안에는, 지적 0건일 때 화면이 어떻게 되는지 아무도 볼 수 없었습니다.</p>
+<p>#### 3.10.130 v0.175.0에서 완료 — 제품 코드를 자기 안에 베껴 둔 시험</p>
+<p>기간 보고에 변이 검사를 걸었더니 하나가 살아남았습니다.</p>
+<div class="phase-box">for index := range view.Items {
+    if index &gt;= rollupTimelineItems {   // &gt; 로 바꿔도 아무도 몰랐습니다
+        view.Items[index].Weeks = nil
+    }
+}</div>
+<p>뒤집으면 스물한 번째 항목이 주차 데이터를 달고 옵니다. 응답은 <code>timelineItems: 20</code> 이라고 말하는데 스물한 줄 치가 실려 오고, 화면은 스무 줄만 그립니다 — <strong>이 코드가 애초에 막으려고 쓰인 낭비 그대로입니다</strong> (885KB 중 522KB).</p>
+<p>##### 시험은 있었습니다</p>
+<p><code>TestRollupSendsTheWeeklySeriesOnlyForTheRowsThatAreDrawn</code> 이 바로 그것을 위해 있었습니다. 그런데 이렇게 생겼습니다.</p>
+<div class="phase-box">view := rollupView{Items: items, TimelineItems: rollupTimelineItems}
+for index := range view.Items {
+    if index &gt;= rollupTimelineItems {     // ← 핸들러의 코드를 그대로 베껴 옴
+        view.Items[index].Weeks = nil
+    }
+}
+// ... 그리고 자기가 방금 만든 것을 검사합니다</div>
+<p><strong>핸들러를 부르지 않습니다.</strong> 핸들러의 로직을 시험 안에 복사해 두고 그 사본이 사본대로 동작하는지 확인합니다. 핸들러가 어떻게 바뀌든 언제나 통과합니다.</p>
+<p>자르는 일을 <code>trimTimelineSeries()</code> 로 빼서 핸들러와 시험이 <strong>같은 것 하나</strong>를 쓰게 했습니다. <code>&gt;=</code> 를 <code>&gt;</code> 로 바꾸면 이제 <code>21 rows carry a series, want 20</code> 으로 떨어집니다.</p>
+<p>##### 같은 모양이 더 있는지 훑었습니다</p>
+<p>시험 파일에서 제품 코드와 글자까지 같은 구조 줄(<code>if</code>/<code>for</code>/<code>switch</code>/<code>return</code>)을 찾아 70건이 나왔지만, 대부분은 zip 을 읽거나 <code>io.EOF</code> 를 보는 관용구라 겹치는 게 자연스럽습니다. 판단을 베낀 것은 이 하나였습니다.</p>
+<p>곁가지로 <code>TestDigestIsCappedAndOrderedByScore</code> 를 손봤습니다. 20건을 넣어 상한 10이 걸리는 것을 확인하는데, <strong>상한이 20 위로 올라가면 조용히 아무것도 증명하지 않게 됩니다.</strong> 회의 섹션 시험이 이미 쓰고 있는 방어를 같이 달았습니다 — 픽스처가 상한을 넘지 못하면 그 자리에서 실패합니다.</p>
+<p>##### 그리고 제 실수 하나</p>
+<p>변이 검사를 두 개 동시에 돌렸습니다. 둘 다 소스를 고칩니다. 알아채고 즉시 둘 다 멈췄고, <code>git diff</code> 로 남은 변이가 없음을 확인한 뒤 하나씩 다시 돌렸습니다. <strong>이번 창에서 두 번째로 같은 실수입니다.</strong></p>
 </div>
 </body>
 </html>

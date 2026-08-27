@@ -105,6 +105,13 @@ func TestDigestIsCappedAndOrderedByScore(t *testing.T) {
 			week("2026-08-10", 10, "a", "", "이슈", "결정 요청")}))
 	}
 	entries := buildDigest(items, nil, nil, defaultRollupConfig())
+	// Twenty in, and the cap is what decides how many come out. Raise the cap
+	// above the fixture and this test stops being able to fail — it would still
+	// pass on a digest that returns everything it was given.
+	if len(items) <= digestMaximumEntries {
+		t.Fatalf("the fixture built %d rows against a cap of %d, so a cap proves nothing here",
+			len(items), digestMaximumEntries)
+	}
 	if len(entries) > digestMaximumEntries {
 		t.Fatalf("digest returned %d entries, want at most %d", len(entries), digestMaximumEntries)
 	}

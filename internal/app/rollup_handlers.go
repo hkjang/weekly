@@ -72,18 +72,28 @@ func (a *App) periodRollup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "기간 보고를 집계할 수 없습니다.")
 		return
 	}
-	// Only the leading items carry their weekly series. The timeline draws that
-	// many rows and the table below reads none of it, so on a year-wide
-	// organisation view 522 KB of an 885 KB response was per-week text for
-	// tasks no chart would plot. The exports are separate endpoints and build
-	// from the full view, so nothing they print is affected.
+	trimTimelineSeries(&view)
+	writeData(w, http.StatusOK, view)
+}
+
+// trimTimelineSeries leaves the weekly series only on the rows a chart can draw.
+//
+// The timeline draws TimelineItems rows and the table below reads none of the
+// series, so on a year-wide organisation view 522 KB of an 885 KB response was
+// per-week text for tasks no chart would plot. The exports are separate
+// endpoints and build from the full view, so nothing they print is affected.
+//
+// This lived inline in the handler, and the test that covered it copied the
+// loop into itself and asserted on its own copy — so the boundary could be
+// moved by one in the handler and the test could not notice. It is a function
+// now so that there is one of it.
+func trimTimelineSeries(view *rollupView) {
 	view.TimelineItems = rollupTimelineItems
 	for index := range view.Items {
 		if index >= rollupTimelineItems {
 			view.Items[index].Weeks = nil
 		}
 	}
-	writeData(w, http.StatusOK, view)
 }
 
 // rollupTimelineItems is how many items arrive with their weekly series, and
