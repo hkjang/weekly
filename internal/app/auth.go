@@ -53,12 +53,79 @@ func (a *App) bootstrapAdmin(ctx context.Context, username, password string) err
 // who took it lost the report they were part-way through writing.
 var errNoSession = errors.New("not authenticated")
 
+// refusalReason carries the sentence a refused caller should actually read.
+//
+// A browser with no cookie is told to sign in, and that is the right advice. A
+// script holding an API key cannot take it — there is no login for it to do —
+// and "로그인이 필요합니다" was the same answer for a mistyped key, a key that
+// expired overnight, a key somebody revoked, and a key that a rotation
+// invalidated. The product schedules the second of those itself: it offers
+// expiresInDays and an administrator ceiling, creates the state, and then
+// refuses to name it. Whoever wired an internal script to this API had no way
+// to find out which of the four had happened.
+type refusalReason struct {
+	err     error
+	message string
+}
+
+func (r refusalReason) Error() string { return r.err.Error() }
+func (r refusalReason) Unwrap() error { return r.err }
+
+// refusalMessage returns the sentence to show a refused caller, or "" to use
+// the default.
+func refusalMessage(err error) string {
+	var reason refusalReason
+	if errors.As(err, &reason) {
+		return reason.message
+	}
+	return ""
+}
+
+// apiKeyRefusal looks up what became of a key that the authenticating query
+// would not accept. It runs only after that query has already missed, so it
+// costs nothing on the ordinary path.
+//
+// Naming the state tells nothing to somebody who does not already hold the key:
+// the answer is reachable only by presenting the key itself, and the keys are
+// 32 random bytes. Order is fixed and deliberate — a revocation is somebody's
+// decision and outranks a date passing on its own.
+func (a *App) apiKeyRefusal(ctx context.Context, token string) string {
+	var revoked, expires *time.Time
+	var keyVersion, userVersion int
+	var active bool
+	err := a.db.QueryRow(ctx, `SELECT k.revoked_at, k.expires_at, k.key_version, u.key_version, u.active
+		FROM personal_api_keys k JOIN users u ON u.id=k.user_id WHERE k.token_hash=$1`, tokenHash(token)).
+		Scan(&revoked, &expires, &keyVersion, &userVersion, &active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "이 API 키를 찾을 수 없습니다. 값이 잘못되었거나 이미 삭제된 키입니다."
+	}
+	if err != nil {
+		// The lookup itself failed. Saying something specific now would be a
+		// guess, and a guess is what this whole change is removing.
+		return ""
+	}
+	switch {
+	case revoked != nil:
+		return "이 API 키는 회수되었습니다. 개인 설정에서 새 키를 발급하세요."
+	case keyVersion != userVersion:
+		return "키를 일괄 회수한 뒤 발급된 키가 아닙니다. 개인 설정에서 새 키를 발급하세요."
+	case expires != nil && !expires.After(time.Now()):
+		return "이 API 키는 " + expires.Format("2006-01-02") + " 에 만료되었습니다. 개인 설정에서 새 키를 발급하세요."
+	case !active:
+		return "이 키를 발급한 계정이 비활성 상태입니다. 관리자에게 문의하세요."
+	}
+	return ""
+}
+
 func (a *App) authenticate(r *http.Request) (*principal, error) {
 	ctx := r.Context()
 	if authorization := r.Header.Get("Authorization"); strings.HasPrefix(authorization, "Bearer ") {
 		token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 		if !strings.HasPrefix(token, "wky_") {
-			return nil, fmt.Errorf("%w: unsupported bearer token", errNoSession)
+			return nil, refusalReason{
+				err:     fmt.Errorf("%w: unsupported bearer token", errNoSession),
+				message: "Bearer 토큰이 Weekly API 키 형식이 아닙니다. 키는 wky_ 로 시작합니다.",
+			}
 		}
 		p := &principal{AuthType: "api_key"}
 		err := a.db.QueryRow(ctx, `SELECT u.id,u.username,u.display_name,coalesce(u.email,''),u.role,u.organization_id,u.key_version,k.scopes
@@ -66,7 +133,10 @@ func (a *App) authenticate(r *http.Request) (*principal, error) {
 			WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND u.active=true AND k.key_version=u.key_version`, tokenHash(token)).
 			Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion, &p.Scopes)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: no such api key", errNoSession)
+			return nil, refusalReason{
+				err:     fmt.Errorf("%w: no such api key", errNoSession),
+				message: a.apiKeyRefusal(ctx, token),
+			}
 		}
 		if err != nil {
 			return nil, err

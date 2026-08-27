@@ -3033,6 +3033,25 @@ SELECT 하는 곳 : Go 없음 · 계약 없음 · 화면 없음</div>
 <div class="phase-box">캡처 3장 · 파일 없음
 고침 전 : 슬라이드 5장 (아무 표시 없음)
 고침 후 : 슬라이드 8장 · &quot;u1-캡처1.png · 이미지 파일을 찾을 수 없어 담지 못했습니다&quot;</div>
+<p>#### 3.10.183 v0.228.0에서 완료 — 스크립트에게 "로그인이 필요합니다"라고 답하고 있었습니다</p>
+<p>씨를 뿌린 배포의 표를 세었을 때 <code>personal_api_keys</code> 가 비어 있었습니다. 화면이 아니라 <strong>스크립트와 MCP 클라이언트가 쓰는 표면</strong>이고, 실제 배포에서 한 번도 걸어 본 적이 없었습니다. 걸어 봤습니다.</p>
+<p>범위는 정확했습니다 — 읽기 셋은 200, 쓰기와 키 관리와 관리자 화면은 403, MCP 도구 셋도 정상. <code>last_used_at</code> 도 갱신됩니다. 그러다 키가 <strong>거절되는</strong> 쪽을 봤습니다.</p>
+<div class="phase-box">글자가 틀린 키   → UNAUTHORIZED · 로그인이 필요합니다.
+형식이 아닌 토큰 → UNAUTHORIZED · 로그인이 필요합니다.
+만료된 키        → UNAUTHORIZED · 로그인이 필요합니다.
+회수된 키        → UNAUTHORIZED · 로그인이 필요합니다.
+회전에 걸린 키   → UNAUTHORIZED · 로그인이 필요합니다.</div>
+<p><strong>스크립트는 로그인을 할 수 없습니다.</strong> 그리고 이 다섯은 사람이 해야 할 일이 서로 다릅니다.</p>
+<p>더 나쁜 건 <strong>만료</strong>입니다. 이 제품이 <code>expiresInDays</code> 와 관리자 상한을 제공하고, 스스로 그 상태를 만들어 두고, 정작 그 이름을 말하지 않습니다. 사내 스크립트를 이 API에 연결해 둔 사람은 어젯밤 키가 만료됐다는 것을 알 방법이 없었습니다.</p>
+<p>##### 인증 질의 하나가 다섯 조건을 묶고 있었습니다</p>
+<div class="phase-box">WHERE k.token_hash=$1 AND k.revoked_at IS NULL
+  AND (k.expires_at IS NULL OR k.expires_at&gt;now())
+  AND u.active=true AND k.key_version=u.key_version</div>
+<p><code>ErrNoRows</code> 하나에 다섯 사연이 들어갑니다. 그 질의가 <strong>이미 빗나간 뒤에만</strong> 해시로 한 번 더 찾아 무슨 일이 있었는지 봅니다 — 평상시 경로에는 비용이 없습니다.</p>
+<p><strong>키를 갖지 않은 사람에게는 아무것도 알려 주지 않습니다.</strong> 이 답은 키를 실제로 제시해야 보이고, 키는 무작위 32바이트입니다.</p>
+<p>##### 시험이 제 예상을 고쳤습니다</p>
+<p>회전(rotate)에 걸린 키가 "일괄 회수 뒤 발급된 키가 아닙니다" 라고 답할 것으로 보고 시험을 썼는데, 실제로는 <strong>"회수되었습니다"</strong> 였습니다. <code>rotateKeys</code> 는 버전을 올리는 동시에 살아 있는 키 전부에 <code>revoked_at</code> 을 찍습니다 — 회전은 <strong>정말로 일괄 회수</strong>이고, 답이 정확했습니다. 시험을 사실에 맞췄습니다.</p>
+<p>버전 대조는 그 아래 두 번째 층으로 남습니다. 도장이 못 잡는 키가 하나 있습니다 — <strong>회전 트랜잭션과 겹친 발급 요청</strong>은 옛 버전을 읽고, 쓸어 담기가 지나간 뒤에 삽입됩니다. 그 키의 주인은 잘못한 것이 없으므로 "존재하지 않는 키" 말고 다른 말을 들어야 합니다.</p>
 </div>
 </body>
 </html>

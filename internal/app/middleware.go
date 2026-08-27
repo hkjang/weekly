@@ -157,7 +157,13 @@ func (a *App) requireAuth(next http.Handler) http.Handler {
 					"지금 서버가 데이터베이스에 연결하지 못했습니다. 로그인은 그대로 유효하고 작성 중인 내용도 남아 있으니, 잠시 후 다시 시도하세요.")
 				return
 			}
-			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "로그인이 필요합니다.")
+			// A browser is told to sign in. A caller holding a key is told what
+			// happened to that key — signing in is not a thing it can do.
+			message := "로그인이 필요합니다."
+			if reason := refusalMessage(err); reason != "" {
+				message = reason
+			}
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", message)
 			return
 		}
 		if p.AuthType == "api_key" {

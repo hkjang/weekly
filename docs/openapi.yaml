@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.227.0
+  version: 0.228.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -678,6 +678,14 @@ paths:
 
         `POST /keys/rotate`는 키 버전을 올려 **기존 키를 즉시 무효화한다.** 조회 질의가
         키 버전을 대조하므로 폐기 표시와 무관하게 다음 요청부터 401이 된다.
+
+        **거부된 키는 무엇이 되었는지를 듣는다.** 401 의 message 는 다섯 가지를
+        구분한다 — 형식이 아닌 토큰, 없는 키, 회수된 키, 일괄 회수 뒤에 남은 키,
+        만료된 키(만료일을 함께 적는다). 세션 없는 브라우저에게만 "로그인이
+        필요합니다" 라고 답한다. 키를 든 스크립트는 로그인을 할 수 없고, 만료는 이
+        제품이 `expiresInDays` 로 **스스로 예약해 둔 상태**이므로 이름을 말해야 한다.
+        이 답은 키를 실제로 제시한 쪽에만 보이므로 키를 갖지 않은 사람에게는 아무것도
+        알려 주지 않는다.
       responses:
         "201": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }
