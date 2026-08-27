@@ -389,6 +389,30 @@ FROM weekly_reports r
 JOIN users u ON u.id = r.user_id
 WHERE r.id % 41 = 0;
 
+-- ---------------------------------------------------------------------------
+-- What this fixture is worth, in one row.
+--
+-- Six defects in a row this cycle were hidden by a fixture where everything
+-- had the same value: every report APPROVED, every plan the same sentence, every
+-- weekly movement one point, two issue sentences across 110,000 rows. Each time
+-- the uniformity hid a product defect, and each time it was found by counting
+-- rather than by walking the screens.
+--
+-- So the seed says what spread it produced. A formula edited later that quietly
+-- collapses one of these back to a single value shows up here, on the run that
+-- caused it, instead of years later as a screen nobody could read.
+SELECT '다양성 점검' AS check,
+       (SELECT count(DISTINCT status) FROM weekly_reports
+         WHERE week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date) AS report_statuses,
+       (SELECT count(DISTINCT issue) FROM report_items WHERE issue <> '') AS issue_sentences,
+       (SELECT count(DISTINCT next_plan) FROM report_items) AS plan_sentences,
+       (SELECT count(*) FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+         WHERE r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AND i.current_result = '') AS blank_results,
+       (SELECT count(*) FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+         WHERE r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date) AS rows_this_week,
+       (SELECT count(*) FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+         WHERE r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7) AS rows_last_week;
+
 SELECT (SELECT count(*) FROM organizations) AS organizations,
        (SELECT count(*) FROM users) AS users,
        (SELECT count(*) FROM weekly_reports) AS reports,
@@ -399,3 +423,35 @@ SELECT (SELECT count(*) FROM organizations) AS organizations,
        (SELECT count(*) FROM decisions) AS decisions,
        (SELECT count(*) FROM work_item_issue_outcomes) AS cleared_issues,
        (SELECT count(*) FROM report_comments) AS comments;
+
+-- And it fails if one of them collapsed.
+--
+-- Printing the spread is not enough: a number in a wall of output is exactly
+-- the kind of quiet signal this cycle kept finding people had walked past. The
+-- thresholds are far below what the formulas above produce, so this fires only
+-- when a dimension has genuinely gone flat — which is the state that makes the
+-- whole fixture unable to show the feature it was built for.
+DO $$
+DECLARE
+  statuses int; issues int; plans int; blanks int; wk date;
+BEGIN
+  wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
+  SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
+  SELECT count(DISTINCT issue) INTO issues FROM report_items WHERE issue <> '';
+  SELECT count(DISTINCT next_plan) INTO plans FROM report_items;
+  SELECT count(*) INTO blanks FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
+    WHERE r.week_start = wk AND i.current_result = '';
+
+  IF statuses < 4 THEN
+    RAISE EXCEPTION '현재 주 보고서 상태가 %가지뿐입니다. 보고 분포와 제출률, 검토 대기 화면이 한 상태로 굳습니다.', statuses;
+  END IF;
+  IF issues < 5 THEN
+    RAISE EXCEPTION '이슈 문장이 %가지뿐입니다. 경영 요약이 같은 문장 열 줄로 나옵니다.', issues;
+  END IF;
+  IF plans < 50 THEN
+    RAISE EXCEPTION '차주 계획 문장이 %가지뿐입니다. 계획 반복 배지가 모든 줄에 붙어 아무것도 가리키지 못합니다.', plans;
+  END IF;
+  IF blanks = 0 THEN
+    RAISE EXCEPTION '실적이 빈 줄이 하나도 없습니다. 보고 품질 점검의 네 규칙 중 하나가 실행되지 않습니다.';
+  END IF;
+END $$;
