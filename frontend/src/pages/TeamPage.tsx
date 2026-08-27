@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { reviewDecision } from '../reviewAction'
 import { errorText, api, post , download} from '../api'
 import { Modal, Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import ReportPresentation from '../ReportPresentation'
@@ -46,7 +47,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
   // from another filter points at a different list.
   useEffect(() => { setReports(undefined); load() }, [status])
   const open = (id: number) => api<Report>(`/api/v1/reports/${id}`).then(setSelected).catch(error => notify(error.message, 'error'))
-  const review = async (action: 'approve' | 'reject') => { if (!selected) return; const comment = prompt(action === 'reject' ? '반려 사유를 입력하세요.' : '승인 의견(선택)') ?? ''; if (action === 'reject' && !comment.trim()) return; try { await post(`/api/v1/reports/${selected.id}/${action}`, { comment }); notify(action === 'approve' ? '승인했습니다.' : '반려했습니다.'); setSelected(undefined); await load() } catch (error) { notify(errorText(error, '처리할 수 없습니다.'), 'error') } }
+  const review = async (action: 'approve' | 'reject') => { if (!selected) return; const decision = reviewDecision(action, prompt(action === 'reject' ? '반려 사유를 입력하세요.' : '승인 의견(선택)')); if (decision.kind === 'cancelled') return; if (decision.kind === 'needs-reason') { notify(decision.message, 'error'); return } const comment = decision.comment; try { await post(`/api/v1/reports/${selected.id}/${action}`, { comment }); notify(action === 'approve' ? '승인했습니다.' : '반려했습니다.'); setSelected(undefined); await load() } catch (error) { notify(errorText(error, '처리할 수 없습니다.'), 'error') } }
   return <><PageHeader title="팀 주간보고"
       description={workflowEnabled ? '구성원의 보고서를 검토하고 승인 또는 반려합니다.' : '승인 절차 없이 확정된 구성원 보고서를 조회합니다.'}
       action={<div className="header-actions">

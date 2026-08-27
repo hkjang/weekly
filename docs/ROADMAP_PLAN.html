@@ -2771,6 +2771,20 @@ if parsed, err := time.Parse(&quot;2006-01-02&quot;, week); err == nil { ... }  
 <p>주차를 두 번 파싱합니다. 첫 번째가 이미 돌려보냈으므로 <strong>두 번째의 <code>err == nil</code> 은 거짓이 될 수 없습니다.</strong> 뒤집으면 26주 이력 하한이 통째로 사라지는데 아무도 알아차리지 못합니다 — 갈 수 없는 분기에는 아무도 시험을 쓰지 않기 때문입니다. 한 번만 파싱해 둘 다에 씁니다.</p>
 <p>52주를 담은 배포에서 재니 <strong>26주 창 밖으로 이어지는 이슈는 0건</strong>이었습니다. 그 경계는 숫자를 바꾸지 않고 읽는 양만 줄입니다 — 상수 <code>meetingHistoryWeeks</code> 와 주석에 그 측정을 적었습니다.</p>
 <p>나머지 세 변이는 *"다른 시험이 잡았다"* 였고, 확인해 보니 <code>TestTheMeetingsCrossOrgWaitFollowsTheScopeSwitch</code> 가 실제로 두 단언 모두로 터뜨립니다. <strong>도구는 정확했습니다.</strong></p>
+<p>#### 3.10.169 v0.214.0에서 완료 — 반려가 아무 말 없이 아무것도 하지 않았습니다</p>
+<p>제품의 중심 고리를 브라우저로 끝까지 걸었습니다. 팀장 검토를 켜고, 팀 주간보고에서 구성원의 보고서를 열고, 반려하고, 작성자로 로그인해 사유를 확인하고, 고쳐서 다시 올리고, 승인했습니다.</p>
+<div class="phase-box">SUBMITTED → REVISION_REQUESTED   이슈에 담당자가 없습니다. 누가 맡는지 적어 주세요.
+REVISION_REQUESTED → SUBMITTED
+SUBMITTED → APPROVED             확인했습니다.</div>
+<p><code>reviewed_by</code> 가 팀장으로 남고 사유가 이력에 실리며, 작성자 화면에 <strong>팀장이 쓴 문장이 그대로</strong> 보입니다. <strong>고리 전체가 맞습니다.</strong></p>
+<p>##### 그런데 첫 시도는 아무 일도 일어나지 않았습니다</p>
+<p>반려를 누르고 사유 창에서 그냥 확인을 눌렀더니 화면이 <strong>아무 말도 하지 않았고</strong> 보고서는 그대로였습니다.</p>
+<div class="phase-box">const comment = prompt(&#x27;반려 사유를 입력하세요.&#x27;) ?? &#x27;&#x27;
+if (action === &#x27;reject&#x27; &amp;&amp; !comment.trim()) return   // 조용히 끝</div>
+<p><code>prompt()</code> 는 취소하면 <code>null</code>, 빈 채로 확인하면 <code>''</code> 를 돌려줍니다. 화면은 <strong>둘을 같게</strong> 다뤘습니다. 취소가 조용한 것은 옳습니다 — 마음을 바꾼 것이니까요. 확인은 <strong>시도</strong>이고, 아무것도 하지 않는 시도는 왜인지 말해야 합니다. 그러지 않으면 검토자는 반려를 몇 번이고 다시 누르며 화면 어디가 고장 났는지 찾습니다.</p>
+<p>##### 셋을 가릅니다</p>
+<table><thead><tr><th>입력</th><th>결과</th></tr></thead><tbody><tr><td>취소 (<code>null</code>)</td><td>조용히 끝</td></tr><tr><td>빈 채로 확인 (<code>''</code>)</td><td><strong>반려 사유를 입력해야 반려할 수 있습니다. 작성자가 무엇을 고쳐야 하는지 알 수 있게 적어 주세요.</strong></td></tr><tr><td>사유 있음</td><td>앞뒤 공백을 다듬어 보냄</td></tr></tbody></table>
+<p>승인 의견은 여전히 선택입니다. JSX 안에 한 줄로 박혀 있던 판단을 <code>frontend/src/reviewAction.ts</code> 로 꺼내 시험 넷을 붙였고(전체 83개), 배포에서 다시 걸어 빈 확인이 이유를 말하고 취소는 조용하며 보고서 상태가 바뀌지 않는 것을 확인했습니다.</p>
 </div>
 </body>
 </html>
