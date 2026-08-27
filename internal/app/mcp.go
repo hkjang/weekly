@@ -52,6 +52,16 @@ func (a *App) mcp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MCP_VERSION_UNSUPPORTED", "지원하지 않는 MCP 프로토콜 버전입니다.")
 		return
 	}
+	// A second line, and today nothing reaches it: apiKeyRequestAllowed already
+	// requires mcp:read of any key asking for /mcp, so a key without the scope
+	// is refused before this handler runs. It stays because the two rules have
+	// different reasons to change — the middleware's table is about which paths
+	// a key may touch at all, and this is about what this endpoint needs — and
+	// a scope check that only exists in a table is one edit away from nobody.
+	//
+	// It is written down here because a sweep that removes each refusal to see
+	// whether a test notices reports this one as unguarded, correctly and every
+	// time. That is not a hole; it is the shape of a check that cannot fire.
 	if p.AuthType == "api_key" && !contains(p.Scopes, "mcp:read") {
 		writeError(w, 403, "MCP_SCOPE_REQUIRED", "mcp:read 범위가 필요합니다.")
 		return
