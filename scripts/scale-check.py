@@ -73,6 +73,44 @@ def reachable(path, role):
     return not any(marker in path for marker in TEAM_ONLY)
 
 
+def leaf_rows(body):
+    """How many rows this answer actually carries, and whether it has any list.
+
+    Counting bytes was the obvious rule and it was wrong: /api/v1/analytics/
+    overview is 221 bytes of real numbers — 76 people, 126 open issues — and a
+    byte threshold called it empty. A tool that cries wolf is one people stop
+    reading.
+
+    So count rows instead, in the deepest lists only. A change summary always
+    has its seven groups whether or not anything happened, and the rows are one
+    level below that; an answer whose innermost lists are all empty carries
+    nothing however many wrappers it came in. An answer with no list at all is
+    a summary object and is left alone.
+    """
+    counts = []
+
+    def walk(node):
+        """Fills counts; returns whether this subtree contains a list."""
+        if isinstance(node, list):
+            nested = False
+            for element in node:
+                if walk(element):
+                    nested = True
+            if not nested:
+                counts.append(len(node))
+            return True
+        if isinstance(node, dict):
+            return any([walk(value) for value in node.values()])
+        return False
+
+    try:
+        payload = json.loads(body.decode("utf-8")).get("data")
+    except Exception:
+        return True, 1
+    walk(payload)
+    return bool(counts), sum(counts)
+
+
 PATHS = [
     "/api/v1/work-items?scope=TEAM",
     "/api/v1/work-items?scope=SELF",
@@ -89,7 +127,9 @@ PATHS = [
     "/api/v1/team/members",
     "/api/v1/reports",
     "/api/v1/handover",
-    "/api/v1/changes",
+    "/api/v1/changes?scope=TEAM",
+    "/api/v1/changes?scope=SELF",
+    "/api/v1/work-items/search?scope=TEAM&q=통합",
     "/api/v1/analytics/overview",
     "/api/v1/admin/analytics/keywords",
     "/api/v1/admin/analytics/organizations",
@@ -253,6 +293,7 @@ def main() -> int:
 
     print(f"{'상태':>4} {'크기':>12} {'지연':>9}  경로")
     skipped = []
+    hollow = []
     for template in PATHS:
         path = template.format(year=args.year)
         if not reachable(path, role):
@@ -285,12 +326,30 @@ def main() -> int:
                 notes.append(findings_note)
             else:
                 complete.append(f"{path} · {name} (상한 없이 전량 반환)")
+        # An answer with no rows in it is not a fast endpoint, it is an endpoint
+        # that was asked about nothing. The bootstrap administrator owns no
+        # work, so every screen scoped to the reader answers empty for them —
+        # and this tool read /api/v1/changes that way while the same endpoint
+        # returned 490 KB one query parameter over. Silence there looked like a
+        # pass, and the byte figure beside it looked like a good one.
+        if status == 200:
+            has_list, rows = leaf_rows(body)
+            if has_list and rows == 0:
+                hollow.append(f"{path} ({len(body):,}B, 행 0)")
         mark = "  <== " + " · ".join(notes) if notes else ""
         print(f"{status:>4} {len(body):>11,}B {worst:>7.0f}ms  {path}{mark}")
         if notes:
             findings.append((path, notes))
 
     print()
+    if hollow:
+        # Not counted against the run: the endpoint did nothing wrong. What is
+        # wrong is reading the number as evidence.
+        print(f"잰 것이 없는 응답 {len(hollow)}건 — 아래 숫자는 무엇도 증명하지 않습니다")
+        for line in hollow:
+            print(f"  {line}")
+        print(f"  이 계정({role})의 범위 안에 데이터가 없다는 뜻입니다. "
+              f"업무를 가진 계정으로 다시 돌리거나 넓은 범위를 주십시오.\n")
     if complete:
         # Reported, not counted against the run. Returning everything is a
         # scaling question for whoever owns the screen, not a broken promise to

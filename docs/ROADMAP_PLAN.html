@@ -2055,6 +2055,31 @@ if target == p.ID {          // != 로 뒤집어도 아무도 몰랐습니다
 <p>규모 배포에서 정렬을 눈으로 확인하려니 <strong>씨앗의 주간 변화폭이 전부 1~2%</strong> 라 모든 항목이 동률이었습니다. 그리고 변화 7종 가운데 <strong>다섯이 한 번도 나타나지 않습니다.</strong></p>
 <table><thead><tr><th>완료</th><th>신규</th><th>재개</th><th>진척</th><th>역행</th><th>정체</th><th>누락</th></tr></thead><tbody><tr><td>0</td><td>0</td><td>0</td><td>1,166</td><td><strong>0</strong></td><td>700</td><td>0</td></tr></tbody></table>
 <p>대시보드의 주 시각 요소가 일곱 칸 중 두 칸만 씁니다. 씨앗이 만들지 못하는 상태를 세는 일(v0.167)의 연장선이고, 다음 걸음입니다.</p>
+<p>#### 3.10.126 v0.171.0에서 완료 — 일곱 칸 중 두 칸, 그리고 그것을 못 보던 자</p>
+<p>v0.170.0 에서 주간 변화의 상한을 넣으며 씨앗의 한계 둘을 적어 두었습니다. 이번에 둘 다 걷어냅니다.</p>
+<p>##### 하나 — 변화 일곱 종 가운데 다섯이 어두웠습니다</p>
+<table><thead><tr><th></th><th>완료</th><th>신규</th><th>재개</th><th>진척</th><th>역행</th><th>정체</th><th>누락</th></tr></thead><tbody><tr><td>이전</td><td>0</td><td>0</td><td>0</td><td>1,166</td><td><strong>0</strong></td><td>700</td><td>0</td></tr><tr><td>지금</td><td><strong>78</strong></td><td><strong>43</strong></td><td><strong>83</strong></td><td>1,052</td><td><strong>72</strong></td><td>518</td><td><strong>72</strong></td></tr></tbody></table>
+<p>씨앗의 모든 업무는 매주 빠짐없이 보고되고 진척이 오르거나 멈추기만 했습니다. 그래서 다섯 종은 <strong>정의상 나올 수 없었습니다.</strong> 대시보드의 주 시각 요소가 일곱 칸 중 두 칸만 쓰고, 나머지 다섯을 만드는 분류 규칙은 데이터가 있는 채로 한 번도 실행된 적이 없었습니다.</p>
+<p>마지막 두 주를 다르게 만들었습니다. 없음으로 정의되는 두 종은 <strong>행을 빼서</strong> 만듭니다 — 이번 주에서 빠지면 보고 누락, 지난주에서 빠지면 재개. 완료는 90 미만에서 100 으로, 역행은 15 낮게, 신규는 이번 주에만 존재하는 슬롯 하나로.</p>
+<p>읽히는 문장도 함께 살아납니다. <code>26주 만에 완료됐습니다</code> · <code>1주 쉬었다가 다시 보고됐습니다</code> · <code>지난주에는 보고됐으나 이번 주 보고에 없습니다</code>.</p>
+<p>##### 둘 — 정렬을 볼 수 없는 픽스처</p>
+<p>v0.170.0 이 넣은 <code>orderChangeEntries</code> 는 천 줄 중 어느 사십 줄을 보여 줄지 정합니다. 그런데 씨앗의 주간 변화폭이 <strong>전부 1~2%</strong> 라 모든 항목이 동률이었습니다. 상한은 옳아 보였지만, 그 상한이 옳게 자르는지는 픽스처가 보여 줄 수 없었습니다.</p>
+<p>한 주에 실제로 무언가 끝나는 업무를 섞었습니다. 이제 진척 상위 40줄이 <strong>17~21% 움직인 업무</strong>입니다.</p>
+<p>##### 그리고 — 재는 자가 못 보고 있었습니다</p>
+<p><code>scale-check.py</code> 는 규모에서만 보이는 결함을 잡으라고 만든 도구입니다. 그런데 v0.170.0 의 490KB 를 <strong>놓쳤습니다.</strong></p>
+<div class="phase-box">200    663B    7ms   /api/v1/changes        ← 이 도구가 본 것
+200 490,157B  141ms  /api/v1/changes?scope=TEAM   ← 실제</div>
+<p>범위 없이 불렀고, 부트스트랩 관리자는 업무가 없습니다. 24개 경로 중 여섯이 <strong>빈 응답을 재고 있었고</strong>, 작은 숫자는 좋은 숫자처럼 보였습니다.</p>
+<p>셋을 고쳤습니다.</p>
+<ul>
+<li><code>?scope=TEAM</code> 을 주고, <code>?scope=SELF</code> 와 업무 검색을 따로 넣었습니다.</li>
+<li><strong>행이 0인 응답을 그렇다고 말합니다</strong> — "잰 것이 없는 응답 N건 — 아래 숫자는 무엇도 증명하지 않습니다".</li>
+<li>씨앗이 <strong>본부장 넷에게도 보고서를 줍니다.</strong> <code>u%</code> 계정만 보고서를 쓰고 있어, 가장 높은 자리에서는 내 보고서·인수인계·미결 후속 조치가 전부 비어 있었습니다.</li>
+</ul>
+<p>##### 바이트로 세려다 늑대 소년이 될 뻔했습니다</p>
+<p>처음에는 "1KB 미만이면 빈 응답" 으로 잡았습니다. 그런데 <code>/api/v1/analytics/overview</code> 는 <strong>221바이트에 76명과 미해결 126건</strong>이 들어 있는 진짜 요약입니다. 스크립트 자신의 주석이 이미 이렇게 말하고 있었습니다 — *"늑대를 외치는 도구는 사람들이 안 읽게 됩니다."*</p>
+<p><strong>가장 깊은 목록의 행 수</strong>로 바꿨습니다. 주간 변화는 아무 일이 없어도 그룹 일곱이 늘 있으므로, 행은 그 한 층 아래에서 셉니다. 목록이 아예 없는 응답은 요약 객체이니 건드리지 않습니다.</p>
+<table><thead><tr><th>계정</th><th>이전</th><th>지금</th></tr></thead><tbody><tr><td>admin (업무 없음)</td><td>—</td><td>5건이 "잰 것 없음"</td></tr><tr><td>hq1 (본부장)</td><td>6건</td><td><strong>1건</strong></td></tr><tr><td>u100 (팀장)</td><td>3건</td><td><strong>1건</strong></td></tr></tbody></table>
 </div>
 </body>
 </html>

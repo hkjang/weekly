@@ -88,7 +88,12 @@ SELECT u.id,
        (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - ((51 - w) * 7)),
        '주간 요약 ' || w, 'APPROVED'
 FROM users u CROSS JOIN generate_series(0, 51) w
-WHERE u.username LIKE 'u%';
+-- Including the four 본부장. They were left out, so the most senior seat in the
+-- deployment owned no work at all: 내 보고서, 인수인계, 미결 후속 조치 and the
+-- self-scoped half of every screen answered empty from the account most likely
+-- to be used to look at the thing. An empty answer from a real account is the
+-- hardest kind of gap to notice, because it looks like a fast one.
+WHERE u.username LIKE 'u%' OR u.username LIKE 'hq%';
 
 -- One task per (owner, slot), repeating every week, so a work item accumulates
 -- a year of history the way a real one does.
@@ -102,7 +107,7 @@ WITH subject(i, word) AS (VALUES
 INSERT INTO report_items(report_id, category, title, current_result, next_plan, issue, progress, sort_order)
 SELECT r.id,
        (ARRAY['개발','운영','기획','보안','인프라'])[1 + (slot % 5)],
-       subject.word || ' ' || action.word,
+       subject.word || ' ' || action.word || CASE WHEN slot = 8 THEN ' 신규 착수' ELSE '' END,
        subject.word || ' ' || action.word || ' 진행 상황을 정리했습니다',
        subject.word || ' ' || action.word || ' 다음 단계',
        -- Two kinds of issue, because the product distinguishes them. The
@@ -129,16 +134,52 @@ SELECT r.id,
        -- "이 속도로는 끝나는 시점이 없습니다" branch were all unreachable on a
        -- fixture built to exercise them. The same mistake as the earlier version
        -- that drove everything to 100%, in the other direction.
-       LEAST(100, ((r.user_id * 7 + slot) % 9) * 4
+       -- The last week is where the change summary is read, and until now every
+       -- task in it did exactly one of two things: climb a little, or sit
+       -- still. Five of the seven change kinds could never occur on a seeded
+       -- deployment — 완료, 신규, 재개, 진척도 역행 and 보고 누락 all came back
+       -- 0 — so the dashboard's main visual used two of its seven slots and
+       -- the classifications behind the other five were never seen with data.
+       CASE
+         -- A task that starts this week: no prior report, first week is now.
+         WHEN slot = 8 THEN 5
+         -- Finished this week. Only from below 90, so the week before is
+         -- certainly under 100 and this reads as crossing the line rather than
+         -- as a task that was already done.
+         WHEN r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AND ((r.user_id + slot) % 23) = 3 AND p.base < 90
+           THEN 100
+         -- Reported lower than last week. The weekly step is one or two points,
+         -- so fifteen below is unambiguously backwards however the task moved.
+         WHEN r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AND ((r.user_id + slot) % 23) = 2 AND p.base < 90
+           THEN GREATEST(0, p.base - 15)
+         -- A week where something actually landed. Every other task moves one
+         -- or two points, so before this every 진척 row carried the same delta
+         -- and the ordering that decides which forty of a thousand rows a
+         -- reader sees had nothing to tell them apart — the cap looked right
+         -- on a fixture that could not show it working.
+         WHEN r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AND ((r.user_id + slot) % 23) IN (5, 11) AND p.base < 80
+           THEN p.base + 8 + ((r.user_id + slot) % 13)
+         ELSE p.base
+       END,
+       slot
+FROM weekly_reports r
+CROSS JOIN generate_series(1, 8) slot
+JOIN subject ON subject.i = ((r.user_id * 7 + slot) % 32)
+JOIN action ON action.i = (((r.user_id * 7 + slot) / 32) % 8)
+CROSS JOIN LATERAL (SELECT LEAST(100, ((r.user_id * 7 + slot) % 9) * 4
                   + (LEAST(
                        ((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7),
                        CASE WHEN ((r.user_id + slot) % 6) = 0 THEN 20 ELSE 999 END)
-                     * (1 + ((r.user_id + slot) % 3)) / 2)),
-       slot
-FROM weekly_reports r
-CROSS JOIN generate_series(1, 7) slot
-JOIN subject ON subject.i = ((r.user_id * 7 + slot) % 32)
-JOIN action ON action.i = (((r.user_id * 7 + slot) / 32) % 8);
+                     * (1 + ((r.user_id + slot) % 3)) / 2)) AS base) p
+-- Which rows exist at all. Dropping a row is how the two kinds that are
+-- defined by absence get made: a task missing from this week's report after
+-- being in last week's is 보고 누락, and one missing from last week's but
+-- present in this week's is 재개.
+WHERE (slot <= 7 OR (r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AND r.user_id % 7 = 0))
+  AND NOT (slot <= 7 AND r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date
+           AND ((r.user_id + slot) % 23) = 1 AND p.base < 90)
+  AND NOT (slot <= 7 AND r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7
+           AND ((r.user_id + slot) % 23) = 4);
 
 -- Give every reported title the task identity the application would have
 -- created for it. resolveWorkItem() does this inside the save transaction, so
