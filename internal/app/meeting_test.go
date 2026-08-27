@@ -104,7 +104,8 @@ func TestDigestIsCappedAndOrderedByScore(t *testing.T) {
 			week("2026-08-03", 10, "a", "", "이슈", "결정 요청"),
 			week("2026-08-10", 10, "a", "", "이슈", "결정 요청")}))
 	}
-	entries := buildDigest(items, nil, nil, defaultRollupConfig())
+	// Through the same function the handler calls, so the cap has one place.
+	entries, equallyUrgent := capDigest(buildDigest(items, nil, nil, defaultRollupConfig()))
 	// Twenty in, and the cap is what decides how many come out. Raise the cap
 	// above the fixture and this test stops being able to fail — it would still
 	// pass on a digest that returns everything it was given.
@@ -114,6 +115,14 @@ func TestDigestIsCappedAndOrderedByScore(t *testing.T) {
 	}
 	if len(entries) > digestMaximumEntries {
 		t.Fatalf("digest returned %d entries, want at most %d", len(entries), digestMaximumEntries)
+	}
+	// Every row in this fixture is built the same way and so scores the same,
+	// which is the case the number exists for: the cut falls through twenty
+	// equals and keeps ten. A briefing that says nothing about the other ten
+	// reads as "these are the only ten".
+	if equallyUrgent != len(items) {
+		t.Errorf("equallyUrgent=%d, want %d — the rows the cut could have kept instead were not counted",
+			equallyUrgent, len(items))
 	}
 	for index := 1; index < len(entries); index++ {
 		if entries[index-1].Score < entries[index].Score {
@@ -417,5 +426,39 @@ func TestMeetingPutsTheWorstNewsFirst(t *testing.T) {
 	want := []string{"많이 뒤로 감", "뒤로 감", "크게 진행", "조금 진행", "변화 없음"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("got=%v\nwant=%v", got, want)
+	}
+}
+
+// The fixture above builds twenty identical rows, so it can prove that the ten
+// left out are counted but not that the rest of the corpus is left alone. On a
+// real deployment 468 of 543 tasks carry some ground, most of them one +25
+// line; counting those would put "468건 중 10건" in front of an executive and
+// alarm in exactly the wrong direction. Only the rows the cut could have kept
+// instead belong in the number.
+
+// guards: capDigest
+func TestTheDigestCountsOnlyTheRowsTheCutCouldHaveKeptInstead(t *testing.T) {
+	entries := []digestEntry{}
+	for index := 0; index < digestMaximumEntries+2; index++ {
+		entries = append(entries, digestEntry{Title: fmt.Sprintf("무거운 %02d", index), Score: 185})
+	}
+	for index := 0; index < 8; index++ {
+		entries = append(entries, digestEntry{Title: fmt.Sprintf("가벼운 %02d", index), Score: 25})
+	}
+
+	kept, equallyUrgent := capDigest(entries)
+	if len(kept) != digestMaximumEntries {
+		t.Fatalf("kept %d, want %d", len(kept), digestMaximumEntries)
+	}
+	if equallyUrgent != digestMaximumEntries+2 {
+		t.Errorf("equallyUrgent=%d, want %d — the light tail was counted as the cut's equal",
+			equallyUrgent, digestMaximumEntries+2)
+	}
+
+	// And a list that fits says so plainly rather than reporting a truncation
+	// that did not happen: the screen only speaks when the two differ.
+	short := entries[:3]
+	if kept, equal := capDigest(short); len(kept) != 3 || equal != 3 {
+		t.Errorf("an uncut list reported %d kept and %d equal, want 3 and 3", len(kept), equal)
 	}
 }

@@ -251,7 +251,13 @@ export interface DigestEntry {
   displayName: string; organizationName: string
   headline: string; detail: string; grounds: DigestGround[]
 }
-export interface DigestView { weeks: number; since: string; scope: RollupScope; considered: number; entries: DigestEntry[] }
+/**
+ * `considered` is how many tasks were looked at. `equallyUrgent` is how many
+ * scored at least as high as the lowest entry shown — when it exceeds
+ * `entries.length` the cut fell through a group of equals, and the reader is
+ * seeing some of them rather than all. `entries` carries at most `limit`.
+ */
+export interface DigestView { weeks: number; since: string; scope: RollupScope; considered: number; equallyUrgent: number; limit: number; entries: DigestEntry[] }
 
 export interface WorkRef {
   workItemId: number; title: string; category: string; userId: number; displayName: string

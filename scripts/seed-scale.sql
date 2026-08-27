@@ -162,11 +162,28 @@ SELECT r.id,
        -- was empty however it was configured. One task in nine now carries an
        -- unanswered issue from week 30 to the end, which is what "이슈가 N주째
        -- 지속되고 있습니다" is supposed to describe.
+       --
+       -- Two sentences used to cover 110,000 rows, so every long-running issue
+       -- in the deployment read the same. 경영 요약 picks the ten items a leader
+       -- must look at and all ten came back saying "벤더 회신 지연으로 규격 확정을
+       -- 못 하고 있습니다" — ten rows that teach one thing. The obstacle is the
+       -- part of a weekly report a reader actually reads.
        CASE
          WHEN ((r.user_id + slot) % 9) = 0
               AND ((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7) >= 30
-           THEN '벤더 회신 지연으로 규격 확정을 못 하고 있습니다'
-         WHEN (r.id + slot) % 7 = 0 THEN '외부 연동 지연'
+           THEN (ARRAY[
+             '벤더 회신 지연으로 규격 확정을 못 하고 있습니다',
+             '보안 검토 결과를 기다리는 중이라 배포를 못 잡습니다',
+             '검증 환경에 데이터가 없어 재현이 안 됩니다',
+             '유관 부서 담당자가 공석이라 협의가 멈췄습니다',
+             '예산 집행 승인이 나지 않아 계약을 못 합니다',
+             '기존 시스템 정지 시간을 잡지 못하고 있습니다',
+             '요건이 두 번 바뀌어 설계를 다시 잡고 있습니다',
+             '테스트 장비 반입 허가가 지연되고 있습니다',
+             '이관 대상 데이터 정합성이 맞지 않습니다'])[1 + ((r.user_id * 3 + slot) % 9)]
+         WHEN (r.id + slot) % 7 = 0
+           THEN (ARRAY['외부 연동 지연', '담당자 일정 조율 중', '사양 확인 대기',
+                       '테스트 데이터 준비 중', '검토 의견 반영 중'])[1 + ((r.id + slot) % 5)]
          ELSE ''
        END,
        -- Different tasks at different stages, and most of them still running.

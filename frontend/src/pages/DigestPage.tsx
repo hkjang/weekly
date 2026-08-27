@@ -62,7 +62,7 @@ export default function DigestPage({ notify, navigate }: {
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ weeks, since: '', scope: 'TEAM', considered: 0, entries: [] })
+        setView({ weeks, since: '', scope: 'TEAM', considered: 0, equallyUrgent: 0, limit: 0, entries: [] })
         notify(errorText(error, '경영 요약을 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
@@ -82,8 +82,13 @@ export default function DigestPage({ notify, navigate }: {
       action={<span className="muted-chip">업무 {view.considered}건 검토 · {view.since} 이후</span>}>
       {view.entries.length === 0
         ? <Empty>선정 기준을 넘는 항목이 없습니다. 열린 결정 요청, 장기 이슈, 진척 정체, 중복 의심, 주요 완료가 모두 없습니다.</Empty>
-        : <ul className="digest-list">{view.entries.map(entry =>
-            <DigestCard key={entry.workItemId} entry={entry} navigate={navigate} maximum={topScore} />)}</ul>}
+        : <>{view.equallyUrgent > view.entries.length && <p className="muted capped-note">
+            아래 {view.entries.length.toLocaleString()}건과 <strong>같은 점수 이상인 업무가 {view.equallyUrgent.toLocaleString()}건</strong> 있습니다.
+            여기 실린 것이 그중 전부는 아닙니다 — 나머지 {(view.equallyUrgent - view.entries.length).toLocaleString()}건도 같은 무게이므로,
+            기간을 좁히거나 업무 추적에서 조치 필요로 걸러 함께 보세요.
+          </p>}
+          <ul className="digest-list">{view.entries.map(entry =>
+            <DigestCard key={entry.workItemId} entry={entry} navigate={navigate} maximum={topScore} />)}</ul></>}
     </Card>}
   </>
 }

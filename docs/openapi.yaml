@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.175.0
+  version: 0.176.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1157,6 +1157,12 @@ paths:
 
         완료 업무의 과거 이슈 이력은 위험으로 집계하지 않으며, 진척 변화 없이 매주 100%로
         보고되는 운영성 업무는 완료로 집계하지 않는다.
+
+        `considered`는 살펴본 업무 수, `limit`는 한 번에 싣는 최대 수(10)다.
+        `equallyUrgent`는 **마지막으로 실린 항목과 같은 점수 이상인 업무 수**이며,
+        이 값이 `entries` 길이보다 크면 동점 무리를 가로질러 잘린 것이다. 점수가 조금이라도
+        붙은 업무 수가 아니다 — 실제 배포에서 543건 중 468건이 근거를 하나쯤 갖고 대개
+        +25 한 줄이므로, 그 수를 보여 주면 반대 방향으로 오해를 부른다.
       parameters:
         - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 52, default: 8 } }
       responses:

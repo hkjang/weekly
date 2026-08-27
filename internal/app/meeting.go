@@ -316,14 +316,22 @@ type digestEntry struct {
 }
 
 type digestView struct {
-	Weeks      int           `json:"weeks"`
-	Since      string        `json:"since"`
-	Scope      string        `json:"scope"`
-	Considered int           `json:"considered"`
-	Entries    []digestEntry `json:"entries"`
+	Weeks      int    `json:"weeks"`
+	Since      string `json:"since"`
+	Scope      string `json:"scope"`
+	Considered int    `json:"considered"`
+	// Considered is how many tasks were looked at. EquallyUrgent is how many
+	// scored at least as high as the lowest entry shown — when it exceeds the
+	// number of entries, the cut fell through a group of equals and the reader
+	// is seeing some of them rather than all. Entries carries at most Limit.
+	EquallyUrgent int           `json:"equallyUrgent"`
+	Limit         int           `json:"limit"`
+	Entries       []digestEntry `json:"entries"`
 }
 
-// buildDigest picks the few things worth an executive's attention.
+// buildDigest scores every task worth an executive's attention and orders them.
+// It does not cut the list — capDigest does, so that the number it cut can be
+// reported beside what survived.
 //
 // The score is a sum of independently observable facts, never a model output,
 // and every contribution is listed back to the reader as grounds. An executive
@@ -451,10 +459,38 @@ func buildDigest(items []workItemView, duplicateByItem map[int64]workLink, block
 		}
 		return entries[x].Title < entries[y].Title
 	})
-	if len(entries) > digestMaximumEntries {
-		entries = entries[:digestMaximumEntries]
-	}
 	return entries
+}
+
+// capDigest keeps what a briefing can carry and says how many were its equal.
+//
+// The cap used to be the last line of buildDigest and what it cut was thrown
+// away, so the screen said 핵심 10건 · 업무 543건 검토 whether ten items had been
+// picked out of eleven or out of five hundred. Every sibling screen already
+// says when it truncated — the agenda, the change summary, the insight lists —
+// and this is the one an executive reads.
+//
+// The number reported is not how many scored at all: on a real deployment 468
+// of 543 tasks carry some ground, most of them a single +25, and "468건 중
+// 10건" would alarm in the wrong direction. It is how many scored at least as
+// high as the lowest one shown — the ones the cut could just as well have kept
+// instead. That is the only part of the tail a reader can act on, and when the
+// list is not cut at all it equals the number of entries.
+func capDigest(entries []digestEntry) (kept []digestEntry, equallyUrgent int) {
+	if len(entries) <= digestMaximumEntries {
+		return entries, len(entries)
+	}
+	kept = entries[:digestMaximumEntries]
+	lowest := kept[len(kept)-1].Score
+	equallyUrgent = len(kept)
+	for _, entry := range entries[digestMaximumEntries:] {
+		if entry.Score < lowest {
+			// Sorted by score, so the first one below the line ends it.
+			break
+		}
+		equallyUrgent++
+	}
+	return kept, equallyUrgent
 }
 
 func (a *App) executiveDigest(w http.ResponseWriter, r *http.Request) {
@@ -487,7 +523,8 @@ func (a *App) executiveDigest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "경영 요약을 만들 수 없습니다.")
 		return
 	}
+	entries, equallyUrgent := capDigest(buildDigest(items, graph.DuplicateByItem, blocked, a.rollupConfig(r.Context())))
 	view := digestView{Weeks: weeks, Since: since, Scope: scopeTeam, Considered: len(items),
-		Entries: buildDigest(items, graph.DuplicateByItem, blocked, a.rollupConfig(r.Context()))}
+		Entries: entries, EquallyUrgent: equallyUrgent, Limit: digestMaximumEntries}
 	writeData(w, http.StatusOK, view)
 }
