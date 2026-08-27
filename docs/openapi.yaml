@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.229.0
+  version: 0.230.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1905,7 +1905,15 @@ components:
           properties:
             code: { type: string }
             message: { type: string }
-        traceId: { type: string }
+        traceId:
+          type: string
+          description: |
+            이 요청 하나를 가리키는 식별자. 화면은 5xx 일 때 이 값을 사용자에게
+            보여 주고("… (추적 ID abc123)"), 운영자는 서버 로그에서 그 값으로
+            찾습니다. 5xx 는 언제나 `request failed` 한 줄로 남으며 method, route,
+            status, 오류 코드, 소요 시간을 함께 적습니다. 4xx 는 남기지 않습니다 —
+            화면이 추적 ID 를 보여 주지 않고, 요청마다 한 줄을 남기면 정작 물어 온
+            요청이 묻힙니다.
     ReportStatus:
       type: string
       enum: [DRAFT, SUBMITTED, REVISION_REQUESTED, APPROVED, CLOSED]

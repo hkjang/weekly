@@ -151,8 +151,31 @@ func (s *testServer) request(method, path string, body any, cookie *http.Cookie)
 		r.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
-	s.app.mux.ServeHTTP(w, r)
+	// Handler(), not mux: the chain outside it sets the trace id, recovers a
+	// panic, and writes the security headers. Calling the mux directly tested
+	// the handlers and left everything the customer's request passes through on
+	// the way there unexercised — which is how the trace id the screen shows a
+	// reader came to appear in no log line at all.
+	s.app.Handler().ServeHTTP(w, r)
 	return w
+}
+
+// refusal is what a caller can read off a refused response: the code and the
+// sentence. Not the trace id — that identifies this one request and is supposed
+// to differ every time, so two refusals that read identically to a person still
+// differ byte for byte.
+func refusal(t *testing.T, recorder *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode a refusal: %v (%s)", err, recorder.Body.String())
+	}
+	return body.Error.Code + " " + body.Error.Message
 }
 
 // createOrganization adds an organisation and returns its id.
@@ -216,7 +239,7 @@ func (s *testServer) uploadMany(path, field string, files map[string][]byte, coo
 		r.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
-	s.app.mux.ServeHTTP(w, r)
+	s.app.Handler().ServeHTTP(w, r)
 	return w
 }
 
@@ -234,7 +257,7 @@ func (s *testServer) bearer(method, path, token string) *httptest.ResponseRecord
 	r := httptest.NewRequest(method, path, nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
-	s.app.mux.ServeHTTP(w, r)
+	s.app.Handler().ServeHTTP(w, r)
 	return w
 }
 

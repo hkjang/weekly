@@ -346,6 +346,12 @@ func writeData(w http.ResponseWriter, status int, data any) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
+	// Handed to requestMetrics, which is the one place that sees every
+	// response and can name the failed request in the log by the same trace id
+	// the reader was shown.
+	if metrics, ok := w.(*metricsWriter); ok {
+		metrics.errorCode = code
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(envelope{Success: false, Error: &apiError{Code: code, Message: message}, TraceID: w.Header().Get("X-Trace-ID")})

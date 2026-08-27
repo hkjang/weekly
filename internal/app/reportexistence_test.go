@@ -26,9 +26,9 @@ func TestAMissingReportIsRefusedLikeSomebodyElses(t *testing.T) {
 		t.Errorf("somebody else's report answered %d and a missing one %d — the difference names what exists",
 			theirs.Code, missing.Code)
 	}
-	if theirs.Body.String() != missing.Body.String() {
+	if refusal(t, theirs) != refusal(t, missing) {
 		t.Errorf("the two refusals read differently:\n  남의 것: %s\n  없는 것: %s",
-			theirs.Body.String(), missing.Body.String())
+			refusal(t, theirs), refusal(t, missing))
 	}
 	if theirs.Code == http.StatusOK {
 		t.Fatal("a stranger edited a report they do not own")
@@ -50,9 +50,9 @@ func TestDeletingAMissingReportIsRefusedLikeSomebodyElses(t *testing.T) {
 	if theirs.Code != missing.Code {
 		t.Errorf("somebody else's report answered %d and a missing one %d", theirs.Code, missing.Code)
 	}
-	if theirs.Body.String() != missing.Body.String() {
+	if refusal(t, theirs) != refusal(t, missing) {
 		t.Errorf("the two refusals read differently:\n  남의 것: %s\n  없는 것: %s",
-			theirs.Body.String(), missing.Body.String())
+			refusal(t, theirs), refusal(t, missing))
 	}
 	if theirs.Code == http.StatusOK {
 		t.Fatal("a stranger deleted a report they do not own")

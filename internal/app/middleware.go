@@ -74,6 +74,10 @@ func (a *App) securityHeaders(next http.Handler) http.Handler {
 type metricsWriter struct {
 	http.ResponseWriter
 	status int
+	// errorCode is what writeError put in the body. The metrics row keeps only
+	// the status, which tells an operator that something failed but not which
+	// refusal it was — and the two are the halves of the same answer.
+	errorCode string
 }
 
 func (w *metricsWriter) WriteHeader(status int) {
@@ -131,6 +135,26 @@ func (a *App) requestMetrics(next http.Handler) http.Handler {
 		duration := time.Since(started).Milliseconds()
 		if duration < 0 {
 			duration = 0
+		}
+		// The screen hands the reader this trace id and asks them to quote it:
+		// api.ts appends "(추적 ID …)" to any message a 5xx carried. That is a
+		// promise that somebody can look it up — and of the 227 places that
+		// answer 5xx, 60 wrote the id to a log. The other 167 left the operator
+		// holding an identifier that appeared nowhere.
+		//
+		// Logged here rather than at each of those places: this is the one spot
+		// every response passes through, it already knows the route and the
+		// status, and a handler added next year cannot forget it. The specific
+		// causes those 60 sites log stay where they are — this line says which
+		// request the reader is talking about, and they say why it failed.
+		//
+		// 5xx only. Nothing below it puts an id on the reader's screen, and a
+		// line per request would bury the ones that matter.
+		if mw.status >= 500 {
+			a.logger.Error("request failed",
+				"trace", traceIDFromContext(r.Context()),
+				"method", r.Method, "route", route, "path", r.URL.Path,
+				"status", mw.status, "code", mw.errorCode, "ms", duration)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
