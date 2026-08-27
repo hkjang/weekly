@@ -2537,6 +2537,24 @@ A test that never runs its subject passes whatever the subject does.</div>
 <p><strong>결함은 없었습니다.</strong> 세 화면 모두 정상입니다 — 이제 그것을 <strong>아는</strong> 상태가 됐습니다.</p>
 <p>##### 그래서 도구로 남깁니다</p>
 <p><code>scripts/fake-ai-gateway.py</code>. 다음에 이 화면들을 손대는 사람은 명령 한 줄로 데이터가 있는 상태에서 걸을 수 있습니다. <code>docs/CHECKS.md</code> 에 씨앗과 함께 "화면을 걷기 위한 도구" 로 적었습니다 — 검사는 아니지만 <strong>같은 이유로 있습니다.</strong></p>
+<p>#### 3.10.155 v0.200.0에서 완료 — 승인이 묻지도 않고 사라졌고, 목록은 자기 자신을 누르면 멈췄습니다</p>
+<p>v0.199.0의 가짜 게이트웨이로 <strong>PPTX 가져오기</strong>를 처음 끝까지 걸었습니다. 파싱·근거 검증·미인용 슬라이드 경고·충돌 감지는 모두 맞았습니다. 그런데 그 화면 위에서 두 가지가 무너졌습니다.</p>
+<p>##### 승인이 묻지도 않고 사라졌습니다</p>
+<p>배포에서 승인된 보고서(<code>#364 APPROVED</code>)가 있는 주차로 PPTX 를 가져와 <strong>화면이 기본으로 골라 둔 전략</strong>으로 확정했습니다.</p>
+<div class="phase-box">확정 전  364 | APPROVED | reviewed_at 있음 | version 1 | 항목 7
+확정 후  364 | CLOSED    | reviewed_at 없음 | version 2 | 항목 8</div>
+<p>규칙 자체는 옳습니다 — 다른 경로로 본문이 바뀌었으니 검토 도장은 그 본문의 것이 아닙니다. 문제는 <strong>말하지 않았다</strong>는 것입니다. 화면이 한 말은 이것뿐이었습니다.</p>
+<blockquote>동일 주차 보고서 #364 (APPROVED)가 있습니다.</blockquote>
+<p>한글 화면 한가운데의 날 것 그대로의 영문 열거값이고, 그나마도 <strong>무슨 일이 벌어지는지는 한 글자도 없습니다.</strong> 이제 전략마다 결과를 말하고, 검토 기록을 버리는 전략일 때만 붉게 표시합니다.</p>
+<blockquote>동일 주차 보고서 #156(승인)가 있습니다. 이 파일의 업무 항목을 기존 보고서에 더합니다. <strong>저장하면 상태가 확정으로 돌아가고 승인 기록은 사라집니다.</strong></blockquote>
+<p>##### 목록은 자기 자신을 누르면 멈췄습니다</p>
+<p>이력 목록은 열릴 때 <strong>가장 최근 작업을 스스로 골라 둡니다.</strong> 그 작업을 누르면 — 화면에 들어와서 가장 자연스러운 동작입니다 — 클릭 처리기가 <code>detail</code> 을 비우고 <code>setSelectedID(같은 값)</code> 를 부릅니다. 값이 같으니 다시 불러오는 효과는 돌지 않습니다.</p>
+<p>브라우저로 재현했습니다.</p>
+<div class="phase-box">같은 작업 다시 클릭 → 파일 카드 0
+오른쪽 화면: 불러오는 중…</div>
+<p>탭을 새로 열기 전까지 풀리지 않습니다. 그동안 검토 중이던 수정값은 상태에 그대로 남아 있지만 <strong>닿을 수 없고</strong>, 나가려 하면 저장 안 됨 경고가 붙잡습니다. 상세를 못 불러왔을 때도 <code>catch</code> 가 없어 같은 자리에서 같은 모양으로 멈췄습니다.</p>
+<p>##### 인라인이라 아무도 시험할 수 없었습니다</p>
+<p>두 결정 모두 JSX 안에 한 줄로 박혀 있었습니다. <code>frontend/src/importConflict.ts</code> 와 <code>importPanel.ts</code> 로 꺼내 시험 12개를 붙였습니다(전체 79개). 화면에서 다시 걸어 네 전략의 문장, 붉은 표시, 같은 작업 재클릭이 모두 맞는 것을 확인했습니다.</p>
 </div>
 </body>
 </html>
