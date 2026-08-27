@@ -34,21 +34,47 @@ import hashlib
 import socketserver
 
 
-def sample_for(node, key=""):
+def sample_for(node, key="", ids=None, index=0):
     """A value that satisfies this schema node.
 
     Keys are read for their meaning where it helps — a date field gets a date,
     a progress field gets a number in range — so the product's own validation
     has something plausible to accept or reject rather than a string everywhere.
+
+    `ids` are identifiers harvested from the request. Some contracts are not
+    satisfiable by inventing values: the Confluence classifier must return a
+    decision for **every page it was handed**, and the summariser must cite the
+    pages its facts came from. Answering those with made-up ids is rejected —
+    correctly — and the whole AI half of the sync stays unwalked. Echoing what
+    the request carried is the least this can do and still be answerable.
     """
     kind = node.get("type")
     if isinstance(kind, list):
         kind = next((item for item in kind if item != "null"), "string")
     if kind == "object":
-        return {name: sample_for(child, name) for name, child in (node.get("properties") or {}).items()}
+        return {name: sample_for(child, name, ids, index)
+                for name, child in (node.get("properties") or {}).items()}
     if kind == "array":
         item = node.get("items") or {"type": "string"}
-        return [sample_for(item, key) for _ in range(2)]
+        # An array of identifiers is the request's own, not invented ones.
+        if ids and key.lower().endswith("pageids"):
+            return list(ids)
+        # One entry per identifier where the contract is "decide on each of
+        # these", so coverage checks have something to accept.
+        if ids and key.lower() == "groups":
+            count = len(ids)
+        elif key.lower() == "facts":
+            # At least one of each kind. A single page can still carry a plan
+            # and an issue, and a screen that only ever receives 금주 실적
+            # proves nothing about the two columns beside it.
+            count = 3
+        else:
+            count = 2
+        count = max(1, count)
+        return [sample_for(item, key,
+                           [ids[position]] if ids and key.lower() == "groups" else ids,
+                           index * 7 + position)
+                for position in range(count)]
     if kind in ("integer", "number"):
         lowered = key.lower()
         if "confidence" in lowered:
@@ -59,13 +85,25 @@ def sample_for(node, key=""):
     if kind == "boolean":
         return True
     if node.get("enum"):
-        return node["enum"][0]
+        # Always the first value made every fact a CURRENT_RESULT, and a screen
+        # that never receives the other two kinds proves nothing about them.
+        choices = node["enum"]
+        return choices[index % len(choices)]
     lowered = key.lower()
+    # Varied by position. Every entry carrying the same words is the fixture
+    # fault this project keeps meeting: 111 candidates with one title between
+    # them cannot show whether the screen groups, sorts or de-duplicates.
+    subject = SUBJECTS[index % len(SUBJECTS)]
     for marker, value in (
-        ("date", "2026-08-24"), ("week", "2026-08-24"), ("categor", "개발"),
-        ("title", "가짜 게이트웨이가 만든 업무"), ("summary", "가짜 게이트웨이가 만든 요약입니다."),
-        ("current", "이번 주에 한 일입니다."), ("next", "다음 주에 할 일입니다."),
-        ("issue", "확인이 필요한 이슈입니다."), ("rationale", "이 방향이 위험이 낮습니다."),
+        ("date", "2026-08-24"), ("week", "2026-08-24"),
+        ("categor", CATEGORIES[index % len(CATEGORIES)]),
+        ("title", f"[가짜] {subject} {index}"),
+        ("summary", f"[가짜] {subject} 진행 상황을 정리했습니다."),
+        ("current", f"{subject}을(를) {1 + index % 5}개 지사에 적용했습니다."),
+        ("next", f"잔여 {1 + index % 4}개 지사를 마무리합니다."),
+        ("issue", "예산 집행 승인이 나지 않아 계약을 못 합니다." if index % 3 == 0 else ""),
+        ("text", f"[가짜] {subject} 관련 사실 {index} 입니다."),
+        ("rationale", "이 방향이 위험이 낮습니다."),
         ("reason", "근거 문장입니다."),
     ):
         if marker in lowered:
@@ -98,6 +136,22 @@ def fake_vector(text: str) -> list:
     return [round(value / length, 6) for value in values]
 
 
+SUBJECTS = ["회선 이설", "계약 표준화", "교육 통합", "로그 표준화", "방화벽 자동화",
+            "예산 결산", "권한 정비", "백업 이중화", "단말 교체", "인증 연동"]
+CATEGORIES = ["개발", "운영", "기획", "인프라", "보안"]
+
+
+def harvest_ids(body):
+    """Every pageId the request carried, in the order it carried them."""
+    text = json.dumps(body, ensure_ascii=False)
+    seen, ids = set(), []
+    for value in re.findall(r'\\?"pageId\\?"\s*:\s*\\?"([^"\\]+)', text):
+        if value not in seen:
+            seen.add(value)
+            ids.append(value)
+    return ids
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass  # The one line printed per request below is the useful log.
@@ -114,8 +168,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         wrapper = (body.get("response_format") or {}).get("json_schema") or {}
         schema = wrapper.get("schema") or {"type": "object"}
-        payload = json.dumps(sample_for(schema), ensure_ascii=False)
-        print(f"[ai] {self.path} schema={wrapper.get('name', '?')} → {len(payload)}B", flush=True)
+        ids = harvest_ids(body)
+        payload = json.dumps(sample_for(schema, "", ids), ensure_ascii=False)
+        print(f"[ai] {self.path} schema={wrapper.get('name', '?')} ids={len(ids)} → {len(payload)}B", flush=True)
         reply = json.dumps({
             "id": "fake", "object": "chat.completion", "model": body.get("model", "fake"),
             "choices": [{"index": 0, "finish_reason": "stop",
