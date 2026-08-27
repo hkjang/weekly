@@ -2616,6 +2616,18 @@ HTML    → AI Gateway 주소가 JSON이 아닌 응답을 돌려줬습니다. �
 <div class="phase-box">{&quot;embedded&quot;:6400,&quot;remaining&quot;:104134,&quot;model&quot;:&quot;fake-embed&quot;}
 → 임베딩 6,400건을 생성했습니다. 104,134건이 남았고 백그라운드 작업자가 이어서 처리합니다.</div>
 <p>README 의 6,400 은 이제 <code>embeddingRebuildBatches × embeddingBatchSize</code> 와 시험으로 묶여 있습니다.</p>
+<p>#### 3.10.160 v0.205.0에서 완료 — 검색창이 있으나 마나 한 부가 기능 때문에 1분 반을 붙잡혔습니다</p>
+<p>v0.204.0 으로 의미 검색이 실제로 도는 배포가 처음 생겼으니, <strong>게이트웨이가 고장 났을 때</strong> 검색이 어떻게 되는지도 처음 볼 수 있게 됐습니다.</p>
+<table><thead><tr><th>임베딩 게이트웨이</th><th>검색</th></tr></thead><tbody><tr><td>정상</td><td>200 · 0.95초</td></tr><tr><td>죽은 포트 (연결 거부)</td><td>200 · 0.89초 — <strong>깔끔합니다</strong></td></tr><tr><td>연결은 받고 답이 없음</td><td>200 · <strong>90.7초</strong></td></tr></tbody></table>
+<p>연결이 거부되면 즉시 포기하고 나머지 결과를 내줍니다. 좋습니다. 그런데 <strong>연결을 받아 놓고 답하지 않는</strong> 릴레이 — 멈춘 프록시, 소켓만 잡고 있는 게이트웨이 — 에서는 <code>ai.timeout_seconds</code> 를 그대로 기다립니다. 기본값이 <strong>90초</strong>, 상한이 300초입니다.</p>
+<p>그 값은 <strong>모델이 주간보고 한 편을 통째로 써 내는 데 필요한 시간</strong>입니다. 여기서 하는 일은 세 단어짜리 질의 하나를 임베딩하는 것이고, 그것은 밀리초입니다.</p>
+<p>##### 게다가 기다려서 얻는 것이 없습니다</p>
+<p>의미 단계는 <strong>더 싼 단계들이 빈손으로 돌아왔을 때만</strong> 도는 덤입니다. 얻는 것은 몇 건의 추가 결과뿐입니다. 검색창 앞의 사람은 아무것도 못 얻을 1분 30초를 기다립니다.</p>
+<p>##### 자기 예산을 갖게 했습니다</p>
+<p><code>searchSemanticBudget = 5초</code>. 넘기면 그 단계만 포기하고 나머지 결과를 내줍니다.</p>
+<div class="phase-box">제한시간 90초 · 응답 없는 게이트웨이   90.7초  →  6.25초
+정상 게이트웨이                        0.95초  →  0.98초</div>
+<p>시험은 연결을 받아 놓고 답하지 않는 게이트웨이를 세우고 <code>ai.timeout_seconds</code> 를 90 으로 둔 채 검색합니다. 고치기 전 코드에서는 <strong>30초</strong>(핸들러 backstop) 로 실패하고, 고친 뒤에는 <strong>5.011초</strong> 로 답합니다.</p>
 </div>
 </body>
 </html>

@@ -28,6 +28,18 @@ const (
 	embeddingMaxInput       = 4000
 	semanticSearchLimit     = 20
 	semanticMinSimilarity   = 0.25
+	// searchSemanticBudget is what the meaning pass may cost a person waiting on
+	// a search.
+	//
+	// It used to borrow ai.timeout_seconds, which is sized for a model writing a
+	// whole weekly report — 90 seconds by default and up to 300. Measured on a
+	// deployment against a gateway that accepted the connection and then said
+	// nothing, one search took 90.7 seconds to answer. The pass is an extra: it
+	// runs only when the cheaper ones came back thin, and all it adds is a few
+	// more hits. Embedding a three word query is milliseconds' work, so five
+	// seconds is already generous, and going over it costs the searcher nothing
+	// but the hits they would have gained.
+	searchSemanticBudget = 5 * time.Second
 )
 
 type embeddingConfig struct {
@@ -309,6 +321,9 @@ func (a *App) searchSemantic(r *http.Request, p *principal, query string, seen m
 	cfg, err := a.embeddingConfig(r.Context())
 	if err != nil {
 		return nil, nil
+	}
+	if cfg.Timeout > searchSemanticBudget {
+		cfg.Timeout = searchSemanticBudget
 	}
 	vectors, err := requestEmbeddings(r.Context(), cfg, []string{query})
 	if err != nil {
