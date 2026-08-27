@@ -4239,3 +4239,58 @@ v0.177.0이 넣은 검사에 발송 상태 가짓수를 더했습니다. 세 가
 주석은 "deferring the read is what keeps a whole export's worth of images from being resident at once" 라고 주장하는데, 그 주장을 검사하는 시험이 없었습니다. 누가 `Load` 를 바이트로 되돌려도 아무것도 실패하지 않습니다 — 그리고 그 순간 메모리는 3.5배에서 4.5배가 됩니다.
 
 시험을 넣었습니다. 계획 단계에서 한 장이라도 읽으면 `6 capture(s) were read while the slides were only being planned`, 한 장을 두 번 읽으면 `read 2 times, want 1` 로 떨어집니다.
+
+#### 3.10.137 v0.182.0에서 완료 — 사용법을 물었더니 부하 시험이 시작됐습니다
+
+이번 창에서 한 번도 쓰지 않은 도구가 하나 남아 있어 사용법을 물었습니다.
+
+```
+$ python3 scripts/load-check.py --help
+Exception in thread Thread-5 (writer):
+Exception in thread Thread-4 (writer):
+Exception in thread Thread-7 (writer):
+... (스레드 120개)
+```
+
+`sys.argv[1]` 을 파싱 없이 주소로 읽기 때문에 **`--help` 가 대상이 되고 120개 스레드가 그것을 두드립니다.** 형제 스크립트는 전부 argparse 를 씁니다. 이 하나만 아니었습니다.
+
+##### 그리고 이 도구는 읽기만 하지 않습니다
+
+`writer` 는 보고서를 새로 만드는 것이 아니라 **이번 주 것을 덮어씁니다.** u1..uN 의 업무 항목이 전부 `부하 업무 0..6` 이 되고 원래 내용은 남지 않습니다.
+
+이 위험은 파일 맨 위에 이미 적혀 있었습니다.
+
+> Point it at a scale seed, never at a deployment holding real work.
+
+**문서에만 있고 지키는 장치가 없었습니다.** 이번 창에서 계속 만난 그 모양입니다. `--yes` 를 요구하고, 거부할 때 무엇을 덮어쓸지 그 자리에서 말합니다.
+
+```
+거부했습니다. 이 도구는 읽기만 하지 않습니다.
+
+  대상       http://127.0.0.1:19262
+  덮어쓸 것  u1..u20 의 이번 주 보고서 — 업무 항목이 전부
+             '부하 업무 0..6' 으로 바뀌고 원래 내용은 남지 않습니다.
+```
+
+##### 고친 뒤 실제로 돌렸습니다
+
+| | |
+| --- | --- |
+| 동시 | 쓰기 250명 · 읽기 50명 · 3회전 |
+| 총 시간 | 7.4초 |
+| 저장 | 중앙 22ms · p99 65ms |
+| 조회 | 중앙 142ms · p99 316ms |
+| 오류 | **0건** |
+| 메모리 피크 | 1,264MiB |
+
+Argon2id 예약이 큐로 묶여 있어 300명이 한꺼번에 들어와도 버팁니다 — 도구가 기록하려던 그 동작이 그대로입니다.
+
+##### 배포 매니페스트가 절반만 말하고 있었습니다
+
+`deploy/kubernetes.yaml` 의 메모리 설명이 이렇게 시작합니다.
+
+> Memory is sized by what password hashing reserves, which is **the only part of this service that holds a large block for the length of a request**.
+
+v0.181.0 에서 잰 캡처 첨부 내보내기가 그 문장을 뒤집습니다. 기본 설정에서 내보내기 하나가 약 700MB 를 요구하는데, 한도는 1Gi 입니다. **월요일 아침과 내보내기가 겹치면 죽습니다.**
+
+둘 다 적도록 고쳤습니다 — 무엇이 크게 잡는지, 얼마인지, 그리고 1Gi 가 무엇까지 버티고 무엇은 못 버티는지.

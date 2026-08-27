@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: weekly
-          image: weekly:v0.181.0
+          image: weekly:v0.182.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:
@@ -83,12 +83,13 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-          # Memory is sized by what password hashing reserves, which is the
-          # only part of this service that holds a large block for the length
-          # of a request. Argon2id takes 64 MiB per verification, and the
-          # process queues them so the peak is bounded: it reads this limit at
-          # startup, sizes the queue to fit, and logs the figure it chose
-          # ("password hashing pool sized").
+          # Memory is sized by two things that hold a large block for the length
+          # of a request.
+          #
+          # Argon2id takes 64 MiB per verification, and the process queues them
+          # so the peak is bounded: it reads this limit at startup, sizes the
+          # queue to fit, and logs the figure it chose ("password hashing pool
+          # sized").
           #
           # Measured on 300 people, 52 weeks, 109,200 report items, with 300
           # sessions signing in and working at once:
@@ -96,10 +97,18 @@ spec:
           #   512Mi / 1 CPU  -> 5 slots, survives, 48.8s for the burst
           #   1Gi   / 2 CPU  -> 8 slots, survives, 31.3s for the burst
           #
-          # 512Mi is enough and 1Gi is the default here because Monday morning
-          # is the minute this service is judged on. Lowering it is safe and
-          # signs people in more slowly; the queue is what keeps that a delay
-          # rather than an outage.
+          # The second is a PPTX export of a report carrying screen captures.
+          # The images are read one at a time, but the finished package is held
+          # whole to send it, so the peak is about 3.5x the attachments on that
+          # report. Measured: 20 captures totalling 44.9 MB took the container
+          # from 78 MiB to 235 MiB. At the shipped limits — attachment.max_per_
+          # report 20 and attachment.max_file_mb 10 — one export can therefore
+          # ask for roughly 700 MB, and that is per person exporting.
+          #
+          # 1Gi survives Monday morning and one such export, not both at once
+          # and not two exports at once. A deployment that lets people attach
+          # ten-megabyte captures should either raise this limit or lower those
+          # two settings; the admin screen states the same arithmetic.
           resources:
             requests:
               cpu: 200m

@@ -14,7 +14,7 @@ same time. Latency percentiles come out of it, but the number to watch is the
 resident memory of the container while it runs.
 
 Usage:
-    python3 scripts/load-check.py http://127.0.0.1:8080 250 50 4
+    python3 scripts/load-check.py http://127.0.0.1:8080 250 50 4 --yes
 
     (base URL, concurrent writers, concurrent readers, rounds each)
 
@@ -22,12 +22,45 @@ The accounts it signs in as are the ones scripts/seed-scale.sql creates —
 u1..u300 with a shared password, and the every-25th user is a team leader,
 which is who the read side pretends to be. Point it at a scale seed, never at a
 deployment holding real work.
+
+That last sentence used to be the only thing standing between this tool and a
+week of somebody's work: the writers do not add a report, they **replace this
+week's** for u1..uN with seven lines called 부하 업무. The warning was in the
+docstring and nothing enforced it, so --yes does now.
+
+And asking this file how to use it used to run it. sys.argv[1] was read as the
+base URL with no parsing at all, so `--help` became the target and a hundred and
+twenty threads started against it — the one question that must never have a
+side effect.
 """
-import json, statistics, sys, threading, time, urllib.request, http.cookiejar, urllib.parse
-BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:19076"
-WRITERS = int(sys.argv[2]) if len(sys.argv) > 2 else 100
-READERS = int(sys.argv[3]) if len(sys.argv) > 3 else 20
-ROUNDS  = int(sys.argv[4]) if len(sys.argv) > 4 else 3
+import argparse, json, statistics, sys, threading, time, urllib.request, http.cookiejar, urllib.parse
+
+parser = argparse.ArgumentParser(
+    description="월요일 아침을 재현하는 부하 점검. 이번 주 보고서를 덮어씁니다.",
+    epilog="예: python3 scripts/load-check.py http://127.0.0.1:8080 250 50 4 --yes")
+parser.add_argument("base", nargs="?", default="http://127.0.0.1:8080",
+                    help="점검할 배포의 주소 (기본 http://127.0.0.1:8080)")
+parser.add_argument("writers", nargs="?", type=int, default=100, help="동시에 저장하는 사람 수")
+parser.add_argument("readers", nargs="?", type=int, default=20, help="동시에 읽는 팀장 수")
+parser.add_argument("rounds", nargs="?", type=int, default=3, help="각자 반복할 회전 수")
+parser.add_argument("--yes", action="store_true",
+                    help="u1..uN 의 이번 주 보고서를 덮어쓰는 데 동의합니다")
+args = parser.parse_args()
+
+if not args.base.startswith(("http://", "https://")):
+    parser.error("주소가 http:// 또는 https:// 로 시작해야 합니다: " + repr(args.base))
+if not args.yes:
+    parser.exit(2,
+        "거부했습니다. 이 도구는 읽기만 하지 않습니다.\n\n"
+        "  대상       " + args.base + "\n"
+        "  덮어쓸 것  u1..u" + str(args.writers) + " 의 이번 주 보고서 — 업무 항목이 전부\n"
+        "             '부하 업무 0..6' 으로 바뀌고 원래 내용은 남지 않습니다.\n\n"
+        "규모 시드를 뿌린 배포가 맞다면 --yes 를 붙여 다시 실행하십시오.\n")
+
+BASE = args.base
+WRITERS = args.writers
+READERS = args.readers
+ROUNDS = args.rounds
 
 def session():
     return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
