@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -161,4 +163,79 @@ func cloneComment(t *testing.T, server *testServer, week string) string {
 		t.Fatalf("read the history for %s: %v", week, err)
 	}
 	return comment
+}
+
+// Two clones onto the same week at the same moment.
+//
+// weekIsFree runs before the insert, so an ordinary duplicate never reaches the
+// unique index and the branch that turns 23505 into "그 주차 보고서가 이미
+// 있습니다" is unreachable from a sequential test — a mutation run found both of
+// its halves unguarded. The only way there is a race: one person on two
+// devices, a double-clicked button, two tabs. Both requests pass the check and
+// one loses at the index.
+//
+// What must not happen is that the loser is told the server broke. It did not:
+// somebody else got there first, which is a sentence the reader can act on.
+
+// guards: cloneReport
+func TestTwoClonesOntoTheSameWeekAtOnceBothGetAnAnswerTheyCanActOn(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("clone_race", "USER", nil)
+	source := server.submitted(author, "2026-08-17", "복제할 원본")
+
+	const attempts = 6
+	type outcome struct {
+		code int
+		body string
+	}
+	results := make(chan outcome, attempts)
+	start := make(chan struct{})
+	var waiting sync.WaitGroup
+	for index := 0; index < attempts; index++ {
+		waiting.Add(1)
+		go func() {
+			defer waiting.Done()
+			<-start
+			w := server.request(http.MethodPost, fmt.Sprintf("/api/v1/reports/%d/clone", source),
+				map[string]any{"targetWeekStart": "2026-09-07", "mode": "STRUCTURE"}, author)
+			results <- outcome{w.Code, w.Body.String()}
+		}()
+	}
+	close(start)
+	waiting.Wait()
+	close(results)
+
+	created, refused := 0, 0
+	for item := range results {
+		switch {
+		case item.code == http.StatusOK || item.code == http.StatusCreated:
+			created++
+		case item.code == http.StatusConflict:
+			refused++
+			// The reader has to be able to tell "somebody already made this" from
+			// "the server fell over", and the week has to be named either way.
+			if !strings.Contains(item.body, "2026-09-07") {
+				t.Errorf("a refusal did not say which week: %s", item.body)
+			}
+		default:
+			t.Errorf("a concurrent clone answered %d, which tells the reader nothing to do: %s", item.code, item.body)
+		}
+	}
+	if created != 1 {
+		t.Errorf("%d of %d clones were created — the week is meant to hold one report", created, attempts)
+	}
+	if refused != attempts-1 {
+		t.Errorf("%d refusals for %d attempts", refused, attempts-1)
+	}
+
+	// And exactly one report exists for that week, whatever the ordering was.
+	var reports int
+	if err := server.app.db.QueryRow(server.ctx(),
+		`SELECT count(*) FROM weekly_reports WHERE week_start='2026-09-07' AND user_id=$1`,
+		server.userIDOf(server.lastCreatedUsername("clone_race"))).Scan(&reports); err != nil {
+		t.Fatalf("count the week's reports: %v", err)
+	}
+	if reports != 1 {
+		t.Errorf("the week holds %d reports, want 1", reports)
+	}
 }
