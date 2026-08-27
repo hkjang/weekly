@@ -172,6 +172,14 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
     {report && (report.status === 'SUBMITTED' || report.status === 'APPROVED') && <div className="edit-notice">제출·승인된 보고서를 수정하면 기존 검토 결과가 해제되고 작성 중 상태로 돌아갑니다.</div>}
     {(previousFailed || followUpsFailed) && <p className="capture-warning">{previousFailed && followUpsFailed ? '지난주 계획과 후속 조치를' : previousFailed ? '지난주 계획을' : '결정에 딸린 후속 조치를'} 불러오지 못했습니다. 이어받을 것이 없다는 뜻은 아니므로, 화면을 다시 열어 확인해 주십시오.</p>}
     <Card title="주간 요약"><textarea className="summary-input" placeholder="한 주의 핵심 성과와 맥락을 짧게 요약하세요." value={summary} onChange={e => setSummary(e.target.value)} disabled={!editable} maxLength={10000}/></Card>
+    {/* A clean report used to render nothing at all, so a writer with nothing
+        wrong could not tell a check that passed from a check that never ran.
+        The card is the only place that says the rules were applied, and it
+        disappeared exactly when it had good news. */}
+    {quality && quality.findings.length === 0 && quality.checked > 0 &&
+      <Card title="보고 품질 점검" action={<span className="muted">{quality.checked}개 업무 확인</span>}>
+        <p className="muted">규칙 점검에서 걸리는 것이 없습니다. 진척도 역행, 같은 계획 반복, 계획한 일의 빈 실적, 지속되는 이슈 네 가지를 봤습니다.</p>
+      </Card>}
     {quality && quality.findings.length > 0 && <Card title="보고 품질 점검" action={<span className="muted">{quality.checked}개 업무 확인</span>}>
       <p className="muted">제출 전에 작성자가 먼저 보는 점검입니다. 규칙으로만 판단하며 내용을 고치지 않습니다.</p>
       <ul className="quality-findings">{quality.findings.map((finding, index) => <li key={index} className={finding.severity === 'WARN' ? 'warn' : ''}>

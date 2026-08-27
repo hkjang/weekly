@@ -136,8 +136,26 @@ INSERT INTO report_items(report_id, category, title, current_result, next_plan, 
 SELECT r.id,
        (ARRAY['개발','운영','기획','보안','인프라'])[1 + (slot % 5)],
        subject.word || ' ' || action.word || CASE WHEN slot = 8 THEN ' 신규 착수' ELSE '' END,
-       subject.word || ' ' || action.word || ' 진행 상황을 정리했습니다',
-       subject.word || ' ' || action.word || ' 다음 단계',
+       -- 지난주에 계획한 일인데 이번 주 실적이 비어 있습니다 is one of the four
+       -- checks a writer sees before submitting, and it could never fire: the
+       -- seed wrote a result on every line of every week. One line in twenty-
+       -- nine is now left blank in the current week.
+       CASE WHEN r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AND ((r.user_id + slot) % 29) = 7 THEN ''
+            ELSE subject.word || ' ' || action.word || ' 진행 상황을 정리했습니다' END,
+       -- The plan moves. It used to be the same sentence for fifty-two weeks on
+       -- every task, so repeatedPlan came back 51 or 52 for **100%** of them and
+       -- the 계획 N회 반복 badge sat on every row of the work list. A mark that
+       -- is on everything points at nothing.
+       --
+       -- A plan now covers two weeks, which is below the badge's threshold of
+       -- three, and one task in eight keeps restating the same one — those are
+       -- the rows the badge is for.
+       CASE WHEN ((r.user_id + slot) % 8) = 0
+            THEN subject.word || ' ' || action.word || ' 다음 단계'
+            ELSE subject.word || ' ' || action.word || ' ' ||
+                 (ARRAY['설계 검토','시험 환경 구성','1차 적용','결과 점검',
+                        '유관 부서 협의','운영 이관 준비','문서 정리','마무리 점검'])[1 + ((p.wk / 2) % 8)]
+       END,
        -- Two kinds of issue, because the product distinguishes them. The
        -- scattered one below never lands twice in a row for the same task, so
        -- before this the seed had no open issue at all and the risk register
@@ -194,7 +212,8 @@ FROM weekly_reports r
 CROSS JOIN generate_series(1, 8) slot
 JOIN subject ON subject.i = ((r.user_id * 7 + slot) % 32)
 JOIN action ON action.i = (((r.user_id * 7 + slot) / 32) % 8)
-CROSS JOIN LATERAL (SELECT LEAST(100, ((r.user_id * 7 + slot) % 9) * 4
+CROSS JOIN LATERAL (SELECT ((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7) AS wk,
+                  LEAST(100, ((r.user_id * 7 + slot) % 9) * 4
                   + (LEAST(
                        ((r.week_start - (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 357)) / 7),
                        CASE WHEN ((r.user_id + slot) % 6) = 0 THEN 20 ELSE 999 END)
