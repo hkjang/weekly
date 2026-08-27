@@ -121,5 +121,5 @@ function weekday(value: string) { const date = new Date(`${value}T00:00:00Z`); r
 function sameWeekday(left: string, right: string) { return weekday(left) >= 0 && weekday(left) === weekday(right) }
 function weekdayName(value: string) { return ['일','월','화','수','목','금','토'][weekday(value)] ?? '' }
 
-function statusName(status: ImportJob['status']) { return ({ PENDING: '대기', PROCESSING: '분석 중', READY: '검토 가능', PARTIAL: '일부 실패', FAILED: '실패', CONFIRMED: '확정 완료' } as Record<string, string>)[status] ?? status }
+function statusName(status: ImportJob['status']) { return ({ PENDING: '대기', PROCESSING: '분석 중', READY: '검토 가능', PARTIAL: '일부 실패', FAILED: '실패', CONFIRMED: '확정 완료', NOTHING_TO_IMPORT: '가져올 것 없음' } as Record<string, string>)[status] ?? status }
 function fileStatusName(status: ImportFile['status']) { return ({ QUEUED: '대기', PROCESSING: '분석 중', READY: '정상', NEEDS_REVIEW: '확인 필요', FAILED: '실패', DUPLICATE: '중복', CONFIRMED: '저장 완료', SKIPPED: '건너뜀' } as Record<string, string>)[status] ?? status }

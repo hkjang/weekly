@@ -33,7 +33,7 @@ export type AIReportItem = {
   confidence: number; categoryConfidence?: number; sourceSlides?: number[]
 }
 export interface AIWeeklyResult { summary: string; weekStart: string; dateConfidence: number; reportItems: AIReportItem[]; warnings: string[] }
-export type ImportJobStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'PARTIAL' | 'FAILED' | 'CONFIRMED'
+export type ImportJobStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'PARTIAL' | 'FAILED' | 'CONFIRMED' | 'NOTHING_TO_IMPORT'
 export type ImportFileStatus = 'QUEUED' | 'PROCESSING' | 'READY' | 'NEEDS_REVIEW' | 'FAILED' | 'DUPLICATE' | 'CONFIRMED' | 'SKIPPED'
 export interface ImportFile {
   id: number; originalFilename: string; fileHash: string; sizeBytes: number; status: ImportFileStatus

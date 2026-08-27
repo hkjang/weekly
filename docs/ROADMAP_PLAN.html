@@ -2566,6 +2566,22 @@ GET    (unknown API path)
 POST   /api/v1/auth/login
 GET    /api/v1/me</div>
 <p>기존 시험은 *"있는 경로에서 난 404 는 자기 이름을 지킨다"* 를 지키려던 것이었고 메서드 접두는 곁다리였으므로 기대값만 옮겼습니다. 여기에 <strong>어떤 행도 메서드를 두 번 달지 않는다</strong>는 확인을 더했습니다. 사람이 못 보고 지나칠 종류의 어긋남이라, 다음에 누가 되돌려 놓으면 시험이 말합니다.</p>
+<p>#### 3.10.157 v0.202.0에서 완료 — 볼 것이 없는 작업이 영영 "검토 가능" 이었습니다</p>
+<p>이미 올린 PPTX 를 다시 올리면 모든 파일이 <code>DUPLICATE</code> 로 표시되고 대기열에 들어가지 않습니다. 실패한 것도 없습니다. 그러면 작업 상태를 정하는 두 자리가 모두 그것을 <strong><code>READY</code> — 화면에서 "검토 가능"</strong> 이라고 부릅니다.</p>
+<p>들어가 보면 고를 수 있는 파일이 없고, <strong>나가는 길이 전부 막혀 있습니다.</strong></p>
+<div class="phase-box">확정        → IMPORT_FILE_NOT_READY   선택한 파일은 확정할 수 있는 상태가 아닙니다
+빈 선택 확정 → IMPORT_SELECTION_REQUIRED 확정할 Import 파일을 선택하세요
+재분석      → NO_RETRYABLE_IMPORT     재분석할 수 있는 파일이 없습니다</div>
+<p>그 줄은 이력 목록에 <strong>할 일인 척 영원히 남습니다.</strong> 한 달에 두 번 같은 폴더를 끌어다 놓는 사람은 그런 줄을 모으게 되고, 그것들은 정말로 기다리는 작업들 사이에 섞입니다.</p>
+<p>##### 상태를 정하는 자리가 둘이었고 서로 달랐습니다</p>
+<table><thead><tr><th>파일 구성</th><th>업로드 응답</th><th>작업자</th></tr></thead><tbody><tr><td>하나 거부·하나 중복</td><td><code>PARTIAL</code></td><td><code>FAILED</code></td></tr></tbody></table>
+<p>업로드 응답은 *무엇이 실패했는지*로, 작업자는 *볼 것이 남았는지*로 상태를 읽었습니다. 참인 문장은 <strong>일부 실패</strong> 입니다 — 둘 중 하나가 실패했으니까요. 이제 두 자리가 같은 함수 하나를 씁니다.</p>
+<p>##### 어휘를 하나 늘렸습니다</p>
+<p><code>NOTHING_TO_IMPORT</code> — 화면에서 <strong>"가져올 것 없음"</strong>. 마이그레이션 023 이 제약을 넓히고, <strong>이미 갇혀 있던 작업들을 그 자리에서 옮깁니다.</strong></p>
+<div class="phase-box">1|READY               ← 정말로 검토를 기다리는 작업
+2|NOTHING_TO_IMPORT   ← 갇혀 있던 작업. 이관이 풀어 주었습니다
+업로드 응답: {&quot;id&quot;:3,&quot;status&quot;:&quot;NOTHING_TO_IMPORT&quot;}</div>
+<p>기존 시험이 *"일부만 실패했으면 PARTIAL"* 을 이미 정해 두었으므로 그 결정을 따랐고, 두 경로가 어긋나던 부분만 없앴습니다.</p>
 </div>
 </body>
 </html>

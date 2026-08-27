@@ -162,9 +162,9 @@ func (a *App) uploadImportPPTX(w http.ResponseWriter, r *http.Request) {
 	// otherwise.
 	status := "PENDING"
 	if queued == 0 {
-		_ = a.db.QueryRow(r.Context(), `UPDATE import_jobs SET status=CASE WHEN $2 >= total_files THEN 'FAILED' WHEN $2 > 0 THEN 'PARTIAL' ELSE 'READY' END,
-			processed_files=total_files,failed_files=$2,completed_at=now() WHERE id=$1
-			RETURNING status`, jobID, failed).Scan(&status)
+		status = importJobStatus(len(headers), failed, 0)
+		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET status=$2,processed_files=total_files,failed_files=$3,completed_at=now() WHERE id=$1`,
+			jobID, status, failed)
 	} else {
 		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET failed_files=$2 WHERE id=$1`, jobID, failed)
 		a.wakeImportWorker()
@@ -791,16 +791,36 @@ func (a *App) processImportJob(ctx context.Context, jobID int64) {
 	var processed, failed int
 	_ = a.db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status NOT IN ('QUEUED','PROCESSING')),
 		count(*) FILTER (WHERE status='FAILED') FROM import_files WHERE import_job_id=$1`, jobID).Scan(&processed, &failed)
-	status := "READY"
-	if failed > 0 {
-		status = "PARTIAL"
-	}
 	var usable int
 	_ = a.db.QueryRow(ctx, `SELECT count(*) FROM import_files WHERE import_job_id=$1 AND status IN ('READY','NEEDS_REVIEW')`, jobID).Scan(&usable)
-	if usable == 0 && failed > 0 {
-		status = "FAILED"
-	}
+	status := importJobStatus(processed, failed, usable)
 	_, _ = a.db.Exec(ctx, `UPDATE import_jobs SET status=$1,processed_files=$2,failed_files=$3,completed_at=now() WHERE id=$4`, status, processed, failed, jobID)
+}
+
+// importJobStatus is the one place a finished job's status is decided.
+//
+// It was decided in two, and they disagreed. The upload reply called a job of
+// one refused file and one duplicate PARTIAL; the worker called the same shape
+// FAILED, because it read the status off whether anything was left to review
+// rather than off what happened. 일부 실패 is the true sentence — one of the two
+// failed — so that is the one both paths say now.
+//
+// Neither had a word for the case with nothing wrong and nothing to do: every
+// file a duplicate of one already imported. Both called it READY, which puts
+// 검토 가능 on the history list beside the jobs that really are waiting, and
+// every way out of it is refused — IMPORT_FILE_NOT_READY on confirming,
+// IMPORT_SELECTION_REQUIRED on confirming nothing, NO_RETRYABLE_IMPORT on
+// re-analysing. The row stayed there, labelled as work, for good.
+func importJobStatus(total, failed, usable int) string {
+	switch {
+	case total > 0 && failed >= total:
+		return "FAILED"
+	case failed > 0:
+		return "PARTIAL"
+	case usable == 0 && total > 0:
+		return "NOTHING_TO_IMPORT"
+	}
+	return "READY"
 }
 
 func (a *App) processImportFile(ctx context.Context, jobID, fileID int64, filename, path string) {
