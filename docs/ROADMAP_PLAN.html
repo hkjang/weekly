@@ -2813,6 +2813,24 @@ if (action === &#x27;reject&#x27; &amp;&amp; !comment.trim()) return   // 조용
 <p>##### 그리고 닿지 않는 자리는 이유와 함께 목록에</p>
 <p><code>mcp.go</code> 의 <code>MCP_SCOPE_REQUIRED</code> 는 매번, 정확하게, 무방비로 보고됩니다 — 닿을 수 없으니 사라져도 아무도 모르는 것이 맞습니다. 목록이 없으면 <strong>다음에 돌리는 사람이 같은 조사를 다시 해서 같은 답에 도착합니다.</strong></p>
 <p>줄 번호가 아니라 파일과 오류 코드로 적었습니다. 줄 번호는 다음 편집이면 틀리고, <strong>조용한 예외는 없는 것보다 나쁩니다.</strong> 형태로 거르지 않고 하나씩 적은 이유는 <code>reachability_test.go</code> 가 자기 목록에 대해 말한 그대로입니다 — *"probably fine 이 지난 세 개가 들어온 방법입니다."*</p>
+<p>#### 3.10.171 v0.216.0에서 완료 — 캡처 첨부는 씨앗이 만들 수 없었습니다</p>
+<p>씨를 뿌린 배포의 첨부는 <strong>언제나 0건</strong>입니다. 첨부는 절반이 PostgreSQL 의 행이고 절반이 상태 볼륨의 <strong>파일</strong>이라, SQL 씨앗이 행만 넣으면 기동 로그에 <code>attachment files are missing</code> 이 뜨고 캡처 패널이 전부 <code>파일 없음</code> 이 됩니다. 정직한 씨앗이라면 만들 수 없습니다.</p>
+<p>그래서 <strong>캡처 패널·PPTX 캡처 슬라이드·본문 앞뒤 배치·유실 파일 안내</strong> 는 아무도 걷지 않았습니다.</p>
+<p>##### 제품의 업로드 경로로 올립니다</p>
+<p><code>scripts/seed-captures.py</code>. 로그인하고 멀티파트를 보냅니다 — 크기 상한, 개수 상한, 형식 검사, 저장 경로, 중복 해시 처리가 모두 실제로 돕니다. 파일을 볼륨에 직접 놓지 않는 이유가 그것입니다.</p>
+<p>첫 시도에 <strong>세 장이 파일 하나로 합쳐졌습니다.</strong> 그림이 셋 다 같았기 때문입니다. 제품이 옳게 한 것이지만, 그러면 순서도 배치도 확인할 수 없습니다 — 이 주기가 다섯 번째로 만난 함정입니다. 장마다 색을 달리했습니다.</p>
+<p>##### 걸어 본 결과: 결함 없음</p>
+<div class="phase-box">첨부 15 · 서로 다른 파일 15 · 배치 AFTER,BEFORE</div>
+<p>발표 순서는 파일 이름이 아니라 <code>p:sldIdLst</code> 입니다. 그것으로 읽으니:</p>
+<table><thead><tr><th>배치</th><th>덱 순서</th></tr></thead><tbody><tr><td><code>BEFORE</code></td><td><strong>캡처 3장 → 본문 5장</strong></td></tr><tr><td><code>AFTER</code></td><td>본문 5장 → <strong>캡처 3장</strong></td></tr></tbody></table>
+<p>화면도 맞습니다 — 그림 3장이 뜨고 버튼이 <code>PPTX 다운로드 (캡처 3장 포함)</code> 입니다.</p>
+<p>##### 그리고 아무도 만들 수 없던 상태</p>
+<p>볼륨에서 파일 하나를 지우고 다시 띄웠습니다.</p>
+<div class="phase-box">WARN attachment files are missing; captures will not display or export
+     missing=1 attachments=15
+     hint: /var/lib/weekly 를 영속 볼륨으로 마운트했는지…</div>
+<p>패널은 남은 2장을 보여 주고 하나를 <strong>파일 없음</strong> 으로 표시합니다. 내보내기는 <strong>막히지 않고</strong> 남은 2장으로 정상 덱(슬라이드 7)을 만듭니다 — 코드 주석이 약속한 그대로입니다. *"이미지 문제로 쓴 보고서가 막히지는 않는다."*</p>
+<p>세 갈래 모두 정상이고, 이제 그것을 <strong>아는</strong> 상태가 됐습니다.</p>
 </div>
 </body>
 </html>
