@@ -420,6 +420,28 @@ FROM work_items w
 WHERE w.id % 9 = 0 AND EXISTS (SELECT 1 FROM report_items i WHERE i.work_item_id = w.id)
 ON CONFLICT DO NOTHING;
 
+-- 뒤집힌 결정. 결정 241건 중 대체된 것이 0건이었고 상태도 OPEN 과 DONE
+-- 둘뿐이라, SUPERSEDED 갈래 — 목록에서 빠지는 규칙, '이전 결정 #N 대체'
+-- 표시, 인수인계의 열린 결정 세기 — 가 어느 배포에서도 켜지지 않았습니다.
+--
+-- 결정은 뒤집힙니다. 지난달 정한 것을 이번 달에 바꾸는 일이 흔하고, 그때
+-- 옛 기록이 남아야 왜 바뀌었는지 읽을 수 있습니다.
+INSERT INTO decisions(work_item_id, recorded_by, decided_by, decided_on, title, rationale, follow_up, due_date, status, supersedes_id)
+SELECT d.work_item_id, d.recorded_by, '본부 회의',
+       LEAST(d.decided_on + 35, date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date),
+       replace(d.title, '방향 결정', '방향 재결정'),
+       '앞선 결정 뒤에 제약이 바뀌어 방향을 다시 잡았습니다.',
+       '바뀐 방향으로 일정 다시 세우기',
+       date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date + 21,
+       'OPEN', d.id
+FROM decisions d
+WHERE (d.work_item_id % 4) = 0;
+
+-- 그리고 뒤집힌 쪽은 대체됨이 됩니다. 열린 목록에 영영 남지 않으면서도
+-- 뒤집혔다는 사실은 지워지지 않습니다.
+UPDATE decisions SET status = 'SUPERSEDED', updated_at = now()
+WHERE id IN (SELECT supersedes_id FROM decisions WHERE supersedes_id IS NOT NULL);
+
 -- Issues that were raised and then cleared, so the clearance report has spans
 -- to measure rather than an empty window. The spans differ on purpose: a report
 -- of identical numbers cannot show whether it is measuring anything.
@@ -556,7 +578,7 @@ SELECT (SELECT count(*) FROM organizations) AS organizations,
 DO $$
 DECLARE
   statuses int; issues int; plans int; blanks int; mail_states int; wk date;
-  ended_4w int; ended_12w int; due_buckets int;
+  ended_4w int; ended_12w int; due_buckets int; decision_states int;
 BEGIN
   wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
   SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
@@ -599,6 +621,13 @@ BEGIN
   SELECT count(DISTINCT due_date - wk) INTO due_buckets FROM work_items WHERE due_date IS NOT NULL;
   IF due_buckets < 5 THEN
     RAISE EXCEPTION '마감일이 %가지 자리에만 있습니다. 마감 전망 여섯 갈래 중 일부가 한 번도 나오지 않습니다.', due_buckets;
+  END IF;
+
+  -- 결정은 뒤집힙니다. 대체됨이 없으면 목록에서 빠지는 규칙도, 이전 결정을
+  -- 가리키는 표시도, 열린 결정을 세는 자리도 확인할 수 없습니다.
+  SELECT count(DISTINCT status) INTO decision_states FROM decisions;
+  IF decision_states < 3 THEN
+    RAISE EXCEPTION '결정 상태가 %가지뿐입니다. 대체된 결정이 없으면 뒤집힌 결정을 다루는 코드가 실행되지 않습니다.', decision_states;
   END IF;
 
   SELECT count(DISTINCT status) INTO mail_states FROM report_mail_deliveries;

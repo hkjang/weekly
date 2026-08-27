@@ -2953,6 +2953,31 @@ if (action === &#x27;reject&#x27; &amp;&amp; !comment.trim()) return   // 조용
 <div class="phase-box">병합 후  9번 결정 0 · 8번 결정 1 · 자기 링크 0 · 9번 가리키는 링크 0
         8번 화면: blockers 0 · blocking 0</div>
 <p>자리표시자를 재사용하게 되어, 이 저장소의 규칙대로 PostgreSQL 에 물어 <code>{bigint, bigint}</code> 임을 확인하고 이유와 함께 허용 목록에 적었습니다.</p>
+<p>#### 3.10.179 v0.224.0에서 완료 — 뒤집힌 결정이 하나도 없었습니다</p>
+<div class="phase-box">결정 241건 · 대체된 것 0건 · 상태 DONE, OPEN</div>
+<p>씨앗은 결정을 만들면서 <code>supersedes_id</code> 를 한 번도 채우지 않았고 <code>SUPERSEDED</code> 상태도 만들지 않았습니다. 그래서 어느 배포에서도</p>
+<ul>
+<li>대체된 결정이 후속 목록에서 <strong>빠지는 규칙</strong></li>
+<li>화면의 <strong><code>이전 결정 #N 대체</code></strong> 표시</li>
+<li>인수인계가 <strong>열린 것만 세는</strong> 자리</li>
+</ul>
+<p>셋 다 켜지지 않았습니다.</p>
+<p>##### 먼저 손으로 걸었습니다</p>
+<div class="phase-box">다른 업무의 결정을 대체 시도 → 대체할 결정은 같은 업무의 결정이어야 합니다
+같은 업무의 결정을 대체     → 1 처음 결정 SUPERSEDED · 2 바꾼 결정 OPEN 대체 1
+후속 목록                  → 1건 &#x27;바꾼 결정&#x27;  (옛 것은 빠짐)
+업무 화면                  → 둘 다, 각자의 상태와 함께
+인수인계                   → openDecisions 1</div>
+<p><strong>전부 설계대로입니다.</strong> 교차 업무 대체를 막는 것도, 뒤집힌 기록을 지우지 않고 상태만 바꾸는 것도 — 주석이 적어 둔 이유 그대로입니다. *"열린 채 두면 목록에 영영 남고, 지우면 뒤집혔다는 사실을 잃습니다."*</p>
+<p>##### 그래서 씨앗이 그 상태를 만들게 했습니다</p>
+<p>네 업무에 하나꼴로 앞선 결정을 뒤집습니다. 결정은 뒤집히는 것이고, 그때 옛 기록이 남아야 왜 바뀌었는지 읽을 수 있습니다.</p>
+<div class="phase-box">결정 301 · DONE, OPEN, SUPERSEDED · 대체 관계 60
+u6 인수인계 → openDecisions 1
+  결산 구축 방향 재결정  OPEN        대체 5
+  결산 구축 방향 결정    SUPERSEDED  대체 -</div>
+<p>자기 점검에 차원을 더했습니다 — 결정 상태가 세 가지 미만이면 <strong>씨앗이 스스로 실패합니다.</strong></p>
+<p>##### 이번에도 고칠 것은 제품이 아니었습니다</p>
+<p>v0.218.0(끝나는 일)·v0.222.0(마감일)에 이어 세 번째로, 어두운 자리를 켜고 보니 제품은 옳았습니다. <strong>어둡다는 사실 자체가 결함입니다</strong> — 옳은지 아무도 알 수 없었으니까요.</p>
 </div>
 </body>
 </html>
