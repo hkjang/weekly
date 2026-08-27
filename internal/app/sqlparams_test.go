@@ -23,6 +23,10 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		"auth.go":       "username and display name are both varchar(120); the oidc subject compare is one type",
 		"imports.go":    "the reused parameters are integer counters and bigint identifiers",
 		"middleware.go": "duration sum and max are both bigint",
+		// PREPARE deduces {bigint, bigint}: merging re-aims what pointed at the
+		// source, and the pair of work item ids is compared against the same two
+		// columns in both directions.
+		"workitemedit.go": "the reused work item ids are bigint on both sides of the link",
 		// PREPARE deduces {text, boolean, character varying, boolean, bigint}:
 		// the reused parameter only ever appears as a CASE WHEN condition.
 		"reports.go": "the reused review-reset flag is a boolean in every branch",

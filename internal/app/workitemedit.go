@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -126,6 +127,52 @@ func (a *App) mergeWorkItem(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.Exec(r.Context(), `UPDATE work_items SET merged_into_id=$1, updated_at=now() WHERE merged_into_id=$2`, input.IntoID, sourceID); err != nil {
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
 		return
+	}
+	// Everything else that pointed at the source. Only the weekly text used to
+	// move, and the source keeps no report items afterwards, so it disappears
+	// from every list — taking whatever still pointed at it out of reach.
+	//
+	// Walked on a deployment: merging 교육 개선 into 감사 개선 left the decision
+	// "교육 개선 방향 결정" on an item nobody can open — the target's decision
+	// list came back empty — and left the dependency between the two pointing at
+	// the source, so the target's screen said it was **blocked by itself**, by a
+	// task showing 진척 0 and no last week because its history had moved away.
+	// Nothing could ever clear that, because the blocker is not in any list.
+	if _, err := tx.Exec(r.Context(), `UPDATE decisions SET work_item_id=$1 WHERE work_item_id=$2`, input.IntoID, sourceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE work_item_issue_outcomes SET work_item_id=$1 WHERE work_item_id=$2`, input.IntoID, sourceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
+		return
+	}
+	// A link between the two ends becomes a link from the target to itself, and
+	// work_item_links_not_self would refuse it. Drop those first: the dependency
+	// they recorded is exactly what the merge just declared to be one task.
+	if _, err := tx.Exec(r.Context(), `DELETE FROM work_item_links
+		WHERE (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1)`, input.IntoID, sourceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
+		return
+	}
+	// Then re-aim the rest, dropping any that would duplicate a link the target
+	// already has.
+	for _, column := range []string{"blocker_id", "blocked_id"} {
+		other := "blocked_id"
+		if column == "blocked_id" {
+			other = "blocker_id"
+		}
+		if _, err := tx.Exec(r.Context(), fmt.Sprintf(`DELETE FROM work_item_links source
+			WHERE source.%s=$2 AND EXISTS (SELECT 1 FROM work_item_links target
+				WHERE target.%s=$1 AND target.%s=source.%s)`, column, column, other, other),
+			input.IntoID, sourceID); err != nil {
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
+			return
+		}
+		if _, err := tx.Exec(r.Context(), fmt.Sprintf(`UPDATE work_item_links SET %s=$1 WHERE %s=$2`, column, column),
+			input.IntoID, sourceID); err != nil {
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "업무를 합칠 수 없습니다.")
