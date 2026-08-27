@@ -121,6 +121,12 @@ PATHS = [
     "/api/v1/rollups?kind=QUARTER&period={year}-Q1&scope=TEAM",
     "/api/v1/rollups?kind=MONTH&period={year}-03&scope=TEAM",
     "/api/v1/rollups/export.csv?kind=YEAR&period={year}&scope=TEAM",
+    # The one export every writer makes every week, and the heaviest thing a
+    # single request builds: the whole file is held in memory to answer with it,
+    # so its captures are multiplied. It was measured for period reports and not
+    # for this one — the path with the most callers had the least watching.
+    "/api/v1/reports/{report}/export.pptx",
+    "/api/v1/reports/{report}/attachments",
     "/api/v1/rollups/export.pptx?kind=YEAR&period={year}&scope=TEAM",
     "/api/v1/rollups/export.pptx?kind=MONTH&period={year}-03&scope=TEAM",
     "/api/v1/team/reports",
@@ -294,8 +300,23 @@ def main() -> int:
     print(f"{'상태':>4} {'크기':>12} {'지연':>9}  경로")
     skipped = []
     hollow = []
+    # A report id cannot be written into a list of paths: it belongs to whoever
+    # is signed in. Ask the deployment for one, and skip the two paths that need
+    # it when this account has no report this week rather than measuring a 404.
+    status, body, _ = call("GET", "/api/v1/reports/current")
+    report_id = 0
+    if status == 200:
+        try:
+            report_id = int((json.loads(body).get("data") or {}).get("id") or 0)
+        except (ValueError, AttributeError):
+            report_id = 0
+    if not report_id:
+        print("이번 주 보고서가 없어 주간보고 내보내기는 재지 않습니다.", file=sys.stderr)
+
     for template in PATHS:
-        path = template.format(year=args.year)
+        if "{report}" in template and not report_id:
+            continue
+        path = template.format(year=args.year, report=report_id)
         if not reachable(path, role):
             skipped.append(path)
             continue
