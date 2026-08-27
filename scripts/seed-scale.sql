@@ -244,9 +244,11 @@ WHERE (slot <= 7 OR (r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia
            AND ((r.user_id + slot) % 23) = 1 AND p.base < 90)
   AND NOT (slot <= 7 AND r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date - 7
            AND ((r.user_id + slot) % 23) = 4)
-  -- 그리고 끝나는 업무. 열한 쌍에 하나는 18~43주차 어딘가에서 보고를 멈춥니다.
-  -- 폭이 좁으면 4주와 12주가 여전히 같은 답을 냅니다. 처음 18~37주로 두었더니
-  -- 끝난 업무가 전부 15주 넘게 전이라 두 창이 똑같이 걸러 냈습니다.
+  -- 그리고 끝나는 업무. 열한 쌍에 하나는 18~47주차 어딘가에서 보고를 멈춥니다.
+  -- 폭이 좁으면 가까운 두 창이 여전히 같은 답을 냅니다. 처음 18~37주로 두었더니
+  -- 끝난 업무가 전부 15주 넘게 전이라 4주와 12주가 똑같이 걸러 냈고, 18~43주로
+  -- 넓혔더니 이번에는 4주와 8주가 같았습니다. 화면이 내주는 가장 좁은 두 창까지
+  -- 갈리려면 최근 4~7주 사이에 끝난 업무도 있어야 합니다.
   --
   -- 이것이 없으면 2,171건이 전부 최근 4주 안에 보고된 상태가 되고, 그러면
   -- 화면의 기간 선택이 아무것도 가르지 못합니다. 실제로 재 보니 업무
@@ -256,7 +258,7 @@ WHERE (slot <= 7 OR (r.week_start = date_trunc('week', (now() AT TIME ZONE 'Asia
   -- 일은 끝납니다. 끝난 일이 다음 주 보고서에 없는 것이 정상이고, 그 부재가
   -- 있어야 '최근 N주' 라는 말에 뜻이 생깁니다.
   AND NOT (slot <= 7 AND ((r.user_id + slot) % 11) = 0
-           AND p.wk > 18 + ((r.user_id * 3 + slot) % 26));
+           AND p.wk > 18 + ((r.user_id * 3 + slot) % 30));
 
 -- A rejected report carries its reason. reviewReport() writes the reason into
 -- report_comments as well as the status history, and that comment is what the
