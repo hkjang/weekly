@@ -62,7 +62,7 @@ export interface ConfluenceMapping {
 export interface WorkItemWeek { weekStart: string; reportId: number; itemIds: number[]; progress: number; currentResult: string; nextPlan: string; issue: string; managementAsk: string }
 export interface WorkItem {
   id: number; title: string; category: string; userId: number; displayName: string; dueDate?: string
-  firstWeek: string; lastWeek: string; reportedWeeks: number; ageWeeks: number; silentWeeks: number
+  firstWeek: string; lastWeek: string; reportedWeeks: number; ageWeeks: number; silentWeeks: number; staleWeeks: number
   progress: number; startProgress: number; progressGain: number
   stalledWeeks: number; issueWeeks: number; issueRunWeeks: number; repeatedPlan: number
   completed: boolean; stalled: boolean; atRisk: boolean; carryover: boolean

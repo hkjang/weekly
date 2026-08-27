@@ -322,7 +322,8 @@ export default function WorkItemsPage({ session, notify }: {
               {item.latestManagementAsk && <span className="state-chip ask">요청</span>}
               {item.repeatedPlan >= 3 && <span className="state-chip past">계획 {item.repeatedPlan}회 반복</span>}
               {dueChip(item)}
-              {!item.completed && !item.atRisk && !item.stalled && !item.latestManagementAsk && <span className="state-chip">진행</span>}
+              {item.staleWeeks >= 4 && !item.completed && <span className="state-chip risk">{item.staleWeeks}주째 보고 없음</span>}
+              {!item.completed && !item.atRisk && !item.stalled && !item.latestManagementAsk && item.staleWeeks < 4 && <span className="state-chip">진행</span>}
             </div></td>
             {scope === 'TEAM' && <td>{item.displayName}</td>}
           </tr>)}</tbody>

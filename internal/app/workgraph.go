@@ -144,10 +144,15 @@ func (a *App) loadWorkItems(ctx context.Context, scope workScope, since string) 
 	}
 
 	cfg := a.rollupConfig(ctx)
+	// The week the reader is in, so a task can be measured against now and not
+	// only against itself.
+	currentWeek := currentWeekStart(time.Now().In(a.serviceLocation(ctx)),
+		a.setting(ctx, "workflow.week_start", "MONDAY")).Format("2006-01-02")
 	result := make([]workItemView, 0, len(order))
 	for _, id := range order {
 		item := byID[id]
 		summarizeWorkItem(item, cfg)
+		item.StaleWeeks = weeksSince(item.LastWeek, currentWeek)
 		result = append(result, *item)
 	}
 	return result, nil

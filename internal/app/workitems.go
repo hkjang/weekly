@@ -48,6 +48,14 @@ type workItemView struct {
 	ReportedWeeks int `json:"reportedWeeks"`
 	AgeWeeks      int `json:"ageWeeks"`
 	SilentWeeks   int `json:"silentWeeks"`
+	// StaleWeeks is how long ago the last report was, measured against the week
+	// the reader is in — the one thing here that looks outside the task's own
+	// span. Everything above is computed between its first and last report, so
+	// a task that simply stopped has nothing wrong inside it: stalled false,
+	// silentWeeks zero, and on screen it read healthier than work somebody is
+	// actually doing. Measured on a deployment, an item last mentioned seven
+	// months ago at 49% sat in 업무 추적 marked 진행.
+	StaleWeeks int `json:"staleWeeks"`
 
 	Progress      int `json:"progress"`
 	StartProgress int `json:"startProgress"`

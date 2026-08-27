@@ -65,3 +65,43 @@ func TestHandoverSaysWhenNobodyHasMentionedTheWorkInMonths(t *testing.T) {
 		}
 	}
 }
+
+// The measure belongs on the work item, not only in the handover: 업무 추적 is
+// the other screen whose question makes months of silence the answer, and it
+// showed such an item as 진행.
+
+// guards: loadWorkItems
+func TestTheWorkListCarriesHowLongAgoTheLastReportWas(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("stale_work_list", "USER", nil)
+
+	// One task reported this week, one abandoned in the spring.
+	server.weekWithIssue(author, "2026-08-24", "이번 주에도 하는 일", "", 40)
+	server.weekWithIssue(author, "2026-03-02", "봄에 사라진 일", "", 49)
+
+	owner := server.userIDOf(server.lastCreatedUsername("stale_work_list"))
+	items, err := server.app.loadWorkItems(server.ctx(),
+		scopeForPrincipal(&principal{ID: owner, Role: "USER"}, true), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string]workItemView{}
+	for _, item := range items {
+		byTitle[item.Title] = item
+	}
+	live, abandoned := byTitle["이번 주에도 하는 일"], byTitle["봄에 사라진 일"]
+	if live.Title == "" || abandoned.Title == "" {
+		t.Fatalf("두 업무를 찾지 못했습니다: %v", byTitle)
+	}
+	if live.StaleWeeks != 0 {
+		t.Errorf("이번 주에 보고된 업무가 %d주째 조용하다고 합니다", live.StaleWeeks)
+	}
+	if abandoned.StaleWeeks < 20 {
+		t.Errorf("봄이 마지막인 업무가 %d주째라고 합니다", abandoned.StaleWeeks)
+	}
+	// The measures computed inside its own span still say nothing is wrong,
+	// which is exactly why this one had to exist.
+	if abandoned.SilentWeeks != 0 {
+		t.Errorf("구간 안의 빈 주가 %d, 0 이어야 합니다", abandoned.SilentWeeks)
+	}
+}

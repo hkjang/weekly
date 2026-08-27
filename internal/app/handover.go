@@ -203,7 +203,10 @@ func weeksSince(lastWeek, currentWeek string) int {
 // nothing about a seven-month disappearance — on the one screen whose whole
 // question is "what does this person still owe?".
 func cautionFor(item workItemView, currentWeek string) string {
-	silentSince := weeksSince(item.LastWeek, currentWeek)
+	silentSince := item.StaleWeeks
+	if silentSince == 0 {
+		silentSince = weeksSince(item.LastWeek, currentWeek)
+	}
 	switch {
 	case silentSince >= abandonedAfterWeeks && !item.Completed:
 		return fmt.Sprintf("%d주째 이 업무를 언급한 보고가 없습니다. 마지막 기록은 %s 주차이며, 그 뒤의 상황은 아무 데도 없습니다.",
