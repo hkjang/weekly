@@ -2484,6 +2484,20 @@ real 0m5.770s</div>
 <div class="phase-box">a concurrent clone answered 500, which tells the reader nothing to do
 3 refusals for 5 attempts</div>
 <p>시험이 그 분기에 <strong>실제로 닿는다</strong>는 것까지 확인한 셈입니다 — 닿지 않았다면 되돌려도 통과했을 테니까요.</p>
+<p>#### 3.10.151 v0.196.0에서 완료 — 제약 위반을 다루는 자리를 전부 세어 봤습니다</p>
+<p>v0.195.0 에서 경쟁으로만 닿는 분기를 하나 찾았습니다. 하나 있었다면 다른 곳에도 있을 테니, <strong>제약 위반을 다루는 자리를 전부</strong> 찾았습니다.</p>
+<div class="phase-box">$ grep -rn &#x27;23505\|23503\|pgconn.PgError&#x27; internal/app/*.go
+  admin.go:624    23505  조직 코드 중복
+  admin.go:628    23503  상위 조직 없음
+  reports.go:535  23505  같은 주차 복제      ← v0.195.0</div>
+<p>셋뿐이고, 앞의 둘은 <strong>무방비였습니다.</strong> 그리고 이 둘은 경쟁이 아닙니다 — 순서대로 바로 닿습니다. 같은 코드로 두 번 만들거나, 없는 상위 조직을 가리키면 됩니다.</p>
+<p>##### 이것이 관리자가 배포를 세울 때 처음 하는 일입니다</p>
+<p>조직을 만드는 것은 새 배포의 첫 작업 중 하나이고, 그때 틀리는 방법은 딱 둘입니다 — <strong>이미 쓰는 코드</strong>와 <strong>없는 상위 조직</strong>. 둘 다 관리자 자신의 실수이고, 둘 다 고치는 데 몇 초면 됩니다.</p>
+<p>중요한 것은 상태 코드가 아니라 <strong>그 문장이 관리자를 어디로 보내느냐</strong>입니다.</p>
+<table><thead><tr><th>답</th><th>관리자가 하는 일</th></tr></thead><tbody><tr><td><code>이미 사용 중인 조직 코드입니다</code></td><td>코드를 바꿔 다시 누릅니다</td></tr><tr><td><code>조직을 만들 수 없습니다</code> + 500</td><td><strong>없는 장애를 찾으러 로그를 엽니다</strong></td></tr></tbody></table>
+<p>##### 시험이 보는 것</p>
+<p>코드와 상태만이 아니라, 거절이 <strong>무엇이 문제인지 말하는지</strong>, 그리고 거절된 생성이 <strong>행을 남기지 않는지</strong> 까지 봅니다.</p>
+<p>세 가지로 되돌려 확인했습니다 — 중복을 500 으로, 없는 상위를 500 으로, 그리고 둘의 답을 뒤바꿔서. 셋 다 떨어집니다.</p>
 </div>
 </body>
 </html>
