@@ -153,12 +153,27 @@ func TestAppendSlidesRegistersImageContentType(t *testing.T) {
 	}
 }
 
-func TestAttachmentSlidesSkipUnreadableFiles(t *testing.T) {
+// A capture whose file is gone must not put a broken picture reference in the
+// package — that was the original rule and it still holds. Dropping the page
+// was the wrong way to keep it: five captures went into the report and three
+// came out of the deck, with nothing in the file saying which two were lost or
+// why. The deployment logs that once at startup, for an operator; the author
+// downloading the deck is a different person asking a different question.
+func TestAnUnreadableCaptureKeepsItsPageAndSaysWhatHappened(t *testing.T) {
 	slides := attachmentSlides(
-		[]storedAttachment{captureAttachment(1, "missing.png", "", placementAfter, 100, 100)},
+		[]storedAttachment{captureAttachment(1, "missing.png", "설비 대시보드", placementAfter, 100, 100)},
 		defaultSlideCX, defaultSlideCY, openBodies(nil))
-	if len(slides) != 0 {
-		t.Error("an unreadable capture must be skipped rather than produce a broken slide")
+	if len(slides) != 1 {
+		t.Fatalf("the capture lost its page entirely: %d slides", len(slides))
+	}
+	if len(slides[0].Media) != 0 {
+		t.Error("a missing file must not be referenced as a picture")
+	}
+	if !strings.Contains(slides[0].Shapes, "설비 대시보드") {
+		t.Error("the page does not carry the caption the author wrote")
+	}
+	if !strings.Contains(slides[0].Shapes, "이미지 파일을 찾을 수 없어") {
+		t.Errorf("the page does not say why the picture is not there: %s", slides[0].Shapes)
 	}
 }
 

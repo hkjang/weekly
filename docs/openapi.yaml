@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.226.0
+  version: 0.227.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -715,6 +715,12 @@ paths:
            보고서를 찾고 응답의 semantic을, 해당 hit의 semantic을 true로 표시한다.
 
         두 확장이 모두 없으면 1단계 정확 일치만 수행하며 기존 동작과 같다.
+
+        결과가 5건 미만인데 위 단계 중 하나가 **수행되지 못했으면** 그 사유를 `reason`에
+        담는다 — 확장이 없거나, 임베딩이 설정되지 않았거나, 그 단계가 실패한 경우다.
+        짧은 결과 목록은 읽는 사람에게 "그런 보고가 없다"는 증거로 읽히는데, 넓히는
+        단계가 실제로 돌았을 때만 증거가 된다. 결과가 충분하면 `reason`은 비어 있다 —
+        넓힐 필요가 없던 검색에 어떤 확장이 없는지 알리는 것은 묻지 않은 질문이다.
       parameters:
         - { name: q, in: query, required: true, description: "2자 이상. 공백으로 나눈 단어는 최대 6개까지 사용한다.", schema: { type: string } }
       responses:

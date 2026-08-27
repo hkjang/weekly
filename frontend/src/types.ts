@@ -121,7 +121,7 @@ export interface SearchHit {
   approximate?: boolean; semantic?: boolean; reportId: number; userId: number; displayName: string; weekStart: string
   status: ReportStatus; sourceType: ReportSource; matches: SearchMatch[]; score: number
 }
-export interface SearchResponse { query: string; terms: string[]; hits: SearchHit[]; truncated: boolean; fuzzy?: boolean; semantic?: boolean }
+export interface SearchResponse { query: string; terms: string[]; hits: SearchHit[]; truncated: boolean; fuzzy?: boolean; semantic?: boolean; reason?: string }
 
 export type AttachmentPlacement = 'BEFORE' | 'AFTER'
 export interface ReportAttachment {

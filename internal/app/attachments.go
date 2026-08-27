@@ -434,8 +434,28 @@ func safeAttachmentPath(stored string) string {
 func attachmentSlides(items []storedAttachment, canvasWidth, canvasHeight int, open func(storedAttachment) (func() ([]byte, error), bool)) []builtSlide {
 	slides := make([]builtSlide, 0, len(items))
 	for index, item := range items {
+		margin := canvasWidth / 25
+		headerHeight := canvasHeight / 9
+		caption := strings.TrimSpace(item.Caption)
+		title := caption
+		if title == "" {
+			title = item.Filename
+		}
 		load, ok := open(item)
 		if !ok {
+			// The file is gone from the state volume — the deployment logs that
+			// once, at startup, to an operator. The author downloading the deck
+			// is a different person with a different question: five captures
+			// went in and three came out, and dropping the slide answered it
+			// with silence. The page stays, with its title and its place in the
+			// order, and says what happened to the picture.
+			shapes := textBox(2, "CaptureTitle", margin, margin, canvasWidth-2*margin, headerHeight,
+				shapeStyle{}, []textRun{{Text: title, Size: 1600, Bold: true, Color: "0F172A"}})
+			shapes += textBox(3, "CaptureMissing", margin, margin+headerHeight,
+				canvasWidth-2*margin, canvasHeight/6, shapeStyle{Fill: "FEF3C7"},
+				[]textRun{{Text: "이미지 파일을 찾을 수 없어 담지 못했습니다. 이 캡처를 다시 올려 주세요.",
+					Size: 1400, Color: "92400E"}})
+			slides = append(slides, builtSlide{Shapes: shapes})
 			continue
 		}
 		relID := "rId2"
@@ -446,13 +466,6 @@ func attachmentSlides(items []storedAttachment, canvasWidth, canvasHeight int, o
 			Load:        load,
 			RelID:       relID,
 		}
-		margin := canvasWidth / 25
-		caption := strings.TrimSpace(item.Caption)
-		title := caption
-		if title == "" {
-			title = item.Filename
-		}
-		headerHeight := canvasHeight / 9
 		shapes := textBox(2, "CaptureTitle", margin, margin, canvasWidth-2*margin, headerHeight,
 			shapeStyle{}, []textRun{{Text: title, Size: 1600, Bold: true, Color: "0F172A"}})
 		boxY := margin + headerHeight

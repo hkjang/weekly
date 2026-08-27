@@ -194,6 +194,11 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
         {search?.truncated && <span className="palette-busy">결과가 많아 일부만 표시합니다</span>}
         {(search?.fuzzy || search?.semantic) && <span className="palette-busy">
           정확히 일치하는 결과가 적어 {search.semantic ? '표기가 비슷하거나 의미가 가까운' : '비슷한'} 내용도 함께 찾았습니다</span>}
+        {/* A short list is the reader's evidence that nothing was written about
+            this. It is only evidence if the wider passes actually ran, so when
+            one of them could not, say so here rather than let the silence
+            stand for an answer. */}
+        {search?.reason && <span className="palette-busy">{search.reason}</span>}
         <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
         <span><kbd>Enter</kbd> 열기</span>
         <span><kbd>g</kbd> 다음 <kbd>d</kbd>·<kbd>c</kbd>·<kbd>h</kbd>·<kbd>r</kbd> 바로가기</span>

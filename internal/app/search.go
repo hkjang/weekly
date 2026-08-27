@@ -78,6 +78,13 @@ type searchResponse struct {
 	Fuzzy bool `json:"fuzzy"`
 	// Semantic reports that meaning-based matches are included.
 	Semantic bool `json:"semantic"`
+	// Reason says why a thin result stayed thin: which of the two widening
+	// passes could not run, and why. Without it a search whose widening passes
+	// both failed looks exactly like a search that widened and still found
+	// nothing — and the reader concludes the report does not exist. The work
+	// search already answers this question on its own screen; this is the same
+	// answer for the report search.
+	Reason string `json:"reason,omitempty"`
 }
 
 // searchTerms splits the query into at most searchMaxTerms non-empty terms.
@@ -168,10 +175,19 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	// different ending. When trigram similarity is available and the exact pass
 	// came back thin, offer approximate matches rather than an empty screen.
 	fuzzy := false
-	if a.capabilities.Trigram && len(hits) < searchThinResult {
+	// Only ever said about a thin result: a full page of exact matches did not
+	// need widening, and telling that reader which extension is missing is
+	// noise about a question they never asked.
+	notes := []string{}
+	thin := len(hits) < searchThinResult
+	if thin && !a.capabilities.Trigram {
+		notes = append(notes, "이 데이터베이스에 pg_trgm 확장이 없어 오타나 어미가 다른 표기는 찾지 못했습니다.")
+	}
+	if a.capabilities.Trigram && thin {
 		approximate, approxErr := a.searchApproximate(r, p, terms, byReport)
 		if approxErr != nil {
 			a.logger.Warn("approximate search", "error", approxErr, "trace", traceIDFromContext(r.Context()))
+			notes = append(notes, "유사 검색이 실패해 글자가 그대로 일치하는 결과만 보여 줍니다. 서버 로그에서 원인을 확인하세요.")
 		} else if len(approximate) > 0 {
 			fuzzy = true
 			hits = append(hits, approximate...)
@@ -188,13 +204,21 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	// It costs an embedding call, so it only runs when the cheaper passes came
 	// back thin and the feature is configured.
 	semantic := false
-	if a.capabilities.Vector && len(hits) < searchThinResult {
-		matches, semanticErr := a.searchSemantic(r, p, query, byReport)
-		if semanticErr != nil {
-			a.logger.Warn("semantic search", "error", semanticErr, "trace", traceIDFromContext(r.Context()))
-		} else if len(matches) > 0 {
-			semantic = true
-			hits = append(hits, matches...)
+	if thin {
+		// The configuration layer already writes these sentences for a person
+		// to read — the 검색 설정 line prints the same text. Throwing them away
+		// here and showing nothing was the whole defect.
+		if _, cfgErr := a.embeddingConfig(r.Context()); cfgErr != nil {
+			notes = append(notes, cfgErr.Error())
+		} else {
+			matches, semanticErr := a.searchSemantic(r, p, query, byReport)
+			if semanticErr != nil {
+				a.logger.Warn("semantic search", "error", semanticErr, "trace", traceIDFromContext(r.Context()))
+				notes = append(notes, "의미 검색이 실패해 글자 일치 결과만 보여 줍니다. 서버 로그에서 원인을 확인하세요.")
+			} else if len(matches) > 0 {
+				semantic = true
+				hits = append(hits, matches...)
+			}
 		}
 	}
 
@@ -202,7 +226,8 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	if len(hits) > searchReportLimit {
 		hits = hits[:searchReportLimit]
 	}
-	writeData(w, http.StatusOK, searchResponse{Query: query, Terms: terms, Hits: hits, Truncated: truncated, Fuzzy: fuzzy, Semantic: semantic})
+	writeData(w, http.StatusOK, searchResponse{Query: query, Terms: terms, Hits: hits, Truncated: truncated,
+		Fuzzy: fuzzy, Semantic: semantic, Reason: strings.Join(notes, " ")})
 }
 
 // appendSearchMatches records the highest value snippets for one scanned row.
