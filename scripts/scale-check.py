@@ -341,6 +341,76 @@ def main() -> int:
         if notes:
             findings.append((path, notes))
 
+    # The other door. Every path above is one a browser opens; these are the
+    # same data as a tool call, and the tool result is the whole of what a
+    # language model sees — it cannot scroll past a big one, it pays for it.
+    #
+    # This pass exists because the surface it covers went unmeasured until
+    # somebody called it by hand: period_report_rollup was returning 2,563,406
+    # bytes at organisation scope, six times what the screen sent, while this
+    # tool reported the deployment healthy. A measurer that cannot see a door
+    # is why v0.171 added the hollow-answer check, and this is the same lesson
+    # on a different surface.
+    status, body, _ = call("POST", "/api/v1/keys", {
+        "name": "scale-check", "expiresInDays": 1,
+        "scopes": ["reports:read", "analytics:read", "mcp:read"]})
+    token = ""
+    if status in (200, 201):
+        try:
+            token = json.loads(body)["data"]["token"]
+        except (KeyError, ValueError):
+            token = ""
+    if not token:
+        print(f"\nMCP 점검을 건너뜁니다 — API 키를 발급받지 못했습니다 ({status}).")
+    else:
+        def tool_call(name, arguments):
+            payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                  "params": {"name": name, "arguments": arguments}}).encode()
+            request = urllib.request.Request(
+                args.base + "/mcp", data=payload, method="POST",
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+            started = time.time()
+            try:
+                with urllib.request.urlopen(request) as response:
+                    return response.status, response.read(), (time.time() - started) * 1000
+            except urllib.error.HTTPError as error:
+                return error.code, error.read(), (time.time() - started) * 1000
+
+        wide = "TEAM" if role != "USER" else "SELF"
+        print(f"\n{'상태':>4} {'크기':>12} {'지연':>9}  MCP 도구")
+        for name, arguments in (
+                ("weekly_submission_overview", {}),
+                ("weekly_reports_search", {}),
+                ("period_report_rollup", {"kind": "YEAR", "period": str(args.year), "scope": wide}),
+        ):
+            status, body, took = tool_call(name, arguments)
+            notes = []
+            if status != 200:
+                notes.append(str(status))
+            # The same ceiling the screens are held to. A tool result is not
+            # allowed to be larger than a page just because nobody looks at it.
+            if len(body) > args.max_bytes:
+                notes.append(f"{len(body):,}B > 상한 {args.max_bytes:,}B")
+            if took > args.max_ms:
+                notes.append(f"{took:.0f}ms > 상한 {args.max_ms}ms")
+            # A truncated tool result that does not say so is worse than a
+            # truncated screen: the reader has no scrollbar to discover it.
+            try:
+                structured = json.loads(body)["result"]["structuredContent"]
+            except (KeyError, ValueError, TypeError):
+                structured = None
+            if isinstance(structured, dict):
+                for key, value in structured.items():
+                    if not isinstance(value, list) or not value:
+                        continue
+                    total_key = next((k for k in (key + "Total", "total", "itemsTotal")
+                                      if isinstance(structured.get(k), int)), None)
+                    if total_key and structured[total_key] > len(value) and not structured.get("note"):
+                        notes.append(f"{key} 가 {structured[total_key]}건 중 {len(value)}건인데 안내 문장이 없음")
+            mark = "  <== " + " · ".join(notes) if notes else ""
+            print(f"{status:>4} {len(body):>11,}B {took:>7.0f}ms  {name}{mark}")
+            if notes:
+                findings.append((f"mcp:{name}", notes))
     print()
     if hollow:
         # Not counted against the run: the endpoint did nothing wrong. What is

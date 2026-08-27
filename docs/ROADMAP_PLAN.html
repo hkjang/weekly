@@ -2302,6 +2302,23 @@ Exception in thread Thread-7 (writer):
 <table><thead><tr><th></th><th>크기</th></tr></thead><tbody><tr><td>처음</td><td>2,563,406 B</td></tr><tr><td>자르기·상한 뒤</td><td>517,073 B</td></tr><tr><td>들여쓰기 제거 뒤</td><td><strong>421,379 B</strong></td></tr></tbody></table>
 <p>##### 곁가지 — 기간 보고 계층 변이 검사 완료</p>
 <p>가드 8개를 격리된 워크트리에서 전부 돌렸습니다. 살아남은 변이는 <strong>모두 다른 시험이 잡았습니다.</strong> 빈틈 없음입니다.</p>
+<p>#### 3.10.139 v0.184.0에서 완료 — 재는 자가 못 보던 두 번째 문</p>
+<p>v0.183.0의 2.5MB는 제가 <strong>손으로 불러 봐서</strong> 찾았습니다. 그동안 <code>scale-check.py</code> 는 같은 배포를 "지적 사항 없음" 이라고 보고하고 있었습니다. MCP 를 아예 부르지 않기 때문입니다.</p>
+<p>v0.171에서 같은 일을 겪었습니다 — 그때는 범위 매개변수를 안 줘서 663바이트를 재고 있었고, 이번에는 문 하나를 통째로 안 보고 있었습니다.</p>
+<p>MCP 도구 호출을 화면과 <strong>같은 잣대</strong>로 잽니다. 세션으로 키를 발급받아 부르므로 새 설정이 필요 없습니다.</p>
+<div class="phase-box">  상태           크기        지연  MCP 도구
+ 200         599B      23ms  weekly_submission_overview
+ 200      52,735B      10ms  weekly_reports_search
+ 200     421,379B     116ms  period_report_rollup</div>
+<p>##### 도구 결과에는 스크롤이 없습니다</p>
+<p>화면이 잘리면 사람은 "N건 중 M건" 을 보고 스크롤합니다. 도구 결과가 잘리면 모델은 <strong>알 방법이 없습니다.</strong> 그래서 크기·지연에 더해 하나를 더 봅니다 — 목록에 총계가 붙어 있고 그 총계가 실린 개수보다 큰데 <strong><code>note</code> 가 없으면</strong> 지적합니다.</p>
+<p>##### 고치기 전 빌드에 대고 확인했습니다</p>
+<div class="phase-box"> 200   2,563,406B     130ms  period_report_rollup  &lt;== 2,563,406B &gt; 상한 1,000,000B
+
+지적 사항 1건 (확인 21개 경로)
+  mcp:period_report_rollup
+    - 2,563,406B &gt; 상한 1,000,000B</div>
+<p>v0.182.0 컨테이너를 띄워 실제로 잡히는 것을, v0.183.0 에서 종료 코드 0 으로 통과하는 것을 함께 봤습니다. 다음에 누가 이 문으로 큰 응답을 흘리면 손이 아니라 도구가 먼저 말합니다.</p>
 </div>
 </body>
 </html>
