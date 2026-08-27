@@ -420,11 +420,20 @@ SELECT r.id, r.user_id, s.address,
        CASE WHEN (r.id % 17) = 0 THEN 5
             WHEN (r.id % 11) = 0 THEN 1 + (r.id % 3)
             ELSE 1 END,
+       -- What a writer is actually shown. The first version stored the raw Go
+       -- error, relay address and all, and that is exactly what the product
+       -- used to do — so the seed reproduced the leak and made it look normal.
+       -- These are the sentences mailUserMessage produces.
+       -- What a writer is actually shown: the relay's own words where it
+       -- answered, and a plain sentence where nothing did. The first version
+       -- stored the raw dial error, relay address and all — which is what the
+       -- product used to do, so the seed reproduced the leak and made it look
+       -- like the normal shape.
        CASE WHEN (r.id % 17) = 0
               THEN (ARRAY['받는 주소를 릴레이가 거부했습니다: 550 5.1.1 mailbox unavailable',
-                          '연결할 수 없습니다: dial tcp 10.20.0.25:25: i/o timeout'])[1 + (r.id % 2)]
+                          '릴레이에 연결하지 못했습니다. 잠시 뒤 다시 시도합니다.'])[1 + (r.id % 2)]
             WHEN (r.id % 11) = 0
-              THEN (ARRAY['연결할 수 없습니다: dial tcp 10.20.0.25:25: connect: connection refused',
+              THEN (ARRAY['릴레이와 암호화 연결을 맺지 못했습니다. 관리자에게 알려 주세요.',
                           '릴레이가 본문을 받지 않았습니다: 451 4.3.0 temporary local problem'])[1 + (r.id % 2)]
             ELSE '' END,
        -- Never later than now. The first version dated the current week's

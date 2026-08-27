@@ -404,7 +404,7 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 	if err := a.sendMail(ctx, settings, address, subject, body); err != nil {
 		if attempts >= settings.MaxAttempts {
 			a.logger.Error("report mail gave up", "delivery", deliveryID, "attempts", attempts, "error", err)
-			a.markMailFailed(ctx, deliveryID, err.Error())
+			a.markMailFailed(ctx, deliveryID, mailUserMessage(err))
 			return true
 		}
 		// Left QUEUED with the reason on it, so the writer sees why it has not
@@ -412,7 +412,7 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 		// try is far enough away to outlast the outage that caused this one.
 		if _, dbErr := a.db.Exec(ctx, `UPDATE report_mail_deliveries
 			SET error_message=$2, next_attempt_at = now() + $3::interval WHERE id=$1`,
-			deliveryID, trimRunes(err.Error(), 1000), retryDelay(attempts).String()); dbErr != nil {
+			deliveryID, trimRunes(mailUserMessage(err), 1000), retryDelay(attempts).String()); dbErr != nil {
 			// Without the new time this row is due again immediately and the
 			// queue spins on it, so a write that failed is worth saying.
 			a.logger.Error("defer mail retry", "delivery", deliveryID, "error", dbErr)
@@ -444,6 +444,44 @@ func retryDelay(attempts int) time.Duration {
 		delay = 2 * time.Hour
 	}
 	return delay
+}
+
+// mailUserMessage keeps the relay's own words and drops this deployment's.
+//
+// The reason on a delivery row is shown on 개인 설정 to the writer, and what a
+// relay says about an address is exactly what they need — "받는 주소를 릴레이가
+// 거부했습니다: 550 5.1.1 mailbox unavailable" tells somebody their address is
+// wrong, and TestARefusedDeliveryKeepsTheRelaysOwnReason exists to keep it
+// reaching them.
+//
+// What has no business there is the transport underneath. Measured on a
+// deployment with the relay unreachable, the same field read "연결할 수
+// 없습니다: dial tcp 10.20.0.25:25: connect: connection refused" and "…lookup
+// smtp.internal.example on 127.0.0.11:53: no such host": the relay's address,
+// its port and the container's resolver, on the screens of 61 ordinary writers
+// who can do nothing with any of it. The relay did not say those things — Go
+// did, about our own network.
+//
+// So only the failures that never got as far as a reply are replaced. The whole
+// error stays in the server log either way.
+func mailUserMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	lowered := strings.ToLower(text)
+	switch {
+	case strings.Contains(lowered, "no such host"), strings.Contains(lowered, "connection refused"),
+		strings.Contains(lowered, "dial "), strings.Contains(lowered, "i/o timeout"),
+		strings.Contains(lowered, "deadline exceeded"), strings.Contains(lowered, "network is unreachable"):
+		return "릴레이에 연결하지 못했습니다. 잠시 뒤 다시 시도합니다."
+	case strings.Contains(lowered, "x509"), strings.Contains(lowered, "certificate"),
+		strings.Contains(lowered, "tls:"):
+		return "릴레이와 암호화 연결을 맺지 못했습니다. 관리자에게 알려 주세요."
+	case strings.Contains(text, "계정 인증에 실패했습니다"):
+		return "릴레이가 계정 인증을 거부했습니다. 관리자에게 알려 주세요."
+	}
+	return text
 }
 
 func (a *App) markMailFailed(ctx context.Context, deliveryID int64, reason string) {
