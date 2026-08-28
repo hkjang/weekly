@@ -6881,3 +6881,54 @@ if (!(error instanceof APIError)) return error instanceof Error ? error.message 
 2) 다른 탭에서 로그인하고 돌아와 저장 → "보고서를 저장했습니다." · 배너 사라짐
 3) 새로고침  → 쓰던 글이 저장되어 있음
 ```
+
+#### 3.10.209 v0.254.0에서 완료 — 주소창이 화면과 다른 말을 합니다
+
+보고서 링크를 주고받는 도구에서 **깊은 링크**를 봤습니다. 대부분 잘 됩니다.
+
+```
+로그인 전에 연 #/history?report=104  → 로그인 뒤 그 보고서가 열립니다
+#/rollup?kind=QUARTER&period=2026-Q3 → 그 기간으로 복원됩니다
+없는 보고서 번호                      → "이 보고서를 조회할 권한이 없습니다."
+```
+
+**없는 화면 이름만 다릅니다.**
+
+```
+#/nonexistent  → 대시보드를 그리고, 주소는 #/nonexistent 그대로
+#/reports      → 같음 (있을 법한 이름이라 더 그럴듯합니다)
+#/             → 같음
+```
+
+##### 코드에는 바로잡으려는 의도가 있었습니다
+
+```ts
+useEffect(() => {
+  if (!parseRoute()) replaceRoute('dashboard')
+  ...
+}, [])
+```
+
+계측해 보니 **첫 적재에서만** 돕니다.
+
+```
+ROUTE-PROBE hash=  parsed= undefined
+ROUTE-PROBE normalising
+ROUTE-PROBE after= #/dashboard      ← 여기까지는 맞습니다
+--- 없는 주소로 이동 ---
+(아무 출력 없음)                      ← 효과가 다시 돌지 않습니다
+최종 주소: #/nonexistent
+```
+
+**해시만 바뀌는 이동은 재적재가 아닙니다.** 브라우저는 문서를 다시 읽지 않고 `hashchange` 만 쏘므로, 앱은 다시 마운트되지 않고 그 줄은 두 번 다시 실행되지 않습니다. `syncPage` 는 화면을 대시보드로 되돌리면서 주소는 손대지 않습니다.
+
+결과는 **주소창이 화면과 다른 말을 하는 것**입니다. 지금 보는 것을 즐겨찾기하거나 남에게 보내면, 존재하지 않는 화면을 가리키면서 그럴듯해 보이는 주소가 갑니다.
+
+##### 같은 파일에 답이 이미 있었습니다
+
+권한 없는 화면으로 갔을 때는 두 쪽을 다 합니다 — `replaceRoute('dashboard')` 와 `setPage('dashboard')`. 없는 화면에도 같은 것을 합니다.
+
+```
+고침 후  #/nonexistent → #/dashboard · #/reports → #/dashboard · #/ → #/dashboard
+         정상 이동·뒤로 가기·저장 안 한 글의 이동 확인 모두 그대로
+```

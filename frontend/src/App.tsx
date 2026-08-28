@@ -117,6 +117,21 @@ export default function App() {
       }
       current = window.location.hash
       const route = parseRoute()
+      // An address this build does not serve — a stale bookmark, a renamed
+      // screen, a typo — falls back to the dashboard. The address has to fall
+      // back with it. Normalising only at mount left the two disagreeing for
+      // every navigation after the first: hash-only changes do not reload the
+      // page, so the line above this listener never ran again, and the reader
+      // sat on the dashboard at #/nonexistent — an address that looks valid and
+      // is the wrong thing to bookmark or send to somebody.
+      //
+      // The permission fallback below already does both halves; this is the
+      // same move for a route that does not exist rather than one the reader
+      // may not open.
+      if (!route) {
+        replaceRoute('dashboard')
+        current = window.location.hash
+      }
       setPage(route?.page ?? 'dashboard')
       setParams(route?.params ?? {})
     }
