@@ -15,11 +15,27 @@ suite. A refusal nobody misses is a rule nobody is keeping.
 Not part of CI: one full suite per site is far too slow. Run it when the
 authorisation surface changes.
 
+**While this runs, the working tree is deliberately broken.** Each site is
+edited out, the suite is run, and the file is put back — for forty minutes or
+more. Anything else that builds or tests the same checkout in that window is
+compiling sabotaged code, and what it sees is authorisation refusals that do not
+refuse. That happened twice: a full suite run beside this one reported three
+role gates answering 200 to non-administrators, and another reported a stranger
+deleting somebody else's link. Both were read as intermittent product bugs and
+one was written into the roadmap as an unexplained open question. Neither was
+real; both were this tool, mid-mutation, in the same directory.
+
+So it now says so, refuses to run twice at once, leaves a marker naming the file
+it is holding open, and puts the file back even when it is killed.
+
 Run: WEEKLY_TEST_POSTGRES_DSN=... python3 scripts/authz-check.py [--limit N]
 """
 import argparse
+import atexit
+import os
 import pathlib
 import re
+import signal
 import subprocess
 import sys
 
@@ -121,10 +137,45 @@ def run_suite(dsn_present):
     return result.returncode == 0, output, sorted(set(FAILED_TEST.findall(output)))
 
 
+MARKER = ROOT / ".authz-check-running"
+
+
+def claim_the_tree():
+    """Refuse to start beside another run, and say the tree is being mutated.
+
+    The marker is the part that matters. It is not for this process — it is for
+    whoever is about to run `go test` in the same directory and wonder why an
+    authorisation test just failed.
+    """
+    if MARKER.exists():
+        owner = MARKER.read_text(encoding="utf-8").strip()
+        print(f"이미 돌고 있습니다: {MARKER}\n  {owner}\n"
+              "  같은 체크아웃에서 둘이 동시에 파일을 고치면 서로의 원본을 덮어씁니다.\n"
+              f"  그 실행이 죽어서 남은 파일이라면 지우고 다시 시작하세요: rm {MARKER}",
+              file=sys.stderr)
+        return False
+    MARKER.write_text(f"pid {os.getpid()} · 권한 검사가 작업 트리를 고치는 중입니다\n", encoding="utf-8")
+    print("─" * 72)
+    print("이 검사가 도는 동안 작업 트리는 **일부러 망가진 상태**입니다.")
+    print("한 번에 한 곳씩 권한 거부를 지웠다가 되돌립니다. 수십 분 걸립니다.")
+    print("그동안 같은 디렉터리에서 build 나 test 를 돌리지 마십시오 —")
+    print("거부하지 않는 권한 검사를 보게 되고, 그것은 제품의 결함이 아닙니다.")
+    print("─" * 72)
+    return True
+
+
+def release_the_tree():
+    MARKER.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0, help="only the first N sites")
     args = parser.parse_args()
+
+    if not claim_the_tree():
+        return 2
+    atexit.register(release_the_tree)
 
     found, skipped, layered, second = sites()
     if args.limit:
@@ -159,11 +210,28 @@ def main():
         original = path.read_text(encoding="utf-8")
         lines = original.split("\n")
         removed = lines[:index] + lines[index + 2:]
+
+        # A finally covers an exception and not a kill. Ctrl-C, a timeout, or
+        # the runner deciding it no longer needs this run all leave the file
+        # edited, and the next person to build finds a check that is simply
+        # gone. So the same restore is armed on the signals too, and the marker
+        # names the file while it is open.
+        def put_it_back(*_):
+            path.write_text(original, encoding="utf-8")
+            release_the_tree()
+            sys.exit(130)
+
+        previous = {number: signal.signal(number, put_it_back)
+                    for number in (signal.SIGINT, signal.SIGTERM)}
+        MARKER.write_text(f"pid {os.getpid()} · {path.name}:{index + 1} 을 지운 상태입니다\n", encoding="utf-8")
         path.write_text("\n".join(removed), encoding="utf-8")
         try:
             passed, output, failures = run_suite(True)
         finally:
             path.write_text(original, encoding="utf-8")
+            for number, handler in previous.items():
+                signal.signal(number, handler)
+            MARKER.write_text(f"pid {os.getpid()} · 권한 검사가 작업 트리를 고치는 중입니다\n", encoding="utf-8")
         if not passed:
             keepers[(path.name, index)] = failures
         if passed:

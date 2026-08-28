@@ -21,3 +21,4 @@ cmd/weekly/web/*
 # Python bytecode from the check scripts
 __pycache__/
 *.pyc
+.authz-check-running

@@ -7,8 +7,25 @@
 # the README and loads an image that is not the one this tree builds, or a
 # Compose file pins a tag that was never published.
 #
+# It also refuses to bless a tree that another tool is holding open.
+#
+# authz-check.py deletes one authorisation refusal at a time and puts it back;
+# for the forty minutes that takes, the checkout does not compile the product it
+# claims to. `git add -A` beside it swept a half-removed check into a release,
+# and v0.259.0 shipped a handover endpoint that would answer for somebody else's
+# organisation. This is the last gate before a version is stamped, so it is
+# where that has to stop.
+#
 # Run: scripts/version-check.sh
 set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -e "$root/.authz-check-running" ]; then
+  echo "권한 검사가 이 작업 트리를 고치는 중입니다:"
+  sed 's/^/  /' "$root/.authz-check-running"
+  echo "  지금 커밋하면 지워진 권한 검사가 그대로 나갑니다. 끝나기를 기다리십시오."
+  exit 1
+fi
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 version=$(tr -d ' \n' < "$root/VERSION")

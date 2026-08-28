@@ -253,6 +253,8 @@ func (a *App) handover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !visible {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "조회 권한 범위 밖의 담당자입니다.")
+			return
 		}
 	}
 	scope := scopeForPrincipal(p, false)
