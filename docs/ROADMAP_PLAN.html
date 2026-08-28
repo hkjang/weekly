@@ -3488,6 +3488,26 @@ README 가 바뀌고 코드가 그대로  → &quot;README 에 &#x27;| 진척 �
          33초: 버튼 풀림 · &quot;수정 저장&quot; · &quot;서버가 시간 안에 답하지 않았습니다…&quot;
          쓰던 글: 그대로</div>
 <p>사용자가 스스로 그만둔 <code>AbortError</code> 는 서버 침묵과 구분합니다 — 화면이 정리하며 취소한 요청을 실패로 알릴 일은 아닙니다.</p>
+<p>#### 3.10.208 v0.253.0에서 완료 — 배너가 한 말을 토스트가 흐렸습니다</p>
+<p>망 실패 갈래의 마지막 질문입니다. <strong>글을 쓰는 중에 세션이 만료되면</strong> 그 글은 어떻게 되는가. <code>auth.session_hours</code> 가 있는 한 이것은 언젠가가 아니라 <strong>반드시</strong> 일어납니다.</p>
+<p>재현했습니다. 요약을 쓰다가 세션 행을 지우고 저장을 눌렀습니다.</p>
+<div class="phase-box">화면       : 편집 화면 그대로
+요약 칸 값 : 쓰던 글 그대로
+배너       : &quot;세션이 만료되었습니다. 작성 중인 내용이 있어 이 화면을 그대로 두었습니다.
+              새 탭에서 다시 로그인한 뒤 이 화면으로 돌아와 저장하세요.&quot; [새 탭에서 로그인]</div>
+<p><strong>이미 잘 되어 있습니다.</strong> 이 자리의 주석이 이유까지 적어 둡니다 — *"Never throw away typed work to show a login form. The editor is the one screen that can be holding an hour of it."*</p>
+<p>##### 그런데 그 옆에 토스트가 하나 더 떴습니다</p>
+<div class="phase-box">토스트: &quot;로그인이 필요합니다.&quot;</div>
+<p>서버의 일반 401 문장입니다. 배너가 <strong>화면을 그대로 두었고 어디서 로그인하면 되는지</strong>까지 말한 옆에서, 이 문장은 더 적게 말하면서 혼자 읽히면 *"새로고침하고 로그인해라"* 로 읽힙니다 — 쓰던 글을 버리는 바로 그 동작입니다.</p>
+<p>같은 파일의 다른 주석이 이 위험을 이미 알고 있었습니다.</p>
+<blockquote>*"A banner on the login screen rather than a toast: the screen that fails first also raises its own error toast, and <strong>whichever lands last wins.</strong> The reason the user is looking at a login form should not be a race."*</blockquote>
+<p><strong>배너를 고른 이유가 그것이었고, 토스트는 그래도 왔습니다.</strong> 배너가 서 있는 동안에는 오류 토스트를 내지 않습니다.</p>
+<p>##### 배너가 문제보다 오래 살면 안 됩니다</p>
+<p>성공한 요청 하나면 쿠키가 다시 좋아졌다는 뜻입니다 — 배너가 시킨 대로 다른 탭에서 로그인하고 돌아온 것입니다. 그때 배너를 걷고 토스트를 다시 켭니다. 이것이 없으면 배너가 남고 오류 토스트가 그 페이지가 사는 내내 삼켜집니다.</p>
+<p>배너가 설명하는 길을 끝까지 걸어 확인했습니다.</p>
+<div class="phase-box">1) 만료 뒤   배너 서 있음 · 토스트 없음
+2) 다른 탭에서 로그인하고 돌아와 저장 → &quot;보고서를 저장했습니다.&quot; · 배너 사라짐
+3) 새로고침  → 쓰던 글이 저장되어 있음</div>
 </div>
 </body>
 </html>

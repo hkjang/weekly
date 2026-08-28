@@ -56,7 +56,24 @@ export default function App() {
   const navRef = useRef<HTMLElement>(null)
   const [signedOut, setSignedOut] = useState(false)
 
-  const notify = (message: string, kind: 'success' | 'error' = 'success') => setToast(previous => ({ message, kind, id: (previous?.id ?? 0) + 1 }))
+  const expiredRef = useRef(false)
+  const notify = (message: string, kind: 'success' | 'error' = 'success') => {
+    // While the expiry banner is standing, every request fails the same way and
+    // every screen raises its own toast for it — "로그인이 필요합니다.", the
+    // server's generic 401. Beside a banner that already says the screen was
+    // kept and where to sign in, that is a second, weaker voice saying less:
+    // on its own it reads as "reload and log in", which is the one action that
+    // throws the writing away. The note above this component chose a banner
+    // over a toast for exactly this reason; the toast still arrived.
+    if (kind === 'error' && expiredRef.current) return
+    // Anything that succeeded means the cookie is good again — the reader
+    // signed in from the other tab and came back, exactly as the banner asked.
+    // Clearing here as well as on the login form matters: without it the banner
+    // would outlive the problem and error toasts would stay swallowed for the
+    // life of the page.
+    if (kind === 'success' && expiredRef.current) { expiredRef.current = false; setSessionExpired(false) }
+    setToast(previous => ({ message, kind, id: (previous?.id ?? 0) + 1 }))
+  }
   const refreshSession = async () => { const value = await api<SessionInfo>('/api/v1/me'); setSession(value) }
   useEffect(() => {
     Promise.all([api<Providers>('/api/v1/auth/providers'), api<SessionInfo>('/api/v1/me').catch(() => undefined)])
@@ -74,7 +91,7 @@ export default function App() {
       // screen that can be holding an hour of it, and the session cookie is
       // shared with any other tab, so signing in elsewhere makes this screen
       // work again with its content intact.
-      if (hasUnsavedWork()) { setSessionExpired(true); return }
+      if (hasUnsavedWork()) { expiredRef.current = true; setSessionExpired(true); return }
       setSessionExpired(false)
       setSession(undefined)
       // A banner on the login screen rather than a toast: the screen that fails
@@ -190,7 +207,7 @@ export default function App() {
   if (!session) return <>
     <Login providers={providers} notify={notify}
       notice={signedOut ? '세션이 만료되어 로그아웃됐습니다. 다시 로그인해 주세요.' : undefined}
-      onLogin={async () => { setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
+      onLogin={async () => { expiredRef.current = false; setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
     {toast && <Toast key={toast.id} {...toast} onClose={() => setToast(undefined)} />}
   </>
 
