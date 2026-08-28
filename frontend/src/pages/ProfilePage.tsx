@@ -22,7 +22,13 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
       notify(mailOn ? '주간보고를 제출하면 이 주소로 발송합니다.' : '메일 발송을 껐습니다.')
     } catch (error) { notify(errorText(error, '메일 발송 설정을 저장할 수 없습니다.'), 'error') }
   }
-  const load = () => api<{ keyVersion: number; keys: KeyView[] }>('/api/v1/keys').then(value => { setKeys(value.keys); setKeyVersion(value.keyVersion) })
+  // An empty key list is a claim. A failed read is not that claim, and the
+  // difference matters here: somebody checking that a revoked key is gone would
+  // read a failure as confirmation.
+  const [keysFailed, setKeysFailed] = useState('')
+  const load = () => api<{ keyVersion: number; keys: KeyView[] }>('/api/v1/keys')
+    .then(value => { setKeysFailed(''); setKeys(value.keys); setKeyVersion(value.keyVersion) })
+    .catch(error => { setKeysFailed(errorText(error, 'API 키 목록을 불러오지 못했습니다.')) })
   useEffect(() => { load(); loadMail() }, [])
   const create = async () => { try { const value = await post<{ token: string }>('/api/v1/keys', { name, expiresInDays: days, scopes: ['reports:read', 'analytics:read', 'mcp:read'] }); setToken(value.token); await load(); notify('API 키를 생성했습니다.') } catch (error) { notify(errorText(error, '키를 만들 수 없습니다.'), 'error') } }
   const revoke = async (id: number) => { if (!confirm('이 API 키를 폐기하시겠습니까?')) return; await del(`/api/v1/keys/${id}`); await load(); notify('API 키를 폐기했습니다.') }
@@ -62,7 +68,7 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
         : <Empty>{mail.onSubmit ? '아직 발송한 주간보고가 없습니다. 다음 제출부터 여기에 기록됩니다.' : '발송이 꺼져 있습니다.'}</Empty>)}
     </Card>
     <Card title="API · MCP 키 발급"><div className="inline-form"><label>키 이름<input value={name} onChange={e => setName(e.target.value)}/></label><label>유효기간<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={30}>30일</option><option value={90}>90일</option><option value={180}>180일</option><option value={365}>365일</option></select></label><Button onClick={create}>새 키 발급</Button></div>{token && <div className="token-reveal"><strong>지금 복사하세요. 다시 표시되지 않습니다.</strong><code>{token}</code><Button variant="secondary" onClick={() => navigator.clipboard.writeText(token)}>복사</Button></div>}</Card>
-    <Card title="활성 키">{keys.length ? <div className="table-wrap"><table><thead><tr><th>이름</th><th>접두사</th><th>범위</th><th>만료</th><th>최근 사용</th><th/></tr></thead><tbody>{keys.map(key => <tr key={key.id}><td>{key.name}</td><td><code>{key.prefix}…</code></td><td>{key.scopes.join(', ')}</td><td>{formatDate(key.expiresAt)}</td><td>{formatDate(key.lastUsedAt)}</td><td><button className="remove-button" onClick={() => revoke(key.id)}>폐기</button></td></tr>)}</tbody></table></div> : <Empty>발급된 API 키가 없습니다.</Empty>}</Card>
+    <Card title="활성 키">{keys.length ? <div className="table-wrap"><table><thead><tr><th>이름</th><th>접두사</th><th>범위</th><th>만료</th><th>최근 사용</th><th/></tr></thead><tbody>{keys.map(key => <tr key={key.id}><td>{key.name}</td><td><code>{key.prefix}…</code></td><td>{key.scopes.join(', ')}</td><td>{formatDate(key.expiresAt)}</td><td>{formatDate(key.lastUsedAt)}</td><td><button className="remove-button" onClick={() => revoke(key.id)}>폐기</button></td></tr>)}</tbody></table></div> : keysFailed ? <><Empty>{keysFailed}</Empty><div className="audit-pager"><Button variant="secondary" onClick={() => { void load() }}>다시 시도</Button></div></> : <Empty>발급된 API 키가 없습니다.</Empty>}</Card>
     <Card title="MCP 연결"><p className="muted">Streamable HTTP 방식으로 연결하고 위에서 발급한 키를 Bearer 토큰으로 사용합니다.</p><pre className="code-block">{`URL: ${location.origin}/mcp\nAuthorization: Bearer wky_...\nTools: weekly_submission_overview, weekly_reports_search`}</pre></Card>
   </>
 }

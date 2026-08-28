@@ -132,18 +132,26 @@ export default function WorkItemsPage({ session, notify }: {
   const [searching, setSearching] = useState(false)
   const canTeam = session.user.role !== 'USER'
 
+  // A failed load used to become an empty view, and an empty view is a claim:
+  // the reader is told there is nothing, which is a different thing from not
+  // knowing. The toast that said otherwise fades. Measured by failing this
+  // screen's own request in a browser: the page settled on 없습니다 with the
+  // numbers zeroed, and nothing on it said the load had failed.
+  const [failed, setFailed] = useState('')
+  const [retries, setRetries] = useState(0)
   useEffect(() => {
     let stale = false
     setItems(undefined)
+    setFailed('')
     api<WorkItemPage>(`/api/v1/work-items?scope=${scope}`)
       .then(value => { if (!stale) { setItems(value.items); setTotal(value.total) } })
       .catch(error => {
         if (stale) return
-        setItems([])
+        setFailed(errorText(error, '업무를 불러올 수 없습니다.'))
         notify(errorText(error, '업무를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
-  }, [scope])
+  }, [scope, retries])
 
   const visible = useMemo(() => (items ?? []).filter(item => {
     switch (filter) {
@@ -281,7 +289,9 @@ export default function WorkItemsPage({ session, notify }: {
           </ul>)}
     </Card>
 
-    {items === undefined ? <Spinner /> : !items.length ? <Empty>
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager">
+      <Button variant="secondary" onClick={() => setRetries(n => n + 1)}>다시 시도</Button></div></Card>
+    : items === undefined ? <Spinner /> : !items.length ? <Empty>
       아직 추적할 업무가 없습니다. 주간보고를 저장하면 업무가 자동으로 만들어집니다.
     </Empty> : <>
       <div className="metric-grid">

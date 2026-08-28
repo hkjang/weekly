@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api } from '../api'
 import { shiftWeeks } from '../localdate'
-import { Card, Empty, PageHeader, Spinner } from '../components'
+import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import DecisionPanel from '../DecisionPanel'
 import PresentationMode from '../PresentationMode'
 import { meetingNotes, meetingSlides } from '../presentSlides'
@@ -63,18 +63,26 @@ export default function MeetingPage({ session, notify }: {
   const [view, setView] = useState<MeetingView>()
   const [presenting, setPresenting] = useState(false)
 
+  // A failed load used to become an empty view, and an empty view is a claim:
+  // the reader is told there is nothing, which is a different thing from not
+  // knowing. The toast that said otherwise fades. Measured by failing this
+  // screen's own request in a browser: the page settled on 없습니다 with the
+  // numbers zeroed, and nothing on it said the load had failed.
+  const [failed, setFailed] = useState('')
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     let stale = false
     setView(undefined)
+    setFailed('')
     api<MeetingView>(`/api/v1/meeting?scope=${scope}&week=${week}`)
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ week, previousWeek: '', scope, people: 0, workItems: 0, sections: [] })
+        setFailed(errorText(error, '회의 자료를 불러올 수 없습니다.'))
         notify(errorText(error, '회의 자료를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
-  }, [scope, week])
+  }, [scope, week, reload])
 
   // Counted from what exists, not from what arrived: the summary line above
   // the agenda would otherwise report the cap back as the number of items.
@@ -94,7 +102,7 @@ export default function MeetingPage({ session, notify }: {
         <button className="button" disabled={!total} onClick={() => setPresenting(true)}>▶ 발표 모드</button>
       </div>} />
 
-    {view === undefined ? <Spinner/> : <>
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager"><Button variant="secondary" onClick={() => setReload(n => n + 1)}>다시 시도</Button></div></Card> : view === undefined ? <Spinner/> : <>
       <div className="meeting-summary">
         <span><strong>{view.workItems}</strong>건의 업무</span>
         <span><strong>{view.people}</strong>명</span>

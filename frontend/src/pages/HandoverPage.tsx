@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { errorText, api } from '../api'
-import { Card, Empty, PageHeader, Spinner } from '../components'
+import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { WeekTrack } from '../charts'
 import type { HandoverView, SessionInfo, TeamMember } from '../types'
 
@@ -32,18 +32,26 @@ export default function HandoverPage({ session, notify }: {
     api<TeamMember[]>('/api/v1/team/members').then(setPeople).catch(() => { setPeople([]); notify('담당자 목록을 불러오지 못했습니다. 화면을 다시 열어 보십시오.', 'error') })
   }, [canPickPerson])
 
+  // A failed load used to become an empty view, and an empty view is a claim:
+  // the reader is told there is nothing, which is a different thing from not
+  // knowing. The toast that said otherwise fades. Measured by failing this
+  // screen's own request in a browser: the page settled on 없습니다 with the
+  // numbers zeroed, and nothing on it said the load had failed.
+  const [failed, setFailed] = useState('')
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     let stale = false
     setView(undefined)
+    setFailed('')
     api<HandoverView>(`/api/v1/handover?userId=${userId}`)
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ userId, displayName: '', active: 0, completed: 0, openDecisions: 0, overdueDecisions: 0, items: [] })
+        setFailed(errorText(error, '인수인계 자료를 불러올 수 없습니다.'))
         notify(errorText(error, '인수인계 자료를 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
-  }, [userId])
+  }, [userId, reload])
 
   return <>
     <PageHeader title="업무 인수인계" description="담당자가 바뀔 때 필요한 경과·결정·미해결 사항을 기록에서 모아 정리합니다."
@@ -58,7 +66,7 @@ export default function HandoverPage({ session, notify }: {
           </select>
         : undefined} />
 
-    {view === undefined ? <Spinner/> : view.items.length === 0
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager"><Button variant="secondary" onClick={() => setReload(n => n + 1)}>다시 시도</Button></div></Card> : view === undefined ? <Spinner/> : view.items.length === 0
       ? <Empty>선택한 담당자에게는 아직 인수인계할 업무 기록이 없습니다. 주간보고가 쌓이면 진행 경과와 미해결 이슈가 여기에 모입니다.</Empty>
       : <>
         <div className="meeting-summary">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { errorText, api } from '../api'
-import { Card, Empty, PageHeader, Spinner } from '../components'
+import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import { ScoreStack, groundColor, groundLabels } from '../charts'
 import type { DigestEntry, DigestKind, DigestView } from '../types'
 import type { PageName } from '../router'
@@ -55,18 +55,26 @@ export default function DigestPage({ notify, navigate }: {
   const [weeks, setWeeks] = useState(8)
   const [view, setView] = useState<DigestView>()
 
+  // A failed load used to become an empty view, and an empty view is a claim:
+  // the reader is told there is nothing, which is a different thing from not
+  // knowing. The toast that said otherwise fades. Measured by failing this
+  // screen's own request in a browser: the page settled on 없습니다 with the
+  // numbers zeroed, and nothing on it said the load had failed.
+  const [failed, setFailed] = useState('')
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     let stale = false
     setView(undefined)
+    setFailed('')
     api<DigestView>(`/api/v1/digest?weeks=${weeks}`)
       .then(value => { if (!stale) setView(value) })
       .catch(error => {
         if (stale) return
-        setView({ weeks, since: '', scope: 'TEAM', considered: 0, equallyUrgent: 0, limit: 0, entries: [] })
+        setFailed(errorText(error, '경영 요약을 불러올 수 없습니다.'))
         notify(errorText(error, '경영 요약을 불러올 수 없습니다.'), 'error')
       })
     return () => { stale = true }
-  }, [weeks])
+  }, [weeks, reload])
 
   // The bars share one scale, so the top entry fills the track and the rest are
   // read against it. Comparing entries is the point of ranking them.
@@ -78,7 +86,7 @@ export default function DigestPage({ notify, navigate }: {
         {[4, 8, 12, 26].map(value => <option key={value} value={value}>최근 {value}주</option>)}
       </select>} />
 
-    {view === undefined ? <Spinner/> : <Card title={`핵심 ${view.entries.length}건`}
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager"><Button variant="secondary" onClick={() => setReload(n => n + 1)}>다시 시도</Button></div></Card> : view === undefined ? <Spinner/> : <Card title={`핵심 ${view.entries.length}건`}
       action={<span className="muted-chip">업무 {view.considered}건 검토 · {view.since} 이후</span>}>
       {view.entries.length === 0
         ? <Empty>선정 기준을 넘는 항목이 없습니다. 열린 결정 요청, 장기 이슈, 진척 정체, 중복 의심, 주요 완료가 모두 없습니다.</Empty>
