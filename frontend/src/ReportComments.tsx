@@ -55,6 +55,7 @@ export default function ReportComments({ reportId, comments, onPosted, notify, p
     <div className="comment-form">
       <textarea value={draft} maxLength={5000} disabled={busy}
         onChange={event => setDraft(event.target.value)}
+        aria-label="검토 의견"
         placeholder={placeholder ?? '질문이나 의견을 남기세요. 보고서 상태는 바뀌지 않습니다.'} />
       <Button onClick={send} disabled={busy || !draft.trim()}>{busy ? '남기는 중…' : '의견 남기기'}</Button>
     </div>

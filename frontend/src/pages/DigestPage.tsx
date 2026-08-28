@@ -74,7 +74,7 @@ export default function DigestPage({ notify, navigate }: {
 
   return <>
     <PageHeader title="경영 요약" description="전사 업무 중 지금 확인이 필요한 항목만 선정합니다. 선정 근거를 항상 함께 제시합니다."
-      action={<select value={weeks} onChange={event => setWeeks(Number(event.target.value))}>
+      action={<select aria-label="조회 기간" value={weeks} onChange={event => setWeeks(Number(event.target.value))}>
         {[4, 8, 12, 26].map(value => <option key={value} value={value}>최근 {value}주</option>)}
       </select>} />
 

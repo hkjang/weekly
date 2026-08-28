@@ -48,7 +48,7 @@ export default function HandoverPage({ session, notify }: {
   return <>
     <PageHeader title="업무 인수인계" description="담당자가 바뀔 때 필요한 경과·결정·미해결 사항을 기록에서 모아 정리합니다."
       action={canPickPerson && people.length > 0
-        ? <select value={userId} onChange={event => setUserId(Number(event.target.value))}>
+        ? <select aria-label="인수인계 대상자" value={userId} onChange={event => setUserId(Number(event.target.value))}>
             <option value={session.user.id}>{session.user.displayName} (본인)</option>
             {people.filter(person => person.id !== session.user.id)
               .map(person => <option key={person.id} value={person.id}>

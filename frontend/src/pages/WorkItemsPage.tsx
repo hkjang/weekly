@@ -252,7 +252,7 @@ export default function WorkItemsPage({ session, notify }: {
       <p className="muted">비슷한 업무나 장애를 겪은 기록을 문장으로 찾습니다. 이슈와 그 이후 진행이 함께 표시되므로 해결 경과를 확인할 수 있습니다.</p>
       <form className="work-search" onSubmit={event => { event.preventDefault(); void runSearch(query) }}>
         <input value={query} onChange={event => setQuery(event.target.value)}
-          placeholder="예: 인증 연동하다 막혔던 사례, 결산 자동화 실패 원인" maxLength={200} />
+          placeholder="예: 인증 연동하다 막혔던 사례, 결산 자동화 실패 원인" aria-label="과거 업무 문장 검색" maxLength={200} />
         <button className="button" type="submit" disabled={searching || query.trim().length < 2}>
           {searching ? '찾는 중…' : '찾기'}</button>
         {found && <button className="button secondary" type="button"

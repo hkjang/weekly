@@ -79,7 +79,7 @@ export default function InsightsPage({ notify }: { notify: (message: string, kin
 
   return <>
     <PageHeader title="업무 인사이트" description="조직을 가로질러 같은 일이 어디서 벌어지고 있는지 확인합니다."
-      action={<select value={weeks} onChange={event => setWeeks(Number(event.target.value))}>
+      action={<select aria-label="조회 기간" value={weeks} onChange={event => setWeeks(Number(event.target.value))}>
         {[4, 8, 12, 26, 52].map(value => <option key={value} value={value}>최근 {value}주</option>)}
       </select>} />
 

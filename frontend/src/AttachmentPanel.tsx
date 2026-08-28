@@ -116,7 +116,7 @@ export default function AttachmentPanel({ reportId, editable, notify, onCountCha
       onPaste={onPaste} tabIndex={0} role="button"
       onClick={() => inputRef.current?.click()}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inputRef.current?.click() } }}>
-      <input ref={inputRef} type="file" multiple accept="image/png,image/jpeg,image/gif"
+      <input ref={inputRef} type="file" aria-label="화면 캡처 이미지 선택" multiple accept="image/png,image/jpeg,image/gif"
         onChange={event => { void upload(Array.from(event.target.files ?? [])); event.target.value = '' }} />
       <strong>{busy ? '업로드 중…' : dragging ? '여기에 놓으면 슬라이드가 추가됩니다' : '이미지를 끌어다 놓거나 클릭해 선택하세요'}</strong>
       <span>PNG · JPEG · GIF · 클립보드에서 Ctrl+V로 붙여넣기도 지원합니다.</span>

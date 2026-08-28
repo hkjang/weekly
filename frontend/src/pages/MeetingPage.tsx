@@ -85,9 +85,9 @@ export default function MeetingPage({ session, notify }: {
     <PageHeader title="회의 모드" description="이번 주 회의에서 다뤄야 할 것만 모았습니다. 변화가 없는 업무는 표시하지 않습니다."
       action={<div className="header-actions">
         <button className="button secondary" onClick={() => setWeek(shiftWeeks(week, -1))}>◀ 이전 주</button>
-        <input type="date" value={week} onChange={event => event.target.value && setWeek(event.target.value)} />
+        <input type="date" aria-label="회의 주차" value={week} onChange={event => event.target.value && setWeek(event.target.value)} />
         <button className="button secondary" onClick={() => setWeek(shiftWeeks(week, 1))}>다음 주 ▶</button>
-        {canTeam && <select value={scope} onChange={event => setScope(event.target.value as 'SELF' | 'TEAM')}>
+        {canTeam && <select aria-label="조회 범위" value={scope} onChange={event => setScope(event.target.value as 'SELF' | 'TEAM')}>
           <option value="TEAM">조직 전체</option>
           <option value="SELF">내 업무</option>
         </select>}
