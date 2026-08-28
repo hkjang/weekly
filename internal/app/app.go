@@ -247,6 +247,7 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/admin/users/{id}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateUser))))
 	a.mux.Handle("GET /api/v1/admin/organizations", a.requireRole("ADMIN")(http.HandlerFunc(a.adminOrganizations)))
 	a.mux.Handle("POST /api/v1/admin/organizations", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.createOrganization))))
+	a.mux.Handle("PATCH /api/v1/admin/organizations/{id}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateOrganization))))
 	a.mux.Handle("GET /api/v1/admin/audit", a.requireRole("ADMIN")(http.HandlerFunc(a.auditLogs)))
 	a.mux.Handle("GET /api/v1/admin/pptx-template", a.requireRole("ADMIN")(http.HandlerFunc(a.pptxTemplateInfo)))
 	a.mux.Handle("POST /api/v1/admin/pptx-template", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.uploadPPTXTemplate))))

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -459,6 +460,107 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	writeData(w, 200, userListView{Items: result, Total: total, Limit: limit, Offset: offset, Query: query, Roles: roles,
 		Unassigned: unassigned, Organization: organization})
+}
+
+// updateOrganization renames an organisation or moves it under another.
+//
+// The product had no way to do either. An organisation could be created and
+// then never corrected — not a typo in its name, not a restructure — so an
+// operator with a chart to fix edited the table by hand, which is where a
+// parent_id loop comes from. v0.236.0 made such a loop survivable by bounding
+// the walk; this is the operation whose absence caused the hand-editing.
+//
+// The check the hand edit cannot make is here: an organisation may not be moved
+// under itself or under anything beneath it. That is exactly the loop.
+func (a *App) updateOrganization(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "조직 식별자가 올바르지 않습니다.")
+		return
+	}
+	var input struct {
+		Name     *string `json:"name"`
+		Code     *string `json:"code"`
+		ParentID *int64  `json:"parentId"`
+	}
+	fields, ok := decodeJSONFields(w, r, &input)
+	if !ok {
+		return
+	}
+	var currentName, currentCode string
+	if err := a.db.QueryRow(r.Context(), `SELECT name,code FROM organizations WHERE id=$1`, id).
+		Scan(&currentName, &currentCode); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "ORGANIZATION_NOT_FOUND", "그런 조직이 없습니다.")
+			return
+		}
+		a.logger.Error("read organisation", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, 500, "QUERY_FAILED", "조직을 조회할 수 없습니다.")
+		return
+	}
+	name, code := currentName, currentCode
+	if input.Name != nil {
+		name = strings.TrimSpace(*input.Name)
+	}
+	if input.Code != nil {
+		code = strings.ToUpper(strings.TrimSpace(*input.Code))
+	}
+	if name == "" || !organizationCodePattern.MatchString(code) {
+		writeError(w, 400, "INVALID_ORGANIZATION", "조직 코드는 영문, 숫자와 ._@- 기호로 2~60자여야 합니다.")
+		return
+	}
+	if runeLength(name) > 120 {
+		writeError(w, 400, "INVALID_ORGANIZATION", "조직 이름은 120자 이하로 입력하세요.")
+		return
+	}
+
+	// "I did not mention parentId" and "put this at the top" are different
+	// instructions and null means the second one, so the difference has to come
+	// from which keys the caller actually sent.
+	moving := fields["parentid"]
+	parent := input.ParentID
+	if !moving {
+		if err := a.db.QueryRow(r.Context(), `SELECT parent_id FROM organizations WHERE id=$1`, id).Scan(&parent); err != nil {
+			a.logger.Error("read organisation parent", "error", err, "trace", traceIDFromContext(r.Context()))
+			writeError(w, 500, "QUERY_FAILED", "조직을 조회할 수 없습니다.")
+			return
+		}
+	}
+	if parent != nil {
+		if *parent == id {
+			writeError(w, http.StatusConflict, "ORGANIZATION_CYCLE",
+				"조직을 자기 자신 아래로 옮길 수 없습니다.")
+			return
+		}
+		var inside bool
+		if err := a.db.QueryRow(r.Context(),
+			`SELECT EXISTS(SELECT 1 FROM `+orgSubtree(1)+` AS below WHERE below.id=$2)`, id, *parent).Scan(&inside); err != nil {
+			a.logger.Error("check organisation move", "error", err, "trace", traceIDFromContext(r.Context()))
+			writeError(w, 500, "QUERY_FAILED", "조직을 옮길 수 있는지 확인하지 못했습니다.")
+			return
+		}
+		if inside {
+			writeError(w, http.StatusConflict, "ORGANIZATION_CYCLE",
+				"그 조직은 이 조직 아래에 있습니다. 아래에 있는 조직을 상위로 삼으면 조직도가 고리가 되어, "+
+					"그 안의 사람들에게 팀 단위 화면이 열리지 않습니다.")
+			return
+		}
+	}
+
+	if _, err := a.db.Exec(r.Context(),
+		`UPDATE organizations SET name=$2,code=$3,parent_id=$4,updated_at=now() WHERE id=$1`,
+		id, name, code, parent); err != nil {
+		if strings.Contains(err.Error(), "organizations_code_key") {
+			writeError(w, http.StatusConflict, "ORGANIZATION_EXISTS", "이미 있는 조직 코드입니다.")
+			return
+		}
+		a.logger.Error("update organisation", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, 500, "DATABASE_ERROR", "조직을 수정할 수 없습니다.")
+		return
+	}
+	a.audit(r, currentPrincipal(r.Context()), "organization.update", "organization", strconv.FormatInt(id, 10),
+		map[string]any{"name": name, "code": code, "parentId": parent})
+	writeData(w, 200, map[string]any{"id": id, "name": name, "code": code, "parentId": parent})
 }
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{2,120}$`)

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.236.0
+  version: 0.237.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1846,6 +1846,28 @@ paths:
       summary: 조직 등록
       responses:
         "201": { $ref: "#/components/responses/Success" }
+  /admin/organizations/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/ID" }
+    patch:
+      summary: 조직 이름·코드·상위 조직 수정, 관리자 전용
+      description: |
+        보낸 키만 바꾼다. `parentId`를 보내지 않으면 상위 조직은 그대로이고,
+        `null`로 보내면 최상위로 올린다 — 둘은 다른 지시이므로 구분한다.
+
+        **자기 자신이나 자기 아래 조직을 상위로 삼으려 하면 409 `ORGANIZATION_CYCLE`이다.**
+        조직도가 고리가 되면 그 안의 사람들에게 팀 단위 화면이 열리지 않는다. 표를 직접
+        고치면 이 검사가 없고, 그래서 이 경로가 있다. 만들어진 고리 자체는 걷기 깊이를
+        16으로 묶어 견디지만, 견디는 것과 옳은 것은 다르다.
+
+        조직을 지우는 경로는 없다. 사람과 보고서와 템플릿이 조직을 가리키고 있고,
+        지운 조직을 가리키던 사람은 소속이 사라진 채 남는다. 이름을 바꾸는 것으로
+        해결되는 일이 대부분이며, 정말 없애야 한다면 구성원을 먼저 옮겨야 한다.
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { description: 그런 조직이 없다 }
+        "409": { description: 코드 중복이거나, 옮기면 조직도가 고리가 된다 }
   /admin/pptx-template:
     parameters:
       - name: organizationId

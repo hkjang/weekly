@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.236.0.tar.gz
-gzip -dc weekly-v0.236.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.236.0.tar.gz | docker load
+sha256sum weekly-v0.237.0.tar.gz
+gzip -dc weekly-v0.237.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.237.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -190,7 +190,7 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 
 ## 검사 도구
 
-`go test` 가 잡지 못하는 것을 잡는 검사가 아홉 개 있습니다 — 자기 대상을 실행하지 않는 시험, 통과하지만 무엇도 지키지 않는 시험, 규모에서만 보이는 응답 크기, 월요일 아침의 동시성. 무엇을 언제 돌리는지는 [`docs/CHECKS.md`](docs/CHECKS.md) 에 있습니다.
+`go test` 가 잡지 못하는 것을 잡는 검사가 열 개 있습니다 — 자기 대상을 실행하지 않는 시험, 통과하지만 무엇도 지키지 않는 시험, 규모에서만 보이는 응답 크기, 월요일 아침의 동시성. 무엇을 언제 돌리는지는 [`docs/CHECKS.md`](docs/CHECKS.md) 에 있습니다.
 
 `scripts/load-check.py` 는 **읽기만 하지 않습니다** — `u1..uN` 의 이번 주 보고서를 덮어쓰므로 `--yes` 를 요구합니다. 규모 시드를 뿌린 배포에만 겨누십시오.
 
@@ -201,6 +201,8 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 | 작성자 | 자기 보고서 전부 |
 | 팀장·조직장 | **자기 조직 하위 전체**의 보고서 |
 | 관리자 | 전부 |
+
+조직은 관리자 화면에서 **이름·코드·상위 조직을 고칠 수 있습니다.** 조직개편은 일어나고, 고칠 방법이 없으면 표를 직접 만지게 됩니다. 서버는 **자기 자신이나 자기 아래 조직을 상위로 삼는 이동을 거부합니다** — 조직도가 고리가 되면 그 안의 사람들에게 팀 단위 화면이 열리지 않기 때문입니다. 지우는 경로는 없습니다: 사람과 보고서와 템플릿이 조직을 가리키고 있어, 지운 조직을 가리키던 사람은 소속이 사라진 채 남습니다.
 
 **상태는 가시성을 바꾸지 않습니다.** `작성 중`인 보고서도 팀장과 관리자는 지금 열어 볼 수 있습니다. 제출은 검토를 요청하는 행위이지, 그 글이 처음 보이게 되는 시점이 아닙니다.
 

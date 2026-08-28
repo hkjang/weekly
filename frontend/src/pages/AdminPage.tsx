@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { APIError, errorText, api, del, post, put } from '../api'
+import { APIError, errorText, api, del, patch, post, put } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner, formatDate } from '../components'
 import AdminAnalyticsTab from './AdminAnalyticsTab'
 import type { AdminUser, AdminUserPage, ConfluenceMapping, ConfluenceSyncStatus, EmbeddingStatus, EncryptionStatus, Organization, Setting, MailHealth } from '../types'
@@ -149,7 +149,16 @@ function OrganizationsTab({ notify }: { notify: (message: string, kind?: 'succes
   const [items, setItems] = useState<Organization[]>(); const [name,setName]=useState('');const [code,setCode]=useState('');const [parent,setParent]=useState('')
   const load=()=>api<Organization[]>('/api/v1/admin/organizations').then(setItems);useEffect(()=>{load()},[])
   const create=async()=>{try{await post('/api/v1/admin/organizations',{name,code,parentId:parent?Number(parent):null});setName('');setCode('');setParent('');await load();notify('조직을 등록했습니다.')}catch(error){notify(error instanceof Error?error.message:'등록할 수 없습니다.','error')}}
-  if(!items)return <Spinner/>;return <><Card title="조직 등록"><div className="inline-form"><label>조직명<input value={name} onChange={e=>setName(e.target.value)}/></label><label>코드<input value={code} onChange={e=>setCode(e.target.value.toUpperCase())}/></label><label>상위 조직<select value={parent} onChange={e=>setParent(e.target.value)}><option value="">최상위</option>{items.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label><Button onClick={create}>등록</Button></div></Card><Card title="조직 구조"><div className="org-list">{items.map(org=><div key={org.id}><span className="org-icon">▦</span><div><strong>{org.name}</strong><small>{org.code} · 구성원 {org.userCount}명</small></div><span>{org.parentId?`상위: ${items.find(o=>o.id===org.parentId)?.name??'-'}`:'최상위'}</span></div>)}</div></Card></>
+  // An organisation could be created and then never corrected — not a typo in
+  // its name, not a restructure — so whoever had a chart to fix edited the
+  // database, which is where a parent_id loop comes from. The server refuses a
+  // move that would make one; nothing refused it in the table.
+  const [editing,setEditing]=useState<number|undefined>();const [draft,setDraft]=useState({name:'',code:'',parentId:''})
+  const startEdit=(org:Organization)=>{setEditing(org.id);setDraft({name:org.name,code:org.code,parentId:org.parentId?String(org.parentId):''})}
+  const saveEdit=async()=>{if(editing===undefined)return;try{await patch(`/api/v1/admin/organizations/${editing}`,{name:draft.name,code:draft.code,parentId:draft.parentId?Number(draft.parentId):null});setEditing(undefined);await load();notify('조직을 수정했습니다.')}catch(error){notify(error instanceof Error?error.message:'수정할 수 없습니다.','error')}}
+  if(!items)return <Spinner/>;return <><Card title="조직 등록"><div className="inline-form"><label>조직명<input value={name} onChange={e=>setName(e.target.value)}/></label><label>코드<input value={code} onChange={e=>setCode(e.target.value.toUpperCase())}/></label><label>상위 조직<select value={parent} onChange={e=>setParent(e.target.value)}><option value="">최상위</option>{items.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label><Button onClick={create}>등록</Button></div></Card><Card title="조직 구조"><div className="org-list">{items.map(org=>editing===org.id
+    ? <div key={org.id} className="org-editing"><span className="org-icon">▦</span><div className="inline-form wrap"><label>조직명<input value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})}/></label><label>코드<input value={draft.code} onChange={e=>setDraft({...draft,code:e.target.value.toUpperCase()})}/></label><label>상위 조직<select value={draft.parentId} onChange={e=>setDraft({...draft,parentId:e.target.value})}><option value="">최상위</option>{items.filter(o=>o.id!==org.id).map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label><Button onClick={saveEdit}>저장</Button><Button variant="ghost" onClick={()=>setEditing(undefined)}>취소</Button></div></div>
+    : <div key={org.id}><span className="org-icon">▦</span><div><strong>{org.name}</strong><small>{org.code} · 구성원 {org.userCount}명</small></div><span className="org-parent">{org.parentId?`상위: ${items.find(o=>o.id===org.parentId)?.name??'-'}`:'최상위'}</span><Button variant="ghost" onClick={()=>startEdit(org)}>수정</Button></div>)}</div></Card></>
 }
 
 /**
