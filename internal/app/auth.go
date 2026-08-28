@@ -525,6 +525,12 @@ func (a *App) setting(ctx context.Context, key, fallback string) string {
 func (a *App) secretSetting(ctx context.Context, key string) (string, error) {
 	var value string
 	if err := a.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE key=$1 AND secret=true`, key).Scan(&value); err != nil {
+		// No row is no secret. A settings key that has never been written is
+		// how a deployment that does not use a feature looks, and reading that
+		// back as a failure makes every caller answer 500 for "not configured".
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
 		return "", err
 	}
 	if value == "" {

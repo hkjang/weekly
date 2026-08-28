@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.255.0
+  version: 0.256.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1795,6 +1795,7 @@ paths:
                       keySource: { type: string, enum: [environment, state_volume] }
                       storedSecrets: { type: integer }
                       recoverable: { type: boolean, description: 볼륨을 잃어도 비밀 설정을 복구할 수 있는가 }
+                      unreadable: { type: array, items: { type: string }, description: 지금 쓰는 키로 복호화할 수 없는 비밀 설정 키 목록 }
                       stateDirectory: { type: string }
         '403': { description: 관리자만 조회할 수 있다 }
   /admin/users:

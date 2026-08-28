@@ -261,6 +261,21 @@ func (s *secretBox) Encrypt(value string) (string, error) {
 	return "enc:v1:" + base64.RawURLEncoding.EncodeToString(combined), nil
 }
 
+// errSecretUnreadable says the stored value is ciphertext this key cannot open.
+//
+// Startup refuses to run with a key that cannot open the stored secrets, and
+// says so, so nobody arrives here by losing a volume unnoticed. The one way in
+// is WEEKLY_ALLOW_SECRET_RESET=true — an operator answering "I will type every
+// secret again". Between that boot and the retyping, every stored secret is
+// ciphertext nothing can open, and that window is what this error is for.
+//
+// It has to be told apart from "there is no password", because the two ask for
+// different behaviour from everything that reads a secret: one means a feature
+// was never set up, the other means it was set up and is now broken. Answering
+// the same way for both is how an unmounted volume turned the writer's own
+// screen into a 500 about Confluence.
+var errSecretUnreadable = errors.New("cannot decrypt setting")
+
 func (s *secretBox) Decrypt(value string) (string, error) {
 	if value == "" {
 		return "", nil
@@ -274,7 +289,7 @@ func (s *secretBox) Decrypt(value string) (string, error) {
 	}
 	plain, err := s.aead.Open(nil, combined[:s.aead.NonceSize()], combined[s.aead.NonceSize():], []byte("weekly-setting-v1"))
 	if err != nil {
-		return "", errors.New("cannot decrypt setting")
+		return "", errSecretUnreadable
 	}
 	return string(plain), nil
 }

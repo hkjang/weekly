@@ -959,14 +959,42 @@ type encryptionView struct {
 	StoredSecrets int `json:"storedSecrets"`
 	// Recoverable is false when the only copy of the key is inside the volume
 	// and there is something encrypted with it.
-	Recoverable    bool   `json:"recoverable"`
-	StateDirectory string `json:"stateDirectory"`
+	Recoverable bool `json:"recoverable"`
+	// Unreadable names the stored secrets this key cannot open — the thing the
+	// warning above is a warning about, having already happened.
+	//
+	// The card counted secrets and never read one, so a deployment started with
+	// WEEKLY_ALLOW_SECRET_RESET=true was shown a sentence about what it would
+	// lose if it ever lost its key, while three secrets sat unreadable. Boot
+	// says this once; after that the only trace was a 500 in a writer's browser
+	// console and a worker logging the same line every thirty seconds. This is
+	// the screen that already talks about the key, so it is where it belongs.
+	Unreadable     []string `json:"unreadable"`
+	StateDirectory string   `json:"stateDirectory"`
 }
 
 func (a *App) adminEncryption(w http.ResponseWriter, r *http.Request) {
-	var stored int
-	if err := a.db.QueryRow(r.Context(),
-		`SELECT count(*) FROM app_settings WHERE secret AND value <> ''`).Scan(&stored); err != nil {
+	rows, err := a.db.Query(r.Context(),
+		`SELECT key, value FROM app_settings WHERE secret AND value <> '' ORDER BY key`)
+	if err != nil {
+		writeError(w, 500, "QUERY_FAILED", "비밀 설정 상태를 조회할 수 없습니다.")
+		return
+	}
+	defer rows.Close()
+	stored := 0
+	unreadable := []string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			writeError(w, 500, "QUERY_FAILED", "비밀 설정 상태를 조회할 수 없습니다.")
+			return
+		}
+		stored++
+		if _, err := a.box.Decrypt(value); err != nil {
+			unreadable = append(unreadable, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
 		writeError(w, 500, "QUERY_FAILED", "비밀 설정 상태를 조회할 수 없습니다.")
 		return
 	}
@@ -974,6 +1002,7 @@ func (a *App) adminEncryption(w http.ResponseWriter, r *http.Request) {
 		KeySource:      a.keySource,
 		StoredSecrets:  stored,
 		Recoverable:    a.keySource != "state_volume" || stored == 0,
+		Unreadable:     unreadable,
 		StateDirectory: stateDirectory,
 	})
 }

@@ -3553,6 +3553,41 @@ ROUTE-PROBE after= #/dashboard      ← 여기까지는 맞습니다
 <li>그래서 파일 전체를 보게 했더니 이번엔 반대로, <strong>한 파일에 사는 두 화면 중 하나만 쪽을 넘겨도 둘 다 통과</strong>했습니다. AdminPage 가 정확히 그런 파일입니다. 화면 하나를 한 덩어리로 잘랐고, 그 자르는 규칙이 <code>export default function</code> 을 빠뜨려 <strong>ImportPage 의 목록 호출이 통째로 사라진 채 통과</strong>가 나왔습니다. 검사에서 사라지는 것은 통과가 아닙니다.</li>
 </ul>
 <p>고치기 전 파일에 대고 돌려 실패하는 것을 확인했습니다 — 같은 파일의 감사 탭은 그대로 통과합니다.</p>
+<p>#### 3.10.211 v0.256.0에서 완료 — 읽을 수 없는 비밀 하나가 세 곳을 조용히 무너뜨립니다</p>
+<p>모든 화면을 브라우저로 훑으면서 콘솔 오류를 모았습니다. 한 곳에서 나왔습니다.</p>
+<div class="phase-box">current     ⚠ 1   내 주간보고
+     [error] Failed to load resource: 500 (Internal Server Error)
+     GET /api/v1/reports/current/candidates
+     CONFLUENCE_CONFIGURATION_ERROR &quot;Confluence 설정을 읽을 수 없습니다.&quot;</div>
+<p><strong>화면에는 아무 말도 없습니다.</strong> 알림도, 오류 상자도, Confluence 라는 낱말조차 없습니다. 카드 하나가 그냥 없는 채로 그려집니다.</p>
+<p>##### 원인은 쓰지도 않는 비밀번호였습니다</p>
+<p>이 경로는 이미 데이터베이스에 있는 초안을 나열할 뿐 Confluence 와 이야기하지 않습니다. 그런데 설정을 통째로 불러오고, 그 길에 Confluence 비밀번호를 복호화합니다. 그 복호화가 실패하면 <strong>작성자가 매주 여는 화면</strong>이 500 이 됩니다.</p>
+<p>시작 가드는 이미 이것을 막고 있습니다 — 읽을 수 없는 비밀이 있으면 기동을 거부하고 한국어로 이유를 말합니다. 그래서 볼륨을 잃고 모르는 채로 여기 도달하지는 않습니다. 들어오는 길은 하나, <code>WEEKLY_ALLOW_SECRET_RESET=true</code> 로 "비밀을 전부 다시 입력하겠다"고 답한 경우입니다. <strong>그 답과 실제 재입력 사이의 창</strong>이 이 이야기의 전부입니다.</p>
+<p>##### 그 창 안에서 벌어지던 세 가지</p>
+<table><thead><tr><th></th><th>그때</th></tr></thead><tbody><tr><td>작성 화면</td><td><code>Confluence 자동 초안</code> 카드가 사라진 채 콘솔에만 500</td></tr><tr><td>메일 워커</td><td><code>level=ERROR msg="mail settings"</code> 를 <strong>30초마다 영원히</strong> — 이 파일이 "발송이 꺼져 있을 때는 30초마다 적지 않는다"고 일부러 정해 둔 바로 그 줄</td></tr><tr><td>관리자 암호화 카드</td><td>비밀 3개를 <strong>세기만</strong> 하고 하나도 읽어 보지 않은 채, "이 볼륨을 잃으면 복구할 수 없습니다"라는 <strong>가정</strong>을 말함</td></tr></tbody></table>
+<p>세 번째가 가장 나쁩니다. 이미 벌어진 일 위에 앞으로 벌어질 수 있는 일에 대한 경고가 걸려 있었습니다.</p>
+<p>##### 고침 — 읽을 수 없는 비밀은 그것이 필요한 기능만 멈춥니다</p>
+<p>복호화 실패를 알아볼 수 있는 오류(<code>errSecretUnreadable</code>)로 만들고, 세 곳이 각자 답하게 했습니다. 초안 목록은 쓰는 설정 두 개만 읽습니다. 메일은 이것을 전송 실패가 아니라 <strong>설정 상태</strong>로 들고 다니며 <code>unusable()</code> 이 이름을 말합니다. 암호화 카드는 세는 대신 <strong>읽어 봅니다</strong>.</p>
+<div class="phase-box">열쇠를 새로 만든 뒤   저장된 비밀 1 · 못 읽는 것 [&#x27;mail.password&#x27;]
+                    메일 시험: &quot;저장된 SMTP 비밀번호를 현재 암호화 키로 읽을 수 없습니다.
+                                관리자 설정에서 비밀번호를 다시 입력하십시오.&quot;
+                    내 주간보고 후보: HTTP 200
+다시 입력한 뒤       저장된 비밀 1 · 못 읽는 것 []
+워커 로그            45초 동안 0줄
+정상 배포            저장된 비밀 0·1 · 못 읽는 것 [] · 후보 200</div>
+<p>덤으로, 설정 행이 아예 없는 것도 오류였습니다. <code>SELECT</code> 가 행을 못 찾으면 그대로 오류로 올라가, "쓰지 않는 기능"이 "읽을 수 없는 설정"과 같은 답을 받았습니다. 행이 없는 것은 비밀이 없는 것입니다.</p>
+<p>모든 화면을 다시 훑어 콘솔이 조용한 것과, <code>내 주간보고</code> 에 사라져 있던 <strong>Confluence 자동 초안 카드가 돌아온 것</strong>을 확인했습니다.</p>
+<p>##### 돌아가는 길에 본 것 — 설명하지 못한 실패 한 번</p>
+<p>이 변경을 넣고 처음 돌린 전체 시험에서 셋이 함께 깨졌습니다. 셋 다 같은 모양입니다 — <strong>관리자가 아닌 사람이 관리자 경로에서 200을 받았습니다.</strong></p>
+<div class="phase-box">--- FAIL: TestRoleAndSessionGatesAnswerBeforeTheHandlerDoes
+    a USER reached the administrator list: 200 {&quot;items&quot;:[…], &quot;total&quot;:2}
+--- FAIL: TestTheEncryptionModeIsNotReadableWithoutBeingAnAdministrator
+    a writer read the deployment&#x27;s key mode: 200
+--- FAIL: TestTheOperatorCanSeeWhatHappenedToTheMail
+    a writer read the deployment&#x27;s mail health: 200</div>
+<p>재현되지 않습니다. 셋만 8번 반복, 전체 6번(변경 없는 HEAD 1번 포함) — 모두 통과입니다.</p>
+<p>제 변경 때문은 아닙니다. 이번에 손댄 것 중 인증에 닿는 것은 <code>secretSetting</code> 하나이고, 그것이 빈 값을 돌려주면 <code>oidcConfig</code> 는 "설정 미완성"으로 <strong>막습니다</strong>. 역할은 요청마다 <code>authenticate</code> 가 세션과 사용자를 조인해 읽고, <code>requireRole</code> 은 그 역할을 정확히 대조합니다. 공유되는 것들도 읽었습니다 — 시험마다 자기 데이터베이스를 템플릿에서 뜨고, 템플릿에는 사용자가 없으며, <code>t.Parallel()</code> 은 이 꾸러미에 하나도 없고, 부트스트랩은 ADMIN 이 이미 있으면 아무것도 하지 않습니다.</p>
+<p>그래서 <strong>원인을 모릅니다.</strong> 여기 적어 두는 것은 다음에 같은 세 줄이 나왔을 때 "간헐적"이라고 넘기지 않기 위해서입니다. 권한 문이 한 번이라도 열린 채 답했다면 그것은 재현될 때까지 열린 질문입니다.</p>
 </div>
 </body>
 </html>

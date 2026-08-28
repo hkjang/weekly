@@ -36,27 +36,42 @@ type mailSettings struct {
 	FromName    string
 	Timeout     time.Duration
 	MaxAttempts int
+	// PasswordUnreadable says the stored password is ciphertext this key cannot
+	// open. It is a configuration state, not a transport failure, so it belongs
+	// with the other things unusable() names.
+	PasswordUnreadable bool
 }
 
 func (a *App) loadMailSettings(ctx context.Context) (mailSettings, error) {
 	password, err := a.secretSetting(ctx, "mail.password")
+	unreadable := false
 	if err != nil {
 		// A password that cannot be decrypted is not the same as no password:
 		// sending without it would authenticate as nobody and be refused by the
 		// relay with a message nobody could act on.
-		return mailSettings{}, fmt.Errorf("read mail password: %w", err)
+		//
+		// It is also not a failure to read the settings. Returning one made the
+		// worker log an ERROR every thirty seconds for a state that cannot fix
+		// itself — the same every-thirty-seconds line this file goes out of its
+		// way not to write when sending is merely off. It is a configuration
+		// state, so it is carried as one and unusable() says it.
+		if !errors.Is(err, errSecretUnreadable) {
+			return mailSettings{}, fmt.Errorf("read mail password: %w", err)
+		}
+		unreadable, password = true, ""
 	}
 	return mailSettings{
-		Enabled:     a.settingBool(ctx, "mail.enabled", false),
-		Host:        strings.TrimSpace(a.setting(ctx, "mail.host", "")),
-		Port:        a.settingInt(ctx, "mail.port", 25),
-		Security:    strings.ToUpper(strings.TrimSpace(a.setting(ctx, "mail.security", "NONE"))),
-		Username:    strings.TrimSpace(a.setting(ctx, "mail.username", "")),
-		Password:    password,
-		From:        strings.TrimSpace(a.setting(ctx, "mail.from", "")),
-		FromName:    strings.TrimSpace(a.setting(ctx, "mail.from_name", "Weekly")),
-		Timeout:     time.Duration(a.settingInt(ctx, "mail.timeout_seconds", 20)) * time.Second,
-		MaxAttempts: a.settingInt(ctx, "mail.max_attempts", 5),
+		PasswordUnreadable: unreadable,
+		Enabled:            a.settingBool(ctx, "mail.enabled", false),
+		Host:               strings.TrimSpace(a.setting(ctx, "mail.host", "")),
+		Port:               a.settingInt(ctx, "mail.port", 25),
+		Security:           strings.ToUpper(strings.TrimSpace(a.setting(ctx, "mail.security", "NONE"))),
+		Username:           strings.TrimSpace(a.setting(ctx, "mail.username", "")),
+		Password:           password,
+		From:               strings.TrimSpace(a.setting(ctx, "mail.from", "")),
+		FromName:           strings.TrimSpace(a.setting(ctx, "mail.from_name", "Weekly")),
+		Timeout:            time.Duration(a.settingInt(ctx, "mail.timeout_seconds", 20)) * time.Second,
+		MaxAttempts:        a.settingInt(ctx, "mail.max_attempts", 5),
 	}, nil
 }
 
@@ -67,6 +82,9 @@ func (a *App) loadMailSettings(ctx context.Context) (mailSettings, error) {
 func (settings mailSettings) unusable() string {
 	if !settings.Enabled {
 		return "메일 발송이 꺼져 있습니다. 관리자 설정에서 켜십시오."
+	}
+	if settings.PasswordUnreadable {
+		return "저장된 SMTP 비밀번호를 현재 암호화 키로 읽을 수 없습니다. 관리자 설정에서 비밀번호를 다시 입력하십시오."
 	}
 	if settings.Host == "" {
 		return "SMTP 호스트가 비어 있습니다."

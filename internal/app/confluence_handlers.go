@@ -35,17 +35,25 @@ type confluenceSourceView struct {
 	SourceUpdatedAt *time.Time `json:"sourceUpdatedAt"`
 }
 
+// currentConfluenceCandidates lists the drafts the sync already found.
+//
+// It used to ask loadConfluenceSettings for the whole configuration, which
+// decrypts the Confluence password on the way. The password is the sync
+// worker's business — nothing on this path talks to Confluence — but the read
+// failed on a deployment started with WEEKLY_ALLOW_SECRET_RESET=true and not
+// yet re-entered, and the failure came back as 500 CONFLUENCE_CONFIGURATION_ERROR
+// on 내 주간보고: the screen every writer opens every week, with nothing said on
+// it and the 500 only in the browser console. A secret that cannot be read
+// should stop the feature that needs it and nothing else, so this path asks for
+// the two settings it actually uses.
 func (a *App) currentConfluenceCandidates(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
-	cfg, err := a.loadConfluenceSettings(r.Context())
-	if err != nil {
-		writeError(w, 500, "CONFLUENCE_CONFIGURATION_ERROR", "Confluence 설정을 읽을 수 없습니다.")
-		return
-	}
-	if cfg.Enabled {
+	enabled := a.settingBool(r.Context(), "confluence.enabled", false)
+	if enabled {
 		var lastSuccess *time.Time
 		_ = a.db.QueryRow(r.Context(), `SELECT last_success_at FROM confluence_sync_state WHERE system_type='CONFLUENCE'`).Scan(&lastSuccess)
-		if lastSuccess == nil || time.Since(*lastSuccess) >= time.Duration(cfg.SyncIntervalMinutes)*time.Minute {
+		interval := a.settingInt(r.Context(), "confluence.sync_interval_minutes", 60)
+		if lastSuccess == nil || time.Since(*lastSuccess) >= time.Duration(interval)*time.Minute {
 			a.wakeConfluenceWorker()
 		}
 	}
@@ -59,7 +67,7 @@ func (a *App) currentConfluenceCandidates(w http.ResponseWriter, r *http.Request
 	var lastSuccess, lastAttempt *time.Time
 	_ = a.db.QueryRow(r.Context(), `SELECT status,last_success_at,last_attempt_at,error_message FROM confluence_sync_state WHERE system_type='CONFLUENCE'`).Scan(&syncStatus, &lastSuccess, &lastAttempt, &syncError)
 	writeData(w, 200, map[string]any{
-		"enabled": cfg.Enabled, "weekStart": week, "candidates": candidates,
+		"enabled": enabled, "weekStart": week, "candidates": candidates,
 		"sync": map[string]any{"status": syncStatus, "lastSuccessAt": lastSuccess, "lastAttemptAt": lastAttempt, "errorMessage": syncError},
 	})
 }
