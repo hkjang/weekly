@@ -147,7 +147,7 @@ export function rollupSlides(view: Rollup): PresentSlide[] {
       `요청 ${insights.askItems}건`,
     ],
     body: `보고 커버리지 ${insights.reportCoverage}% (${insights.reportedWeeks}/${insights.expectedWeeks}주) · `
-      + `중복 제거 ${insights.duplicatesCut}건 · 이월 ${insights.carryoverItems}건 · 정체 ${insights.stalledItems}건`,
+      + `업무 ${insights.sourceItems}→${insights.totalItems}건 · 반복 문장 ${insights.duplicatesCut}줄 정리 · 이월 ${insights.carryoverItems}건 · 정체 ${insights.stalledItems}건`,
   }]
 
   // Executive judgement comes before the item list: a room that runs out of

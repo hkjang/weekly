@@ -343,7 +343,9 @@ export default function RollupPage({ session, route, notify }: {
             <div><small>진척도</small><strong>{detail.startProgress}% → {detail.progress}%</strong></div>
             <div><small>담당</small><strong>{detail.owners.join(', ') || '-'}</strong></div>
             <div><small>이슈 발생</small><strong>{detail.issueWeeks}개 주차</strong></div>
-            <div><small>중복 제거</small><strong>{detail.duplicatesCut}건</strong></div>
+            {/* Lines of repeated text, not rows. "중복 제거 N건" beside a
+                row count read as the same unit and could not both be true. */}
+            <div><small>반복 문장 정리</small><strong>{detail.duplicatesCut}줄</strong></div>
           </div>
           {/* The estimate never appears without the numbers behind it. A week
               count on its own is a score, and a score nobody can check is one

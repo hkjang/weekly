@@ -1139,9 +1139,20 @@ func buildHighlights(insights rollupInsights, items []rollupItem, cfg rollupConf
 			Detail: "연속 수행 업무는 기간 과제, 단발 업무는 운영성 대응으로 구분해 다음 기간 리소스 배분에 활용하십시오."})
 	}
 	if insights.DuplicatesCut > 0 || insights.MergedTitles > 0 {
+		// Two numbers, two units, and they used to share one word. The card
+		// read "중복 46건 제거" beside "업무 35건을 7건으로 정리했습니다" —
+		// both true, and impossible to believe together: nobody cuts 46
+		// duplicates out of 35 items. DuplicatesCut counts repeated *lines of
+		// text* dropped while a task's weeks were merged into one entry;
+		// SourceItems→TotalItems counts *rows* folded into work items. Verified
+		// against the database on a seeded deployment: 35 rows, 7 work items, 5
+		// reports — the arithmetic was right and the wording was not.
 		result = append(result, rollupHighlight{Severity: "INFO", Category: "PORTFOLIO",
-			Title:  fmt.Sprintf("중복 %d건 제거 · 동일 업무 %d건 병합", insights.DuplicatesCut, insights.MergedTitles),
-			Detail: fmt.Sprintf("주간보고 업무 %d건을 %d건으로 정리했습니다(중복률 %.1f%%).", insights.SourceItems, insights.TotalItems, insights.DedupRate)})
+			Title: fmt.Sprintf("업무 %d건을 %d건으로 정리 · 동일 업무 %d건 병합",
+				insights.SourceItems, insights.TotalItems, insights.MergedTitles),
+			Detail: fmt.Sprintf("주간보고에 %d번 적힌 업무가 실제로는 %d건이었습니다(중복 %.1f%%). "+
+				"그 과정에서 여러 주에 걸쳐 같은 내용을 반복해 적은 문장 %d줄도 하나로 합쳤습니다.",
+				insights.SourceItems, insights.TotalItems, insights.DedupRate, insights.DuplicatesCut)})
 	}
 	return result
 }
