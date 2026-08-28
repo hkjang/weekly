@@ -3387,6 +3387,22 @@ README 가 바뀌고 코드가 그대로  → &quot;README 에 &#x27;| 진척 �
 <div class="phase-box">배치 크기를 32→64  → &quot;README 는 6,400건, 코드는 64×200=12,800건 입니다&quot;
 주기를 2분→5분     → &quot;README 는 2, 코드는 5 입니다&quot;</div>
 <p><strong>곱한 값과 리터럴로 박힌 값이 문서에 실리는 두 가지 방식</strong>이고, 둘 다 이제 잡힙니다.</p>
+<p>#### 3.10.202 v0.247.0에서 완료 — 시험 하니스가 옮기는 디렉터리가 셋인데 넷이었습니다</p>
+<p>표 조사에서 비어 있던 것 중 아직 안 건드린 곳으로 갔습니다 — <strong>조직별 PPTX 템플릿.</strong> 4단 계층(<code>회사 → 본부 3 → 실 6 → 팀 5</code>)에 서로 구분되는 템플릿을 올리고 실제로 내보내 봤습니다.</p>
+<div class="phase-box">본부 3 에만 등록          → 팀 5 의 보고서가 본부 서식으로 나옵니다
+실 6 에도 등록            → 더 가까운 실 서식이 이깁니다 (본부 서식은 섞이지 않음)
+다른 갈래의 팀            → 남의 서식이 새어 들지 않습니다
+조직을 지정해 조회        → source: &quot;inherited&quot; 로 물려받은 것까지 정직하게 답합니다
+내용                      → 업무 7건이 실적·계획 양쪽에 모두 들어갑니다</div>
+<p><strong>전부 정확합니다.</strong> 이번 회차의 다섯 번째 음성 결과입니다.</p>
+<p>##### 그런데 그 걸음을 시험으로 옮기려니 올라가지 않았습니다</p>
+<div class="phase-box">upload the template: 500 STORAGE_ERROR &quot;템플릿 저장소를 만들 수 없습니다.&quot;</div>
+<p>하니스에 이렇게 적혀 있습니다.</p>
+<blockquote>*"<strong>The three directories</strong> are derived from stateDirectory at package init, so each has to be pointed somewhere writable on its own."*</blockquote>
+<p><strong>넷입니다.</strong> <code>stateDirectory</code>, <code>stateDirectoryAttachments</code>, <code>importDirectory</code>, 그리고 <code>customPPTXPath</code>. 넷째가 목록에서 빠져 있어서, 어떤 시험이 템플릿을 올리려 해도 <code>/var/lib/weekly</code> 에 쓰려다 실패합니다. <strong>조직 템플릿 기능 전체가, 계단을 포함해, 이 목록의 누락 하나로 시험에서 닿을 수 없었습니다.</strong></p>
+<p>##### 고르는 것과 그 결과는 다른 반쪽입니다</p>
+<p><code>TestOrganizationTemplateWalksUpToTheNearestOwner</code> 가 이미 있습니다 — <code>templatePathFor</code> 가 옳은 행을 고르는지 봅니다. 그것이 <strong>고르는 쪽</strong>이고, <strong>세 단계 아래의 작성자가 주간보고를 받으면 본부 서식 위에 놓여 있는가</strong>는 아무도 보지 않았습니다. 기능이 존재하는 이유는 두 번째 쪽입니다.</p>
+<p>라우트를 지나 덱 안의 글자까지 확인하는 시험을 붙였고, 계단을 두 방향으로 깨뜨려 붉어지는 것을 봤습니다 — 가장 먼 조상을 고르게 했을 때, 그리고 옆 조직으로 새게 했을 때.</p>
 </div>
 </body>
 </html>

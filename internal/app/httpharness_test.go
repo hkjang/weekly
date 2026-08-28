@@ -94,15 +94,24 @@ func newTestServer(t *testing.T) *testServer {
 	// a wall of INVALID_CREDENTIALS.
 	dsn = createScratchDatabase(t, dsn)
 
-	// The three directories are derived from stateDirectory at package init, so
+	// The four directories are derived from stateDirectory at package init, so
 	// each has to be pointed somewhere writable on its own.
+	//
+	// It used to be three. customPPTXPath was the one left behind — which is
+	// why no test had ever uploaded a PPTX template: the upload answered
+	// STORAGE_ERROR because it was trying to write under /var/lib/weekly. The
+	// whole organisation template feature, cascade included, was unreachable
+	// from a test by an omission in this list.
 	workspace := t.TempDir()
-	state, attachments, imports := stateDirectory, stateDirectoryAttachments, importDirectory
+	state, attachments := stateDirectory, stateDirectoryAttachments
+	imports, templates := importDirectory, customPPTXPath
 	stateDirectory = workspace
 	stateDirectoryAttachments = workspace + "/attachments"
 	importDirectory = workspace + "/imports"
+	customPPTXPath = workspace + "/templates/weekly-report.pptx"
 	t.Cleanup(func() {
-		stateDirectory, stateDirectoryAttachments, importDirectory = state, attachments, imports
+		stateDirectory, stateDirectoryAttachments = state, attachments
+		importDirectory, customPPTXPath = imports, templates
 	})
 
 	t.Setenv("WEEKLY_POSTGRES_DSN", dsn)
