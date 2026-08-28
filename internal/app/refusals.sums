@@ -1,0 +1,39 @@
+attachments.go  listAttachments  FORBIDDEN  이 보고서의 첨부 이미지를 조회할 권한이 없습니다.
+attachments.go  uploadAttachments  FORBIDDEN  본인의 보고서에만 이미지를 첨부할 수 있습니다.
+attachments.go  serveAttachment  FORBIDDEN  이 이미지를 조회할 권한이 없습니다.
+attachments.go  updateAttachment  FORBIDDEN  본인의 보고서 이미지만 수정할 수 있습니다.
+attachments.go  deleteAttachment  FORBIDDEN  본인의 보고서 이미지만 삭제할 수 있습니다.
+auth.go  login  LOCAL_LOGIN_DISABLED  로컬 로그인이 비활성화되었습니다.
+auth.go  oidcCallback  OIDC_USER_NOT_PROVISIONED  Weekly에 등록되지 않은 사용자입니다.
+decisions.go  listWorkItemDecisions  FORBIDDEN  조회 권한 범위 밖의 업무입니다.
+decisions.go  createWorkItemDecision  FORBIDDEN  조회 권한 범위 밖의 업무입니다.
+decisions.go  updateDecision  FORBIDDEN  조회 권한 범위 밖의 업무입니다.
+decisions.go  deleteDecision  FORBIDDEN  기록한 사람과 관리자만 결정 기록을 삭제할 수 있습니다.
+decisionsuggest.go  suggestDecisions  FORBIDDEN  조회 권한 범위 밖의 업무입니다.
+duedate.go  setWorkItemDueDate  FORBIDDEN  본인 업무의 마감일만 설정할 수 있습니다.
+handover.go  handover  FORBIDDEN  조회 권한 범위 밖의 담당자입니다.
+handover.go  workGraph  FORBIDDEN  업무 인사이트는 팀장 이상만 조회할 수 있습니다.
+mcp.go  mcp  MCP_ORIGIN_REJECTED  MCP 요청 출처를 확인할 수 없습니다.
+mcp.go  mcp  MCP_SCOPE_REQUIRED  mcp:read 범위가 필요합니다.
+meeting.go  meetingMode  FORBIDDEN  조직 단위 회의 자료는 팀장 이상만 조회할 수 있습니다.
+middleware.go  requireAuth  API_KEY_SCOPE_DENIED  <변수>
+middleware.go  requireRole  FORBIDDEN  요청을 수행할 권한이 없습니다.
+middleware.go  csrf  CSRF_REJECTED  요청 출처를 확인할 수 없습니다.
+pptx.go  exportReportPPTX  FORBIDDEN  이 보고서를 내보낼 권한이 없습니다.
+reports.go  getReport  FORBIDDEN  이 보고서를 조회할 권한이 없습니다.
+reports.go  updateReport  FORBIDDEN  본인의 보고서만 수정할 수 있습니다.
+reports.go  updateReport  FORBIDDEN  본인의 보고서만 수정할 수 있습니다.
+reports.go  deleteReport  FORBIDDEN  본인의 보고서만 삭제할 수 있습니다.
+reports.go  deleteReport  FORBIDDEN  본인의 보고서만 삭제할 수 있습니다.
+reports.go  cloneReport  FORBIDDEN  본인의 보고서만 복제할 수 있습니다.
+reports.go  reviewReport  FORBIDDEN  이 보고서를 검토할 권한이 없습니다.
+reports.go  addComment  FORBIDDEN  이 보고서에 의견을 남길 권한이 없습니다.
+rollup_handlers.go  resolveRollupRequest  FORBIDDEN  조직 단위 집계는 팀장 이상만 조회할 수 있습니다.
+weeklychange.go  weeklyChanges  FORBIDDEN  조직 단위 변화 요약은 팀장 이상만 조회할 수 있습니다.
+workitemedit.go  mergeWorkItem  FORBIDDEN  본인 업무만 정리할 수 있습니다.
+workitemedit.go  splitWorkItem  FORBIDDEN  본인 업무만 정리할 수 있습니다.
+workitemlinks.go  listWorkItemLinks  FORBIDDEN  조회 권한 범위 밖의 업무입니다.
+workitemlinks.go  createWorkItemLink  FORBIDDEN  본인 업무의 선행 관계만 등록할 수 있습니다.
+workitemlinks.go  deleteWorkItemLink  FORBIDDEN  관계된 업무의 담당자만 삭제할 수 있습니다.
+workitems.go  listWorkItems  FORBIDDEN  조직 단위 조회는 팀장 이상만 가능합니다.
+worksearch.go  searchWorkItems  FORBIDDEN  조직 단위 조회는 팀장 이상만 가능합니다.
