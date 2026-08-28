@@ -71,9 +71,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.238.0.tar.gz
-gzip -dc weekly-v0.238.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.238.0.tar.gz | docker load
+sha256sum weekly-v0.239.0.tar.gz
+gzip -dc weekly-v0.239.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.239.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 필수 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -190,7 +190,7 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 
 ## 검사 도구
 
-`go test` 가 잡지 못하는 것을 잡는 검사가 열 개 있습니다 — 자기 대상을 실행하지 않는 시험, 통과하지만 무엇도 지키지 않는 시험, 규모에서만 보이는 응답 크기, 월요일 아침의 동시성. 무엇을 언제 돌리는지는 [`docs/CHECKS.md`](docs/CHECKS.md) 에 있습니다.
+`go test` 가 잡지 못하는 것을 잡는 검사가 열한 개 있습니다 — 자기 대상을 실행하지 않는 시험, 통과하지만 무엇도 지키지 않는 시험, 규모에서만 보이는 응답 크기, 월요일 아침의 동시성. 무엇을 언제 돌리는지는 [`docs/CHECKS.md`](docs/CHECKS.md) 에 있습니다.
 
 `scripts/load-check.py` 는 **읽기만 하지 않습니다** — `u1..uN` 의 이번 주 보고서를 덮어쓰므로 `--yes` 를 요구합니다. 규모 시드를 뿌린 배포에만 겨누십시오.
 
