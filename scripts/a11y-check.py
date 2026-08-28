@@ -21,6 +21,12 @@ into a detail on the table row itself, with no button inside it — 과거 보�
 nothing, so a keyboard-only reader could open none of them. A row that draws a
 pointer cursor and is not focusable is a control that half the people cannot
 reach.
+
+The third part is what an overlay owes a keyboard once it is open: focus goes
+in, Tab stays in, and focus comes back to whatever opened it. The shared Modal
+had all three; the command palette and the full-screen presentation drew
+themselves and had none of the last two. Six of twelve Tab presses left the deck
+for the page underneath it, which nobody could see.
 """
 import argparse
 import json
@@ -35,6 +41,8 @@ def parse_args():
     parser.add_argument("--base", default="http://127.0.0.1:8080")
     parser.add_argument("--playwright", default="/home/hkjang/projects/Naviq/node_modules/playwright/index.mjs")
     parser.add_argument("--password", required=True)
+    parser.add_argument("--overlays", action="store_true",
+                        help="also open the palette and the presentation and check focus")
     parser.add_argument("who", nargs="+", help="usernames to sweep; roles differ in what they can open")
     return parser.parse_args()
 
@@ -76,7 +84,7 @@ for (const name of PAGES) {{
       if (getComputedStyle(row).cursor !== 'pointer') continue
       out.total++
       if (!reachable(row)) out.missing.push('키보드로 닿지 않음 · 표 행 · ' +
-        (row.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40))
+        (row.textContent || '').trim().replace(/[ \\t\\n]+/g, ' ').slice(0, 40))
     }}
     return out
   }})
@@ -87,6 +95,70 @@ console.log(JSON.stringify(report))
 await browser.close()
 """
 
+
+def overlay_script(base, playwright, password, user):
+    """Open each overlay that draws itself and see what it does with focus."""
+    return rf"""
+import {{ chromium }} from {json.dumps(playwright)}
+const BASE = {json.dumps(base)}
+const browser = await chromium.launch()
+const page = await (await browser.newContext({{ viewport: {{ width: 1440, height: 900 }} }})).newPage()
+await page.goto(BASE, {{ waitUntil: 'networkidle' }})
+await page.getByLabel(/\uc544\uc774\ub514|\uc0ac\uc6a9\uc790/).fill({json.dumps(user)})
+await page.locator('input[type=password]').fill({json.dumps(password)})
+await page.getByRole('button', {{ name: '\ub85c\uadf8\uc778' }}).click()
+await page.waitForTimeout(2500)
+const inside = sel => page.evaluate(s => Boolean(document.activeElement?.closest(s)), sel)
+const tag = () => page.evaluate(() => document.activeElement?.tagName.toLowerCase() || 'none')
+const faults = []
+
+await page.goto(`${{BASE}}/#/work`, {{ waitUntil: 'load' }})
+await page.waitForTimeout(2000)
+const row = page.locator('tbody tr[role=button]').first()
+if (await row.count()) {{
+  await row.focus()
+  const before = await tag()
+  await page.keyboard.press('Control+k')
+  await page.waitForTimeout(800)
+  if (!(await inside('.palette'))) faults.push('빠른 이동: 열어도 초점이 안으로 들어가지 않습니다')
+  let out = 0
+  for (let i = 0; i < 14; i++) {{ await page.keyboard.press('Tab'); if (!(await inside('.palette'))) out++ }}
+  if (out) faults.push(`빠른 이동: Tab 14회 중 ${{out}}회가 밖으로 나갑니다`)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(700)
+  if ((await tag()) !== before) faults.push(`빠른 이동: 닫은 뒤 초점이 ${{await tag()}} 로 갑니다 (열기 전 ${{before}})`)
+}}
+
+await page.goto(`${{BASE}}/#/current`, {{ waitUntil: 'load' }})
+await page.waitForTimeout(2200)
+const present = page.getByRole('button', {{ name: /발표/ }}).first()
+if (await present.count()) {{
+  await present.focus()
+  const before = await tag()
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(1800)
+  if (!(await inside('.presentation'))) faults.push('발표 모드: 열어도 초점이 안으로 들어가지 않습니다')
+  let out = 0
+  for (let i = 0; i < 12; i++) {{ await page.keyboard.press('Tab'); if (!(await inside('.presentation'))) out++ }}
+  if (out) faults.push(`발표 모드: Tab 12회 중 ${{out}}회가 전체화면 밖으로 나갑니다`)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(900)
+  if ((await tag()) !== before) faults.push(`발표 모드: 닫은 뒤 초점이 ${{await tag()}} 로 갑니다 (열기 전 ${{before}})`)
+}}
+
+console.log(JSON.stringify(faults))
+await browser.close()
+"""
+
+
+def overlay_report(args, user):
+    done = subprocess.run(["node", "--input-type=module", "-e",
+                           overlay_script(args.base, args.playwright, args.password, user)],
+                          capture_output=True, text=True)
+    line = done.stdout.strip().split("\n")[-1] if done.stdout.strip() else ""
+    if not line.startswith("["):
+        raise SystemExit(f"{user}: 오버레이 훑기가 실패했습니다\n{done.stderr.strip()[:400]}")
+    return [f"{user} · {item}" for item in json.loads(line)]
 
 def main():
     args = parse_args()
@@ -101,6 +173,10 @@ def main():
         found = json.loads(line)
         total += found["total"]
         missing += [f"{user} · {item}" for item in found["missing"]]
+
+    if args.overlays:
+        for user in args.who:
+            missing += overlay_report(args, user)
 
     print("접근성 검사")
     for item in missing:

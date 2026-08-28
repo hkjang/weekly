@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import PresenterWindow from './PresenterWindow'
 import { api } from './api'
 import { isTopLayer, popLayer, pushLayer } from './layers'
+import { keepFocusInside } from './components'
 
 /**
  * Presentation mode: any deck the app can export as PPTX can also be presented
@@ -199,13 +200,13 @@ export default function PresentationMode({ slides, label, notes, onClose }: {
     return () => { if (layer.current) popLayer(layer.current) }
   }, [])
   useEffect(() => {
-    container.current?.focus()
+    const release = keepFocusInside(container)
     const guarded = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && layer.current && !isTopLayer(layer.current)) return
       onKey(event)
     }
     window.addEventListener('keydown', guarded)
-    return () => window.removeEventListener('keydown', guarded)
+    return () => { window.removeEventListener('keydown', guarded); release() }
   }, [onKey])
 
   useEffect(() => {

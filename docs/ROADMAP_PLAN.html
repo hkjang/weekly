@@ -3438,6 +3438,20 @@ README 가 바뀌고 코드가 그대로  → &quot;README 에 &#x27;| 진척 �
 과거 보고: 행 52개 · 초점 TR:button · Enter 로 열림 = true
 기간 보고: 행 7개 · 초점 TR:button · Enter 로 열림 = true</div>
 <p><code>a11y-check.py</code> 가 이제 두 가지를 봅니다 — 이름이 없는 입력 칸과, <strong>포인터 커서를 그리면서 탭으로 닿지 않는 표 행</strong>. <code>tabIndex</code> 를 떼어 확인했습니다.</p>
+<p>#### 3.10.205 v0.250.0에서 완료 — 전체화면 발표에서 Tab 이 뒤쪽 화면으로 나갑니다</p>
+<p>접근성 축의 세 번째 차원입니다. 이름(v0.248), 닿을 수 있는가(v0.249) 다음은 <strong>열려 있는 동안 어떻게 되는가</strong> 입니다.</p>
+<p>공용 <code>Modal</code> 은 셋을 다 갖췄습니다 — 초점을 안으로 넣고, Tab 을 가두고, 닫을 때 열었던 자리로 돌려줍니다. 그 주석에 이유도 적혀 있습니다.</p>
+<blockquote>*"Tab used to walk out of the dialog and into the page behind it, which leaves a keyboard user <strong>editing something they cannot see</strong>."*</blockquote>
+<p><strong>자기를 직접 그리는 오버레이 둘은 그 교훈을 배우지 못했습니다.</strong></p>
+<div class="phase-box">공용 Modal   초점 안으로 ✓ · Tab 25회 중 밖으로 0 · 닫으면 tr 로 복귀 ✓
+빠른 이동     초점 안으로 ✓ · Tab 14회 중 밖으로 0 · 닫으면 body           ✗
+발표 모드     초점 안으로 ✓ · Tab 12회 중 밖으로 6 · 닫으면 엉뚱한 a       ✗</div>
+<p>전체화면 발표에서 Tab 을 열두 번 누르면 <strong>여섯 번이 덱을 벗어나 뒤쪽 화면으로</strong> 갑니다. 발표자에게도, 화면을 보고 있는 사람에게도 보이지 않는 자리입니다. 그리고 빠른 이동을 실수로 열었다가 Escape 로 닫으면, 읽고 있던 목록에서의 자리를 잃고 문서 맨 앞부터 다시 Tab 해야 합니다.</p>
+<p>##### 한 번 배운 것을 나눠 씁니다</p>
+<p><code>keepFocusInside(panel, focusFirst?)</code> 하나를 세 곳이 함께 씁니다. 초점을 넣고, Tab 을 가두고, 사라질 때 열었던 것에 돌려줍니다. 패널 밖에 초점이 있으면 안으로 끌어옵니다 — 오버레이가 다른 곳이 초점을 쥔 채 열렸을 때입니다.</p>
+<div class="phase-box">고침 후  빠른 이동 : 닫으면 tr 로 복귀
+         발표 모드 : Tab 12회 중 밖으로 0 · 닫으면 열었던 button 으로 복귀</div>
+<p><code>a11y-check.py --overlays</code> 가 그 자리를 지킵니다 — 초점 복귀를 떼어 두 오버레이가 모두 신고되는 것을 확인했습니다.</p>
 </div>
 </body>
 </html>

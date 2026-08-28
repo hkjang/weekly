@@ -3,6 +3,7 @@ import { api } from './api'
 import { matchScore } from './router'
 import type { PageName } from './router'
 import type { ReportListItem, ReportListView, SearchResponse, SessionInfo } from './types'
+import { keepFocusInside } from './components'
 
 /**
  * Quick navigation. Ctrl+K (Cmd+K on macOS) opens a searchable list of screens,
@@ -77,6 +78,7 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
   const [searching, setSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   // Content search runs on the server, so it waits for a pause in typing and
   // drops any answer that arrives after the query has moved on.
@@ -98,11 +100,12 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
   useEffect(() => {
     if (!open) return
     setQuery(''); setActive(0); setSearch(undefined)
-    inputRef.current?.focus()
+    const release = keepFocusInside(panelRef, () => inputRef.current?.focus())
     // Recent reports are only worth fetching once the palette is actually used.
     if (reports === undefined) {
       api<ReportListView>('/api/v1/reports?limit=8').then(value => setReports(value.items)).catch(() => setReports([]))
     }
+    return release
   }, [open])
 
   const reportCommands = useMemo<Command[]>(() => (reports ?? []).map(report => ({
@@ -166,7 +169,7 @@ export default function CommandPalette({ open, onClose, session, go, commands }:
 
   let lastGroup = ''
   return <div className="palette-backdrop" onClick={onClose} role="presentation">
-    <div className="palette" onClick={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="빠른 이동">
+    <div className="palette" ref={panelRef} onClick={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="빠른 이동">
       <div className="palette-input">
         <span aria-hidden="true">⌕</span>
         <input ref={inputRef} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={onKeyDown}

@@ -147,3 +147,40 @@ export function openable(open: () => void, label: string) {
     'aria-label': label,
   }
 }
+
+// keepFocusInside is what a full-screen overlay owes a keyboard.
+//
+// Modal has done this since somebody found that "Tab used to walk out of the
+// dialog and into the page behind it, which leaves a keyboard user editing
+// something they cannot see". Two other overlays draw themselves and never
+// learned it. Measured in a browser: in 발표 모드, six of twelve Tab presses
+// left the full-screen deck for the page underneath it, and closing 빠른 이동
+// dropped focus onto <body> — so a reader who opened it by accident lost their
+// place in the list they were reading.
+//
+// Attach it where the overlay mounts. It moves focus in, keeps Tab inside, and
+// hands focus back to whatever opened the overlay when it goes away.
+export function keepFocusInside(panel: { current: HTMLElement | null }, focusFirst?: () => void) {
+  const opener = document.activeElement as HTMLElement | null
+  if (focusFirst) focusFirst()
+  else panel.current?.focus({ preventScroll: true })
+  const onKey = (event: globalThis.KeyboardEvent) => {
+    if (event.key !== 'Tab' || !panel.current) return
+    const stops = panel.current.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+    if (!stops.length) { event.preventDefault(); panel.current.focus({ preventScroll: true }); return }
+    const first = stops[0]
+    const last = stops[stops.length - 1]
+    const active = document.activeElement
+    // Focus outside the panel at all — the overlay was opened while something
+    // else held it — is pulled back rather than left to wander.
+    if (!panel.current.contains(active)) { event.preventDefault(); first.focus(); return }
+    if (!event.shiftKey && active === last) { event.preventDefault(); first.focus() }
+    else if (event.shiftKey && active === first) { event.preventDefault(); last.focus() }
+  }
+  document.addEventListener('keydown', onKey)
+  return () => {
+    document.removeEventListener('keydown', onKey)
+    opener?.focus?.({ preventScroll: true })
+  }
+}
