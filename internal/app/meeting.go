@@ -30,6 +30,10 @@ const (
 	// "근거를 볼 수 없는 요약은 읽는 사람이 반박할 수 없다" — and a published
 	// number that nothing pairs with the code drifts. Two rows of that table
 	// had already gone missing before this was noticed.
+	//
+	// Naming them was half the answer. TestTheNumbersREADMEPublishesAreTheOnes
+	// TheProductUses is the other half: it reads the table out of README and
+	// fails if a row disagrees with the constant beside it, or is gone.
 	digestWeightDecision       = 40
 	digestWeightIssuePerWeek   = 10
 	digestWeightStalledPerWeek = 10
