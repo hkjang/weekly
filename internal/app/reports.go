@@ -335,7 +335,16 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if storedVersion != input.Version {
-		writeError(w, http.StatusConflict, "VERSION_CONFLICT", "다른 변경사항이 먼저 저장되었습니다. 새로고침 후 다시 시도하세요.")
+		// Not "새로고침 후 다시 시도하세요". The editor deliberately keeps what
+		// is on screen when a save fails — its own comment says overwriting it
+		// "would destroy exactly the work the failed save was trying to keep" —
+		// and it has already re-read the version by the time this sentence is
+		// shown. Refreshing the page is the one action that throws the writing
+		// away, and it is not needed: pressing save again succeeds. Measured
+		// against a running deployment, exactly that.
+		writeError(w, http.StatusConflict, "VERSION_CONFLICT",
+			"다른 곳에서 먼저 저장되어 이번 저장은 반영되지 않았습니다. 화면에 쓴 내용은 그대로 있으니 저장을 한 번 더 누르면 됩니다. "+
+				"그동안 저장된 내용은 덮어씁니다. 새로고침하면 지금 쓰고 있는 내용이 사라집니다.")
 		return
 	}
 	newStatus := previousStatus
@@ -421,7 +430,11 @@ func (a *App) deleteReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if storedVersion != version {
-		writeError(w, http.StatusConflict, "VERSION_CONFLICT", "보고서가 변경되었습니다. 새로고침 후 다시 시도하세요.")
+		// Here the advice to reload is the right one, and it says why: nothing
+		// is being typed, and what would be deleted is no longer what the page
+		// was showing when the reader decided to delete it.
+		writeError(w, http.StatusConflict, "VERSION_CONFLICT",
+			"이 보고서는 화면에 띄운 뒤 바뀌었습니다. 지우려던 것과 지금 저장된 것이 다를 수 있으니, 다시 불러와 확인한 뒤 삭제하세요.")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `UPDATE report_candidates SET status='DETECTED',accepted_report_id=NULL,updated_at=now()
