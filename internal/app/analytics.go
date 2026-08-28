@@ -68,7 +68,21 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 			return result, err
 		}
 		result.StatusCounts[status] = count
-		if status != "DRAFT" && status != "REVISION_REQUESTED" {
+		// 제출 means the report was handed in, which a 반려 does not undo: the
+		// leader sent it back, and 제출시각 is still on it.
+		//
+		// This used to exclude REVISION_REQUESTED while the administrator's
+		// 참여 분석 counted it, and both screens call the number 제출률.
+		// Measured on one deployment, the same week: 관리자 91.1%, 화면 82.0%,
+		// and the 9.1 points were exactly the 28 reports sent back. A reader
+		// cannot tell which of two numbers with the same name is the answer.
+		//
+		// The administrator's definition wins because its 미제출 명단 is built
+		// on it: counting a returned report as unfiled would put somebody who
+		// wrote and was asked to revise into the same list as somebody who
+		// wrote nothing. What is still open is on the same screen already —
+		// the status breakdown beside this number names 반려 on its own.
+		if status != "DRAFT" {
 			result.SubmittedUsers += count
 		}
 	}
