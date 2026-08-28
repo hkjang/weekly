@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.258.0
+  version: 0.259.0
   description: |
     주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
     PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1712,6 +1712,21 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "409": { $ref: "#/components/responses/Error" }
+  /admin/settings/{key}:
+    delete:
+      summary: 저장된 비밀 설정 지우기
+      description: |
+        빈 값을 저장하는 것은 "기존 비밀을 유지"라는 뜻이므로, 지우는 것은 별도의 동사다.
+        비밀 설정에만 쓸 수 있고, 값을 다시 입력할 때까지 해당 기능은 동작하지 않는다.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /admin/settings/ai/test:
     post:
       summary: 저장된 AI Gateway 설정의 Structured Output 연결 시험

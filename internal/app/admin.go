@@ -244,14 +244,26 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	p := currentPrincipal(r.Context())
+	// What was actually written, which is not the same as what was asked for: a
+	// secret left blank is deliberately skipped, and reporting it as updated
+	// told an administrator clearing a field that the field had been cleared.
+	// It had not, and there was no way to see that from the answer.
+	written := make([]string, 0, len(keys))
 	for _, key := range keys {
 		value := input.Settings[key]
 		definition := settingDefinitions[key]
 		if definition.Secret {
-			// Blank secret means keep the existing secret. This prevents accidental removal by masked forms.
-			if value == "" {
+			// Blank secret means keep the existing secret. This prevents
+			// accidental removal by masked forms; 지우기 is the deliberate path.
+			//
+			// Trimmed first. " " is not a password anybody typed on purpose —
+			// it is a field somebody tried to empty — and untrimmed it was
+			// encrypted and stored, so the setting then read back as configured
+			// and readable and the relay was handed a single space.
+			if strings.TrimSpace(value) == "" {
 				continue
 			}
+			value = strings.TrimSpace(value)
 			value, err = a.box.Encrypt(value)
 			if err != nil {
 				writeError(w, 500, "ENCRYPTION_ERROR", "비밀 설정을 암호화할 수 없습니다.")
@@ -264,13 +276,14 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "DATABASE_ERROR", "설정을 저장할 수 없습니다.")
 			return
 		}
+		written = append(written, key)
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "설정을 저장할 수 없습니다.")
 		return
 	}
-	a.audit(r, p, "settings.update", "settings", "global", map[string]any{"keys": keys})
-	writeData(w, 200, map[string]any{"updated": keys})
+	a.audit(r, p, "settings.update", "settings", "global", map[string]any{"keys": written})
+	writeData(w, 200, map[string]any{"updated": written})
 }
 
 // oidcUserMessage says which discovery failure happened.
@@ -965,12 +978,51 @@ type encryptionView struct {
 	//
 	// The card counted secrets and never read one, so a deployment started with
 	// WEEKLY_ALLOW_SECRET_RESET=true was shown a sentence about what it would
-	// lose if it ever lost its key, while three secrets sat unreadable. Boot
-	// says this once; after that the only trace was a 500 in a writer's browser
-	// console and a worker logging the same line every thirty seconds. This is
-	// the screen that already talks about the key, so it is where it belongs.
+	// lose if it ever lost its key, while three secrets sat unreadable.
+	//
+	// Not that nothing said so: adminSettings has decrypted each secret and
+	// labelled it 복호화할 수 없음 · 다시 입력 필요 since secrets were added, and
+	// boot refuses to start without saying it. What was missing was the summary
+	// on the card that is *about* the key — one line naming which keys, instead
+	// of a per-row label partway down a long form.
 	Unreadable     []string `json:"unreadable"`
 	StateDirectory string   `json:"stateDirectory"`
+}
+
+// clearSecretSetting removes one stored secret.
+//
+// Saving a blank value deliberately means "keep what is there", so that a
+// masked form cannot wipe a password by being submitted. That left no way to
+// remove one at all: an account decommissioned, a Confluence integration
+// switched off, or a secret this deployment's key can no longer read all stayed
+// in the table with nothing an administrator could do about them. The last case
+// is the one that shows: 관리자 설정 names the unreadable keys and asks for them
+// to be re-entered, and somebody who no longer uses that integration had only
+// one way to make the warning go away — type a password they do not want stored.
+//
+// So the deliberate path is its own verb rather than a value.
+func (a *App) clearSecretSetting(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	definition, known := settingDefinitions[key]
+	if !known {
+		writeError(w, http.StatusNotFound, "SETTING_NOT_FOUND", "그런 설정이 없습니다.")
+		return
+	}
+	if !definition.Secret {
+		// A non-secret setting has a default and a visible value; removing the
+		// row would only mean "the default", which saving the default already
+		// says more clearly.
+		writeError(w, http.StatusBadRequest, "SETTING_NOT_SECRET", "비밀 설정만 지울 수 있습니다.")
+		return
+	}
+	p := currentPrincipal(r.Context())
+	tag, err := a.db.Exec(r.Context(), `UPDATE app_settings SET value='', updated_by=$2, updated_at=now() WHERE key=$1 AND secret`, key, p.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "설정을 지울 수 없습니다.")
+		return
+	}
+	a.audit(r, p, "settings.clear_secret", "settings", key, map[string]any{"rows": tag.RowsAffected()})
+	writeData(w, http.StatusOK, map[string]any{"key": key, "cleared": true})
 }
 
 func (a *App) adminEncryption(w http.ResponseWriter, r *http.Request) {
