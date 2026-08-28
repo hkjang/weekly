@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api, download } from '../api'
-import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
+import { Modal, Button, Card, Empty, PageHeader, Spinner , openable} from '../components'
 import PresentationMode from '../PresentationMode'
 import { rollupSlides } from '../presentSlides'
 import { CompositionBar, ProgressTrendChart, RankBars, TaskTimeline, WeeklyStateChart } from '../charts'
@@ -302,7 +302,7 @@ export default function RollupPage({ session, route, notify }: {
         </div>}>
           {!visibleItems.length ? <Empty>선택한 조건에 해당하는 업무가 없습니다.</Empty> : <div className="table-wrap"><table>
             <thead><tr><th>구분</th><th>업무</th><th>진척도</th><th>수행 주차</th><th>상태</th><th>담당</th></tr></thead>
-            <tbody>{visibleItems.map(item => <tr key={item.key} onClick={() => setDetail(item)}>
+            <tbody>{visibleItems.map(item => <tr key={item.key} {...openable(() => setDetail(item), `${item.title} 상세 열기`)}>
               <td>{item.category || '미분류'}</td>
               <td><strong>{item.title}</strong>{item.mergedTitles.length > 1 && <small className="cell-sub">동일 업무 {item.mergedTitles.length}건 병합</small>}</td>
               <td><div className="cell-progress"><i style={{ width: `${item.progress}%` }} /></div><small>{item.progress}%</small></td>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { reviewDecision } from '../reviewAction'
 import { errorText, api, post , download} from '../api'
-import { Modal, Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
+import { Modal, Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge , openable} from '../components'
 import ReportPresentation from '../ReportPresentation'
 import ReportComments from '../ReportComments'
 import type { Report, ReportListItem, ReportListView } from '../types'
@@ -64,7 +64,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
         team's. When the server says which, say it instead of the blank. */}
     {!reports ? <Spinner/> : !reports.length ? <Empty>{notice || (status
       ? '이 상태인 보고서가 없습니다. 상태를 전체로 두면 나머지가 보입니다.'
-      : '조회할 팀 보고서가 없습니다.')}</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>상태</th><th>진행</th></tr></thead><tbody>{reports.map(report => <tr key={report.id} onClick={() => open(report.id)}><td>{report.weekStart}</td><td><strong>{report.displayName}</strong><small className="cell-sub">{report.username}</small></td><td className="truncate">{report.summary || '-'}</td><td><StatusBadge status={report.status}/></td><td><button className="text-button">열기 →</button></td></tr>)}</tbody></table></div>
+      : '조회할 팀 보고서가 없습니다.')}</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>상태</th><th>진행</th></tr></thead><tbody>{reports.map(report => <tr key={report.id} {...openable(() => open(report.id), `${report.displayName} ${report.weekStart} 주간보고 열기`)}><td>{report.weekStart}</td><td><strong>{report.displayName}</strong><small className="cell-sub">{report.username}</small></td><td className="truncate">{report.summary || '-'}</td><td><StatusBadge status={report.status}/></td><td><button className="text-button">열기 →</button></td></tr>)}</tbody></table></div>
       <div className="list-more">
         <span className="muted">{total.toLocaleString()}건 중 {reports.length.toLocaleString()}건</span>
         {reports.length < total && <Button variant="secondary" disabled={busy} onClick={loadMore}>

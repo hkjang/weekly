@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { PropsWithChildren, ReactNode } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, PropsWithChildren, ReactNode } from 'react'
 import { isTopLayer, popLayer, pushLayer } from './layers'
 import type { ReportSource, ReportStatus } from './types'
 
@@ -120,3 +120,30 @@ export function Toast({ message, kind = 'success', onClose }: { message: string;
 }
 
 export function formatDate(value?: string) { if (!value) return '-'; return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: value.includes('T') ? 'short' : undefined }).format(new Date(value)) }
+
+// openable makes a table row a control rather than a shape that happens to
+// react to a mouse.
+//
+// Four screens put the only way into a detail on the row itself — 과거 보고,
+// 팀 주간보고, 업무 추적, 기간 업무보고 — with no button inside it. Clicking
+// worked; tabbing reached nothing, so a keyboard-only reader could open none of
+// them. Measured in a browser: of the elements that draw a pointer cursor on
+// those pages, none of the rows were focusable.
+//
+// Spread onto a <tr>: it becomes reachable by Tab, announced as a button, and
+// answers Enter and Space the way one does. Space also scrolls a page, so its
+// default is prevented — on a row that is the whole point of the key.
+export function openable(open: () => void, label: string) {
+  return {
+    onClick: open,
+    onKeyDown: (event: ReactKeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      if (event.target !== event.currentTarget) return
+      event.preventDefault()
+      open()
+    },
+    tabIndex: 0,
+    role: 'button' as const,
+    'aria-label': label,
+  }
+}

@@ -1,4 +1,5 @@
-"""Every control a person can type into has to say what it is.
+"""Every control a person can type into has to say what it is, and everything
+a mouse can open has to open from the keyboard.
 
 The screens are labelled almost everywhere — someone did that work. What is
 left over is what nobody looks at twice, and it is not the unimportant part:
@@ -13,6 +14,13 @@ using assistive technology cannot name either.
 
 A placeholder is not a name. It disappears when the field has content, it is not
 announced consistently, and it is not what this check accepts.
+
+The second half is the same defect one step over. Four screens put the only way
+into a detail on the table row itself, with no button inside it — 과거 보고,
+팀 주간보고, 업무 추적, 기간 업무보고. Clicking worked and tabbing reached
+nothing, so a keyboard-only reader could open none of them. A row that draws a
+pointer cursor and is not focusable is a control that half the people cannot
+reach.
 """
 import argparse
 import json
@@ -56,8 +64,19 @@ for (const name of PAGES) {{
     const out = {{ total: 0, missing: [] }}
     for (const el of document.querySelectorAll('input:not([type=hidden]), textarea, select')) {{
       out.total++
-      if (!named(el)) out.missing.push(el.tagName.toLowerCase() + ' · ' +
+      if (!named(el)) out.missing.push('이름 없음 · ' + el.tagName.toLowerCase() + ' · ' +
         (el.getAttribute('placeholder') || el.type || '').slice(0, 46))
+    }}
+    // A row a mouse can open has to be reachable by Tab. Only the row itself is
+    // judged: its cells inherit the pointer cursor and are not the control.
+    const reachable = el =>
+      el.hasAttribute('tabindex') ? el.getAttribute('tabindex') !== '-1'
+        : Boolean(el.querySelector('button, a, [role=button], input, select, textarea'))
+    for (const row of document.querySelectorAll('tbody tr')) {{
+      if (getComputedStyle(row).cursor !== 'pointer') continue
+      out.total++
+      if (!reachable(row)) out.missing.push('키보드로 닿지 않음 · 표 행 · ' +
+        (row.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40))
     }}
     return out
   }})
@@ -85,11 +104,11 @@ def main():
 
     print("접근성 검사")
     for item in missing:
-        print(f"  이름 없음 — {item}")
+        print(f"  {item}")
     if missing:
-        print(f"접근성 검사: 입력 요소 {total}개 중 {len(missing)}개에 접근 가능한 이름이 없습니다")
+        print(f"접근성 검사: 조작할 수 있는 자리 {total}개 중 {len(missing)}개가 이름이 없거나 키보드로 닿지 않습니다")
         sys.exit(1)
-    print(f"접근성 검사: 통과 — 입력 요소 {total}개가 모두 자기 이름을 말합니다.")
+    print(f"접근성 검사: 통과 — 조작할 수 있는 자리 {total}개가 모두 이름을 말하고 키보드로 닿습니다.")
 
 
 if __name__ == "__main__":

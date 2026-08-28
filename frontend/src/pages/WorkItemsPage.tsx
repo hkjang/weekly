@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorText, api, post, put } from '../api'
-import { Modal, Button, Card, Empty, PageHeader, Spinner } from '../components'
+import { Modal, Button, Card, Empty, PageHeader, Spinner , openable} from '../components'
 import { WeekTrack } from '../charts'
 import DecisionPanel from '../DecisionPanel'
 import DependencyPanel from '../DependencyPanel'
@@ -307,7 +307,7 @@ export default function WorkItemsPage({ session, notify }: {
             <th>구분</th><th>업무</th><th>진척도</th><th>경과</th><th>보고</th><th>상태</th>
             {scope === 'TEAM' && <th>담당</th>}
           </tr></thead>
-          <tbody>{visible.map(item => <tr key={item.id} onClick={() => openDetail(item)}>
+          <tbody>{visible.map(item => <tr key={item.id} {...openable(() => openDetail(item), `${item.title} 상세 열기`)}>
             <td>{item.category || '미분류'}</td>
             <td><strong>{item.title}</strong>
               {item.latestManagementAsk && <small className="cell-sub ask-line">요청 · {item.latestManagementAsk}</small>}</td>
