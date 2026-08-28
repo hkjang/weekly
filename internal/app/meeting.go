@@ -273,11 +273,22 @@ func (a *App) meetingMode(w http.ResponseWriter, r *http.Request) {
 	// cannot be taken is not a branch anybody wrote a test for. One parse, used
 	// for both.
 	since := parsed.AddDate(0, 0, -7*meetingHistoryWeeks).Format("2006-01-02")
-	items, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, scope == scopeSelf), since)
+	// Whole history, then the window — the same reason as the digest below.
+	// The agenda writes "%d주째 해소되지 않은 이슈입니다" from this number, and
+	// a window that also bounds the count turns that sentence into a statement
+	// about meetingHistoryWeeks. Twenty-six weeks hides it longer than the
+	// digest's eight did, which makes it harder to notice, not less wrong.
+	loaded, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, scope == scopeSelf), "")
 	if err != nil {
 		a.logger.Error("meeting mode", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "회의 자료를 만들 수 없습니다.")
 		return
+	}
+	items := make([]workItemView, 0, len(loaded))
+	for _, item := range loaded {
+		if item.LastWeek >= since {
+			items = append(items, item)
+		}
 	}
 	view := buildMeeting(items, week, a.rollupConfig(r.Context()))
 	// A dependency inside one team is settled by the two people in it. One that
@@ -531,11 +542,30 @@ func (a *App) executiveDigest(w http.ResponseWriter, r *http.Request) {
 		weeks = 52
 	}
 	since := time.Now().In(a.serviceLocation(r.Context())).AddDate(0, 0, -7*weeks).Format("2006-01-02")
-	items, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, false), since)
+	// The window says which tasks to consider — what has moved lately — and it
+	// was also cutting the history the durations are measured in. So the two
+	// sentences a reader ranks by reported the window back to them: choose four
+	// weeks and every long-standing issue "8주째" became "4주째". Measured on a
+	// deployment, work item 1622 read 이슈 22주 · 정체 32주 on the 업무 추적
+	// screen and "이슈가 8주째 지속되고 있습니다" in the digest, on the same
+	// day, for the same task. The score is built from those numbers too, so a
+	// 32-week stall ranked level with an 8-week one.
+	//
+	// Loaded whole and filtered to the window afterwards: the candidate set is
+	// the same tasks it always was, and the durations are the real ones. The
+	// 업무 추적 screen already loads this much at this scope — measured at 77ms
+	// against 75ms for the windowed load, on 300 people.
+	loaded, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, false), "")
 	if err != nil {
 		a.logger.Error("executive digest", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "경영 요약을 만들 수 없습니다.")
 		return
+	}
+	items := make([]workItemView, 0, len(loaded))
+	for _, item := range loaded {
+		if item.LastWeek >= since {
+			items = append(items, item)
+		}
 	}
 	// Every duplicate counts here, not only the ones a ranked list would show:
 	// the digest scores each task, so a task whose link fell outside a cap
