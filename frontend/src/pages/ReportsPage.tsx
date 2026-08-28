@@ -45,11 +45,19 @@ export default function ReportsPage({ currentWeekStart, openReportId, notify }: 
   const [cloneWeek, setCloneWeek] = useState(currentWeekStart)
   const [cloneMode, setCloneMode] = useState<'STRUCTURE' | 'FULL'>('STRUCTURE')
   const query = (extra = '') => `/api/v1/reports?${status ? `status=${status}&` : ''}${extra}`
+  // A load that fails has to stop looking like a load that is still running.
+  // Measured by failing this screen's own request in a browser: the spinner
+  // stayed up for as long as the page was open, and the only word about it was
+  // a toast that fades. A reader waits for something that will never arrive.
+  const [failed, setFailed] = useState('')
   const load = () => api<ReportListView>(query())
-    .then(value => { setReports(value.items); setTotal(value.total) })
+    .then(value => { setFailed(''); setReports(value.items); setTotal(value.total) })
     // errorText, not error.message: a request that never reached the server
     // arrives as the browser's own English string.
-    .catch(error => notify(errorText(error, '보고서를 열 수 없습니다.'), 'error'))
+    .catch(error => {
+      setFailed(errorText(error, '보고서 목록을 불러오지 못했습니다.'))
+      notify(errorText(error, '보고서를 열 수 없습니다.'), 'error')
+    })
   const loadMore = async () => {
     if (!reports) return
     setLoadingMore(true)
@@ -90,7 +98,8 @@ export default function ReportsPage({ currentWeekStart, openReportId, notify }: 
   const duplicateReport = async () => { if (!selected || !cloneWeek) { notify('복제할 대상 주차를 선택하세요.', 'error'); return } setBusy(true); try { const created = await post<{ id: number; weekStart: string }>(`/api/v1/reports/${selected.id}/clone`, { targetWeekStart: cloneWeek, mode: cloneMode }); await load(); await open(created.id); notify(`${created.weekStart} 주차의 새 초안을 만들었습니다.`) } catch (error) { notify(errorText(error, '보고서를 복제할 수 없습니다.'), 'error') } finally { setBusy(false) } }
 
   return <><PageHeader title="과거 보고" description="이전 주간보고를 조회하고 복제·수정·삭제하거나 PPTX로 내보냅니다." action={<select aria-label="조회 범위" value={status} onChange={e => setStatus(e.target.value)}><option value="">전체 상태</option><option value="DRAFT">작성 중</option><option value="SUBMITTED">검토 대기</option><option value="REVISION_REQUESTED">반려</option><option value="APPROVED">승인</option><option value="CLOSED">확정</option></select>} />
-    {!reports ? <Spinner/> : !reports.length ? <Empty action={<Button onClick={() => { window.location.hash = '#/current' }}>이번 주 보고서 작성</Button>}>아직 저장한 보고서가 없습니다. 이번 주 보고서를 작성하면 여기에 쌓입니다.</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>출처</th><th>상태</th><th>수정일</th><th/></tr></thead><tbody>{reports.map(report => <tr key={report.id} {...openable(() => open(report.id), `${report.weekStart} 주간보고 열기`)}><td>{report.weekStart}</td><td>{report.displayName}</td><td className="truncate">{report.summary || '-'}</td><td><SourceBadge source={report.sourceType}/></td><td><StatusBadge status={report.status}/></td><td>{formatDate(report.updatedAt)}</td><td><button className="icon-button" onClick={e => { e.stopPropagation(); void saveExport(report.id) }} title="PPTX 다운로드">↓</button></td></tr>)}</tbody></table></div>
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager">
+      <Button variant="secondary" onClick={() => { setFailed(''); void load() }}>다시 시도</Button></div></Card> : !reports ? <Spinner/> : !reports.length ? <Empty action={<Button onClick={() => { window.location.hash = '#/current' }}>이번 주 보고서 작성</Button>}>아직 저장한 보고서가 없습니다. 이번 주 보고서를 작성하면 여기에 쌓입니다.</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>출처</th><th>상태</th><th>수정일</th><th/></tr></thead><tbody>{reports.map(report => <tr key={report.id} {...openable(() => open(report.id), `${report.weekStart} 주간보고 열기`)}><td>{report.weekStart}</td><td>{report.displayName}</td><td className="truncate">{report.summary || '-'}</td><td><SourceBadge source={report.sourceType}/></td><td><StatusBadge status={report.status}/></td><td>{formatDate(report.updatedAt)}</td><td><button className="icon-button" onClick={e => { e.stopPropagation(); void saveExport(report.id) }} title="PPTX 다운로드">↓</button></td></tr>)}</tbody></table></div>
       <div className="list-more">
         <span className="muted">{total.toLocaleString()}건 중 {reports.length.toLocaleString()}건</span>
         {reports.length < total && <Button variant="secondary" disabled={loadingMore} onClick={loadMore}>

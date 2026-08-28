@@ -104,6 +104,8 @@ export default function RollupPage({ session, route, notify }: {
   const today = useMemo(() => new Date(), [])
   // Quick navigation links straight to a period, so the route wins over defaults.
   const routeKind = kinds.some(item => item.key === route?.kind) ? route?.kind as PeriodKind : undefined
+  const [failed, setFailed] = useState('')
+  const [retries, setRetries] = useState(0)
   const [kind, setKind] = useState<PeriodKind>(routeKind ?? 'MONTH')
   const [period, setPeriod] = useState(() => {
     const initialKind = routeKind ?? 'MONTH'
@@ -137,13 +139,17 @@ export default function RollupPage({ session, route, notify }: {
   useEffect(() => {
     let stale = false
     setLoading(true)
+    setFailed('')
     const query = `kind=${kind}&period=${encodeURIComponent(period)}&scope=${scope}`
     api<Rollup>(`/api/v1/rollups?${query}`)
       .then(value => { if (!stale) setRollup(value) })
-      .catch(error => { if (!stale) { setRollup(undefined); notify(errorText(error, '기간 보고를 불러올 수 없습니다.'), 'error') } })
+      // Clearing the view and stopping is a load that never ends: the spinner
+      // below waits on !rollup and the only word about the failure is a toast
+      // that fades. Measured in a browser — the page span forever.
+      .catch(error => { if (!stale) { setFailed(errorText(error, '기간 보고를 불러오지 못했습니다.')); notify(errorText(error, '기간 보고를 불러올 수 없습니다.'), 'error') } })
       .finally(() => { if (!stale) setLoading(false) })
     return () => { stale = true }
-  }, [kind, period, scope])
+  }, [kind, period, scope, retries])
 
   const query = `kind=${kind}&period=${encodeURIComponent(period)}&scope=${scope}`
   const insights = rollup?.insights
@@ -188,7 +194,9 @@ export default function RollupPage({ session, route, notify }: {
       </select></label>}
     </div>
 
-    {loading || !rollup || !insights ? <Spinner /> : <>
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager">
+      <Button variant="secondary" onClick={() => setRetries(n => n + 1)}>다시 시도</Button></div></Card>
+    : loading || !rollup || !insights ? <Spinner /> : <>
       <Card className="rollup-summary">
         <div className="rollup-summary-head">
           <div>

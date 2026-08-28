@@ -18,9 +18,18 @@ has no captures, which is a different thing from not knowing."* 그 규칙이 �
 뒤의 둘이 특히 나쁩니다. 숫자를 지어냅니다 — 실패에서 만들어진 0이 경영 요약과
 회의 안건의 규모로 읽힙니다.
 
-이 검사가 묻는 것은 하나입니다: **요청이 실패했는데 화면이 비어 있다고 말하는가.**
+이 검사는 두 가지를 묻습니다.
+
+  1. **요청이 실패했는데 화면이 비어 있다고 말하는가.**
+  2. **요청이 실패했는데 화면이 아직 불러오는 중이라고 말하는가.**
+
 "화면이 오류를 말하는가"는 묻지 않습니다. 어떤 화면은 알림으로만 말하고 그것도
-설계일 수 있지만, 없는 것을 없다고 말하는 것은 어떤 설계로도 옳지 않습니다.
+설계일 수 있습니다. 그러나 없는 것을 없다고 말하거나, 끝난 것을 진행 중이라고
+말하는 것은 어떤 설계로도 옳지 않습니다.
+
+두 번째는 첫 번째를 고친 뒤에 찾았습니다. 네 화면이 실패한 뒤에도 영원히
+"불러오는 중…" 이었습니다 — 과거 보고·팀 주간보고·기간 업무보고·보고 분석.
+둘은 목록 요청에 `catch` 가 아예 없어서 처리되지 않은 거부까지 남겼습니다.
 
 만들면서 검사 자신이 두 번 틀렸습니다. 처음에는 "불러오지 못했습니다"를 찾는
 정규식에 그 표현이 빠져 있어 대시보드를 거짓 양성으로 잡았고, 다음에는 화면이
@@ -54,6 +63,7 @@ SCREENS = [
     ("changes", r"/api/v1/changes"),
     ("analytics", r"/api/v1/analytics/overview"),
     ("profile", r"/api/v1/keys"),
+    ("import", r"/api/v1/import/history"),
 ]
 
 MARKER = "주입한실패표시"
@@ -83,7 +93,9 @@ for (const [route, pattern] of SCREENS) {{
   // 알림은 사라집니다. 남는 화면이 무엇이라고 말하는지가 이 검사의 질문입니다.
   await page.evaluate(() => document.querySelectorAll('.toast, [role=alert]').forEach(n => n.remove()))
   const text = (await page.locator('body').innerText()).replace(/[ \\t\\n]+/g, ' ')
-  out.push({{ route, said: text.includes({json.dumps(MARKER)}),
+  const spinners = await page.locator('.spinner, [class*=spinner], [class*=Spinner]').count()
+  out.push({{ route, said: text.includes({json.dumps(MARKER)}), spinners,
+              loading: /불러오는 중|로딩/.test(text),
               claims: (text.match(/[^.]{{0,44}}(?:아직[^.]{{0,34}})?없습니다/g) || []) }})
 }}
 await browser.close()
@@ -108,7 +120,7 @@ def main():
         return 2
     results = json.loads(done.stdout.strip().split("\n")[-1])
 
-    lying, unused = [], set(ALLOWED)
+    lying, spinning_routes, unused = [], [], set(ALLOWED)
     for entry in results:
         route = entry["route"]
         claims = [re.sub(r"\s+", " ", c).strip() for c in entry["claims"]]
@@ -120,21 +132,29 @@ def main():
                     unused.discard((allowed_route, allowed_text))
         remaining = [c for c in claims if c not in excused]
         mark = "화면이 말함" if entry["said"] else "알림만"
+        spinning = entry.get("spinners", 0) > 0 or entry.get("loading")
         print(f"  {route:11} {mark:9} · 실패 뒤 '없습니다' {len(remaining)}건"
+              + (" · 아직 불러오는 중" if spinning else "")
               + (f" (사유 기록 {len(excused)}건)" if excused else ""))
         for claim in remaining:
             print(f"      {claim}")
             lying.append((route, claim))
+        if spinning:
+            spinning_routes.append(route)
 
     print()
     for route, text in sorted(unused):
         print(f"{route} 의 허용 항목 '{text}' 이 더는 나오지 않습니다. ALLOWED 에서 지우세요.")
+    for route in spinning_routes:
+        print(f"{route}: 요청이 실패했는데 화면은 아직 불러오는 중이라고 말합니다.")
+        print("  기다리면 오는 것과 오지 않는 것은 다릅니다. 실패를 실패로 그리십시오.")
     for route, claim in lying:
         print(f"{route}: 요청이 실패했는데 화면은 '{claim}' 이라고 말합니다.")
         print("  없다는 것과 모른다는 것은 다릅니다. 실패를 실패로 그리거나, ALLOWED 에 이유를 적으세요.")
-    if lying or unused:
+    if lying or spinning_routes or unused:
         return 1
-    print(f"실패 상태 검사: 통과 — 화면 {len(results)}곳 중 실패를 '없음'으로 바꿔 말하는 곳이 없습니다.")
+    print(f"실패 상태 검사: 통과 — 화면 {len(results)}곳 중 실패를 '없음'이나 '불러오는 중'으로 "
+          "바꿔 말하는 곳이 없습니다.")
     return 0
 
 

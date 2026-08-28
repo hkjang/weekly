@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { APIError, api } from '../api'
-import { Card, Empty, PageHeader, Spinner } from '../components'
+import { APIError, errorText, api } from '../api'
+import { Button, Card, Empty, PageHeader, Spinner } from '../components'
 import type { AnalyticsOverview } from '../types'
 
 interface EndpointMetric { method: string; route: string; requests: number; averageMs: number; maxMs: number; serverErrors: number; errorRate: number }
@@ -12,7 +12,16 @@ export default function AnalyticsPage({ isAdmin }: { isAdmin: boolean }) {
   // told them the service had taken no calls in a day — which is not what
   // happened, and not something they could tell from the screen.
   const [endpoints, setEndpoints] = useState<EndpointMetric[] | 'forbidden' | 'failed'>()
-  useEffect(() => { api<AnalyticsOverview>('/api/v1/analytics/overview').then(setOverview); if (isAdmin) api<EndpointMetric[]>('/api/v1/analytics/endpoints').then(setEndpoints).catch(error => setEndpoints(error instanceof APIError && error.status === 403 ? 'forbidden' : 'failed')); else setEndpoints('forbidden') }, [])
+  // The endpoints call beside this one already had the shape: a distinct
+  // 'failed' state and a sentence for it. The overview had no catch at all, so
+  // a failure left `overview` undefined and the guard below returned a spinner
+  // that never resolves — and an unhandled rejection with it.
+  const [failed, setFailed] = useState('')
+  const [retries, setRetries] = useState(0)
+  useEffect(() => { setFailed(''); api<AnalyticsOverview>('/api/v1/analytics/overview').then(setOverview).catch(error => setFailed(errorText(error, '분석을 불러오지 못했습니다.'))); if (isAdmin) api<EndpointMetric[]>('/api/v1/analytics/endpoints').then(setEndpoints).catch(error => setEndpoints(error instanceof APIError && error.status === 403 ? 'forbidden' : 'failed')); else setEndpoints('forbidden') }, [retries])
+  if (failed) return <><PageHeader title="보고 · 서비스 분석" description="조직 제출 현황과 Weekly API 운영 상태를 함께 분석합니다."/>
+    <Card><Empty>{failed}</Empty><div className="audit-pager">
+      <Button variant="secondary" onClick={() => setRetries(n => n + 1)}>다시 시도</Button></div></Card></>
   if (!overview) return <Spinner/>
   const statuses = [{ key: 'DRAFT', name: '작성 중', color: '#94a3b8' }, { key: 'SUBMITTED', name: '검토 대기', color: '#f59e0b' }, { key: 'REVISION_REQUESTED', name: '반려', color: '#ef4444' }, { key: 'APPROVED', name: '승인', color: '#16a34a' }, { key: 'CLOSED', name: '확정', color: '#2563eb' }]
   const maximum = Math.max(1, ...statuses.map(s => overview.statusCounts[s.key] ?? 0))

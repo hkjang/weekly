@@ -30,8 +30,17 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
   // total beside it, so 3,120 reports arrived as 500 and the table looked like
   // everything there was.
   const query = (extra = '') => `/api/v1/team/reports?${status ? `status=${status}&` : ''}${extra}`
+  // A load that fails has to stop looking like a load that is still running.
+  // Measured by failing this screen's own request in a browser: the spinner
+  // stayed up for as long as the page was open, and the only word about it was
+  // a toast that fades. A reader waits for something that will never arrive.
+  const [failed, setFailed] = useState('')
   const load = () => api<ReportListView>(query())
-    .then(value => { setReports(value.items); setTotal(value.total); setNotice(value.notice ?? '') })
+    .then(value => { setFailed(''); setReports(value.items); setTotal(value.total); setNotice(value.notice ?? '') })
+    .catch(error => {
+      setFailed(errorText(error, '팀 주간보고를 불러오지 못했습니다.'))
+      notify(errorText(error, '팀 주간보고를 불러오지 못했습니다.'), 'error')
+    })
   const loadMore = async () => {
     if (!reports) return
     setBusy(true)
@@ -62,7 +71,8 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
       </div>} />
     {/* An empty list has more than one cause, and only one of them is the
         team's. When the server says which, say it instead of the blank. */}
-    {!reports ? <Spinner/> : !reports.length ? <Empty>{notice || (status
+    {failed ? <Card><Empty>{failed}</Empty><div className="audit-pager">
+      <Button variant="secondary" onClick={() => { setFailed(''); void load() }}>다시 시도</Button></div></Card> : !reports ? <Spinner/> : !reports.length ? <Empty>{notice || (status
       ? '이 상태인 보고서가 없습니다. 상태를 전체로 두면 나머지가 보입니다.'
       : '조회할 팀 보고서가 없습니다.')}</Empty> : <Card><div className="table-wrap"><table><thead><tr><th>주차</th><th>작성자</th><th>요약</th><th>상태</th><th>진행</th></tr></thead><tbody>{reports.map(report => <tr key={report.id} {...openable(() => open(report.id), `${report.displayName} ${report.weekStart} 주간보고 열기`)}><td>{report.weekStart}</td><td><strong>{report.displayName}</strong><small className="cell-sub">{report.username}</small></td><td className="truncate">{report.summary || '-'}</td><td><StatusBadge status={report.status}/></td><td><button className="text-button">열기 →</button></td></tr>)}</tbody></table></div>
       <div className="list-more">
