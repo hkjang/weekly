@@ -355,8 +355,22 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 				"그동안 저장된 내용은 덮어씁니다. 새로고침하면 지금 쓰고 있는 내용이 사라집니다.")
 		return
 	}
+	// A report whose content changed is no longer the report that was handed
+	// in, whatever the handing-in was called here.
+	//
+	// CLOSED was missing from this list, and CLOSED is the state most
+	// deployments end in: workflow.enabled defaults to false, so 제출 goes
+	// straight to 확정 with no reviewer. Measured on that default — submit, then
+	// rewrite every field — the report stayed 확정 with its original 제출시각 and
+	// nothing anywhere recorded that the text had changed since. A team leader
+	// reading 팀 주간보고 saw 확정 and a time that belonged to different words.
+	//
+	// The two reviewed states were already handled, which is what makes the
+	// omission visible: the rule is "content changed after it was final, so it
+	// is not final any more", and 확정 is the most final of the three.
 	newStatus := previousStatus
-	if previousStatus == "SUBMITTED" || previousStatus == "APPROVED" {
+	switch previousStatus {
+	case "SUBMITTED", "APPROVED", "CLOSED":
 		newStatus = "DRAFT"
 	}
 	// The branches are decided here rather than in SQL. Passing the same status
@@ -387,7 +401,7 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	if newStatus != previousStatus {
 		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment)
-			VALUES($1,$2,$3,$4,'작성자가 제출·승인 후 내용을 수정하여 재검토 상태로 전환')`, id, p.ID, previousStatus, newStatus)
+			VALUES($1,$2,$3,$4,'작성자가 제출·확정·승인 후 내용을 수정하여 작성 중으로 되돌림')`, id, p.ID, previousStatus, newStatus)
 		if err != nil {
 			writeError(w, 500, "DATABASE_ERROR", "보고서 상태 이력을 저장할 수 없습니다.")
 			return
