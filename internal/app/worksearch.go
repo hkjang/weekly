@@ -229,14 +229,34 @@ func (a *App) searchWorkItems(w http.ResponseWriter, r *http.Request) {
 }
 
 // describeWorkHit says what this past task offers the person searching.
+//
+// "같은 문제" is a claim about the query, and it was made whether or not the
+// query had anything to do with the task. The overlap case sat third, so it
+// could only be reached by a task with no issue and no resolution — and a task
+// with a resolution is exactly the one the first sentence describes. Measured
+// against a running deployment: searching for a nonsense word returned twenty
+// hits, every one of them "같은 문제를 겪고 해결한 사례입니다", every one of them
+// with `matched: []`.
+//
+// The resolution text is worth keeping — it is what the reader came for. So the
+// absence of overlap qualifies the sentence rather than replacing it: the
+// reader learns both that this is a meaning-only match and what happened to it.
 func describeWorkHit(hit workSearchHit, semantic bool) string {
+	if semantic && len(hit.Matched) == 0 {
+		const noOverlap = "입력한 표현과 직접 겹치는 단어는 없지만 내용이 가까운 업무입니다."
+		switch {
+		case hit.Resolution != "":
+			return fmt.Sprintf("%s 해결 경과: %s", noOverlap, hit.Resolution)
+		case hit.Issue != "" && !hit.Resolved:
+			return fmt.Sprintf("%s 이슈가 %d주째 이어지고 있습니다.", noOverlap, hit.IssueRunWeeks)
+		}
+		return noOverlap
+	}
 	switch {
 	case hit.Resolution != "":
 		return fmt.Sprintf("같은 문제를 겪고 해결한 사례입니다. 해결 경과: %s", hit.Resolution)
 	case hit.Issue != "" && !hit.Resolved:
 		return fmt.Sprintf("아직 해결되지 않은 같은 계열의 이슈입니다(%d주 지속).", hit.IssueRunWeeks)
-	case semantic && len(hit.Matched) == 0:
-		return "입력한 표현과 직접 겹치는 단어는 없지만 내용이 가까운 업무입니다."
 	case hit.Completed:
 		return fmt.Sprintf("%d주에 걸쳐 완료된 유사 업무입니다.", hit.AgeWeeks)
 	default:
