@@ -16,10 +16,38 @@ export class APIError extends Error {
   }
 }
 
+/**
+ * How long a request may take before the screen stops waiting for it.
+ *
+ * There was no limit. A connection that is accepted and then never answered —
+ * a stalled proxy, the ordinary failure on a company network — left the editor
+ * on "저장 중…" with the button disabled. Measured: ninety seconds and still
+ * counting, no message, no way back except reloading the page, which throws
+ * away the draft the save was trying to keep.
+ *
+ * Thirty seconds against a measured worst case of 0.4s on a 300 person
+ * deployment: the slowest read, the year-scope rollup, and the PPTX export all
+ * land under half a second. This is not a performance budget; it is the point
+ * at which waiting is no longer the honest thing to show somebody.
+ *
+ * Retrying a save that the server did receive is safe here — the report carries
+ * a version, so a second attempt lands on VERSION_CONFLICT rather than
+ * overwriting silently.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000
+
+/**
+ * Uploads take as long as the file and the link between them. A 25MB PPTX over
+ * a slow office line is not a stalled proxy, so it gets its own bound.
+ */
+export const UPLOAD_TIMEOUT_MS = 300_000
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  const response = await fetch(url, { ...init, headers, credentials: 'same-origin' })
+  const signal = init?.signal
+    ?? AbortSignal.timeout(init?.body instanceof FormData ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS)
+  const response = await fetch(url, { ...init, headers, signal, credentials: 'same-origin' })
   if (response.ok && response.status === 204) return undefined as T
   let payload: Envelope<T> | undefined
   try { payload = await response.json() as Envelope<T> } catch { /* handled below */ }
@@ -53,12 +81,18 @@ export function errorText(error: unknown, fallback: string): string {
   //
   // What the screen does is already right — the editor keeps what is on it and
   // saving again after the link returns works — so the sentence says that.
+  // AbortSignal.timeout fires a DOMException named TimeoutError. The request
+  // may well have arrived — the screen simply stopped waiting for an answer.
+  if (error instanceof DOMException && error.name === 'TimeoutError') return SERVER_SILENT
   if (error instanceof TypeError) return NETWORK_UNREACHABLE
   // Any other message from outside the product is the platform's, in the
   // platform's language. The caller's Korean fallback is closer to true.
   if (error instanceof Error && /[가-힣]/.test(error.message)) return error.message
   return fallback
 }
+
+export const SERVER_SILENT =
+  '서버가 시간 안에 답하지 않았습니다. 화면에 있는 내용은 그대로 있으니 다시 시도해 보시고, 계속 같으면 관리자에게 알려 주세요.'
 
 export const NETWORK_UNREACHABLE =
   '서버에 연결하지 못했습니다. 화면에 있는 내용은 그대로 있으니, 연결이 돌아오면 다시 시도하세요.'

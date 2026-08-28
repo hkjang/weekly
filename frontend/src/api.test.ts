@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { APIError, NETWORK_UNREACHABLE, api, errorText } from './api'
+import { APIError, NETWORK_UNREACHABLE, REQUEST_TIMEOUT_MS, SERVER_SILENT, UPLOAD_TIMEOUT_MS, api, errorText } from './api'
 import { onSessionLost } from './session'
 
 // Every screen goes through this layer, so what it decides is decided once for
@@ -156,5 +156,30 @@ describe('연결이 끊겼을 때', () => {
   it('제품 밖에서 온 영어 문장은 호출자의 한국어로 바꾼다', () => {
     expect(errorText(new Error('Unexpected token < in JSON'), '보고서를 저장할 수 없습니다.'))
       .toBe('보고서를 저장할 수 없습니다.')
+  })
+})
+
+describe('서버가 답하지 않을 때', () => {
+  it('기다림을 멈추고 무슨 일인지 말한다', () => {
+    // AbortSignal.timeout 은 이름이 TimeoutError 인 DOMException 을 던집니다.
+    const timedOut = new DOMException('signal timed out', 'TimeoutError')
+    expect(errorText(timedOut, '저장할 수 없습니다.')).toBe(SERVER_SILENT)
+  })
+
+  it('그 문장은 내용이 남아 있다고, 그리고 다시 해 보라고 알려 준다', () => {
+    expect(SERVER_SILENT).toContain('그대로')
+    expect(SERVER_SILENT).toContain('다시 시도')
+  })
+
+  it('사용자가 취소한 것은 서버 침묵과 구분한다', () => {
+    // AbortError 는 화면이 스스로 그만둔 경우입니다. 실패로 알릴 일이 아닙니다.
+    const cancelled = new DOMException('aborted', 'AbortError')
+    expect(errorText(cancelled, '보고서를 저장할 수 없습니다.')).toBe('보고서를 저장할 수 없습니다.')
+  })
+
+  it('기다리는 한계는 잰 최악의 경우보다 넉넉하다', () => {
+    // 300명 배포에서 가장 느린 정당한 읽기가 0.4초였습니다.
+    expect(REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000)
+    expect(UPLOAD_TIMEOUT_MS).toBeGreaterThan(REQUEST_TIMEOUT_MS)
   })
 })

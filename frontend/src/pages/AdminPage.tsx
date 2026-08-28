@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { APIError, errorText, api, del, patch, post, put } from '../api'
+import { APIError, UPLOAD_TIMEOUT_MS, errorText, api, del, patch, post, put } from '../api'
 import { Modal, Button, Card, Empty, PageHeader, Spinner, formatDate } from '../components'
 import AdminAnalyticsTab from './AdminAnalyticsTab'
 import type { AdminUser, AdminUserPage, ConfluenceMapping, ConfluenceSyncStatus, EmbeddingStatus, EncryptionStatus, Organization, Setting, MailHealth } from '../types'
@@ -40,7 +40,10 @@ function SettingsTab({ notify, changed }: { notify: (message: string, kind?: 'su
   const loadEmbedding = () => api<EmbeddingStatus>('/api/v1/admin/embeddings').then(setEmbedding).catch(() => setEmbedding(undefined))
   const loadEncryption = () => api<EncryptionStatus>('/api/v1/admin/encryption').then(setEncryption).catch(() => setEncryption(undefined))
   useEffect(() => { load(); loadEmbedding(); loadEncryption() }, [])
-  const rebuildEmbeddings = async () => { try { const result = await post<{ embedded: number, remaining: number }>('/api/v1/admin/embeddings/rebuild'); await loadEmbedding(); notify(result.remaining > 0 ? `임베딩 ${result.embedded.toLocaleString()}건을 생성했습니다. ${result.remaining.toLocaleString()}건이 남았고 백그라운드 작업자가 이어서 처리합니다.` : `임베딩 ${result.embedded.toLocaleString()}건을 생성했습니다. 남은 항목이 없습니다.`) } catch (error) { notify(errorText(error, '임베딩을 생성할 수 없습니다.'), 'error') } }
+  const rebuildEmbeddings = async () => { try { const result = await api<{ embedded: number, remaining: number }>('/api/v1/admin/embeddings/rebuild',
+      // Up to 6,400 items against a gateway with its own per-request timeout;
+      // the default bound is for requests that should be instant.
+      { method: 'POST', body: '{}', signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS) }); await loadEmbedding(); notify(result.remaining > 0 ? `임베딩 ${result.embedded.toLocaleString()}건을 생성했습니다. ${result.remaining.toLocaleString()}건이 남았고 백그라운드 작업자가 이어서 처리합니다.` : `임베딩 ${result.embedded.toLocaleString()}건을 생성했습니다. 남은 항목이 없습니다.`) } catch (error) { notify(errorText(error, '임베딩을 생성할 수 없습니다.'), 'error') } }
   // A change the server refuses until its consequences are accepted comes back
   // as 409 with the explanation. Showing that text and asking is better than a
   // warning nobody reads next to a field they are not touching.
