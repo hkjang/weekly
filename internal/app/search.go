@@ -135,9 +135,7 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 			statement += fmt.Sprintf(" AND r.user_id=$%d", len(args))
 		} else {
 			args = append(args, p.ID, *p.OrganizationID)
-			statement += fmt.Sprintf(` AND (r.user_id=$%d OR u.organization_id IN (WITH RECURSIVE orgs AS
-				(SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id)
-				SELECT id FROM orgs))`, len(args)-1, len(args))
+			statement += fmt.Sprintf(` AND (r.user_id=$%d OR u.organization_id IN `, len(args)-1) + orgSubtree(len(args)) + `)`
 		}
 	default:
 		args = append(args, p.ID)
@@ -435,9 +433,7 @@ func (a *App) searchApproximate(r *http.Request, p *principal, terms []string, s
 			statement += fmt.Sprintf(" AND r.user_id=$%d", len(args))
 		} else {
 			args = append(args, p.ID, *p.OrganizationID)
-			statement += fmt.Sprintf(` AND (r.user_id=$%d OR u.organization_id IN (WITH RECURSIVE orgs AS
-				(SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id)
-				SELECT id FROM orgs))`, len(args)-1, len(args))
+			statement += fmt.Sprintf(` AND (r.user_id=$%d OR u.organization_id IN `, len(args)-1) + orgSubtree(len(args)) + `)`
 		}
 	default:
 		args = append(args, p.ID)

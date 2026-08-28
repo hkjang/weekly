@@ -134,10 +134,8 @@ func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, 
 			scopeLabel = "전사"
 		case p.OrganizationID != nil:
 			args = append(args, *p.OrganizationID)
-			query += fmt.Sprintf(` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d
-				UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`, len(args))
-			ownerWhere = ` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$3
-				UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`
+			query += ` AND u.organization_id IN ` + orgSubtree(len(args))
+			ownerWhere = ` AND u.organization_id IN ` + orgSubtree(3) + ``
 			ownerArgs = []any{*p.OrganizationID}
 			scopeLabel = a.organizationName(ctx, *p.OrganizationID)
 		default:

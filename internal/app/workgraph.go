@@ -69,9 +69,7 @@ func (s workScope) where(start int) (string, []any) {
 			return fmt.Sprintf(" AND w.user_id=$%d", start), args
 		}
 		args = append(args, s.UserID, *s.OrganizationID)
-		return fmt.Sprintf(` AND (w.user_id=$%d OR u.organization_id IN (WITH RECURSIVE orgs AS
-			(SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id)
-			SELECT id FROM orgs))`, start, start+1), args
+		return fmt.Sprintf(` AND (w.user_id=$%d OR u.organization_id IN `, start) + orgSubtree(start+1) + `)`, args
 	default:
 		args = append(args, s.UserID)
 		return fmt.Sprintf(" AND w.user_id=$%d", start), args

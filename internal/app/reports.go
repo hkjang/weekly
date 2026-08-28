@@ -812,7 +812,7 @@ func (a *App) queryReports(w http.ResponseWriter, r *http.Request, teamOnly bool
 			return
 		}
 		args = append(args, *p.OrganizationID)
-		where += fmt.Sprintf(" AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)", len(args))
+		where += " AND u.organization_id IN " + orgSubtree(len(args))
 	}
 	if week != "" {
 		args = append(args, week)
@@ -880,7 +880,7 @@ func (a *App) canViewReport(ctx context.Context, p *principal, reportID int64) b
 	}
 	if (p.Role == "TEAM_LEADER" || p.Role == "ORG_MANAGER") && p.OrganizationID != nil && orgID != nil {
 		var allowed bool
-		_ = a.db.QueryRow(ctx, `WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$1 UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT EXISTS(SELECT 1 FROM orgs WHERE id=$2)`, *p.OrganizationID, *orgID).Scan(&allowed)
+		_ = a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM `+orgSubtree(1)+` AS reachable WHERE reachable.id=$2)`, *p.OrganizationID, *orgID).Scan(&allowed)
 		return allowed
 	}
 	return false

@@ -134,9 +134,8 @@ func (a *App) collectTerms(r *http.Request, columns []string, start, end time.Ti
 	args := []any{start, end}
 	if organizationID := a.settingIntFromQuery(r, "organizationId"); organizationID > 0 {
 		args = append(args, organizationID)
-		statement += fmt.Sprintf(` AND r.user_id IN (SELECT id FROM users WHERE organization_id IN
-			(WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d
-			UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs))`, len(args))
+		statement += ` AND r.user_id IN (SELECT id FROM users WHERE organization_id IN
+			` + orgSubtree(len(args)) + `)`
 	}
 	statement += ` ORDER BY r.id`
 

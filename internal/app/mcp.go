@@ -455,7 +455,7 @@ func (a *App) mcpSearchReports(r *http.Request, p *principal, week, status strin
 			return page, nil
 		}
 		args = append(args, *p.OrganizationID)
-		where += ` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$1 UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`
+		where += ` AND u.organization_id IN ` + orgSubtree(1) + ``
 	}
 	if week != "" {
 		args = append(args, week)

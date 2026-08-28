@@ -162,9 +162,7 @@ func (a *App) canViewPerson(ctx context.Context, p *principal, target int64) (bo
 	}
 	var visible bool
 	err := a.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users u WHERE u.id=$1
-		AND u.organization_id IN (WITH RECURSIVE orgs AS
-			(SELECT id FROM organizations WHERE id=$2 UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id)
-			SELECT id FROM orgs))`, target, *p.OrganizationID).Scan(&visible)
+		AND u.organization_id IN `+orgSubtree(2)+`)`, target, *p.OrganizationID).Scan(&visible)
 	return visible, err
 }
 
@@ -500,9 +498,7 @@ func (a *App) teamMembers(w http.ResponseWriter, r *http.Request) {
 			args = append(args, p.ID)
 			query += fmt.Sprintf(" AND (u.id=$%d", len(args))
 			args = append(args, *p.OrganizationID)
-			query += fmt.Sprintf(` OR u.organization_id IN (WITH RECURSIVE orgs AS
-				(SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o2.id FROM organizations o2 JOIN orgs x ON o2.parent_id=x.id)
-				SELECT id FROM orgs))`, len(args))
+			query += ` OR u.organization_id IN ` + orgSubtree(len(args)) + `)`
 		}
 	}
 	// Active people first, then by name: a picker is read top down, and the

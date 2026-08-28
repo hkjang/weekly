@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -42,7 +41,7 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 	args := []any{week}
 	if p != nil && p.Role != "ADMIN" && p.OrganizationID != nil {
 		args = append(args, *p.OrganizationID)
-		orgFilter = fmt.Sprintf(` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`, len(args))
+		orgFilter = ` AND u.organization_id IN ` + orgSubtree(len(args))
 	}
 	if p != nil && p.Role != "ADMIN" && p.OrganizationID == nil {
 		return result, nil
@@ -51,7 +50,7 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 	totalArgs := []any{}
 	if len(args) > 1 {
 		totalArgs = append(totalArgs, args[1])
-		totalFilter = ` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$1 UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`
+		totalFilter = ` AND u.organization_id IN ` + orgSubtree(1) + ``
 	}
 	err := a.db.QueryRow(ctx, `SELECT count(*) FROM users u WHERE u.active=true`+totalFilter, totalArgs...).Scan(&result.TotalUsers)
 	if err != nil {
@@ -80,7 +79,7 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 	itemFilter := ""
 	if len(args) > 1 {
 		itemArgs = append(itemArgs, args[1])
-		itemFilter = fmt.Sprintf(` AND u.organization_id IN (WITH RECURSIVE orgs AS (SELECT id FROM organizations WHERE id=$%d UNION ALL SELECT o.id FROM organizations o JOIN orgs x ON o.parent_id=x.id) SELECT id FROM orgs)`, len(itemArgs))
+		itemFilter = ` AND u.organization_id IN ` + orgSubtree(len(itemArgs))
 	}
 	err = a.db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE length(trim(i.issue))>0),coalesce(avg(i.progress),0) FROM report_items i JOIN weekly_reports r ON r.id=i.report_id JOIN users u ON u.id=r.user_id WHERE r.week_start=$1`+itemFilter, itemArgs...).Scan(&result.OpenIssues, &result.AverageProgress)
 	return result, err
