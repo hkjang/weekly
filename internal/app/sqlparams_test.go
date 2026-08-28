@@ -14,9 +14,10 @@ import (
 // every use agrees on the type, so this test pins the known-good reuses and
 // fails on any new one until it has been checked against PostgreSQL.
 //
-// The full statement set is also exercised against a real server with PREPARE
-// in TestDatabaseMigrationsAndSecretRotation's environment; this test keeps the
-// cheap structural check in the default `go test ./...` run.
+// TestEverySQLStatementPreparesAgainstPostgres runs the PREPAREs those notes
+// were written from — they used to be done by hand, and this comment used to
+// claim a test did it. This one keeps the cheap structural check, which needs
+// no database and so runs in the default `go test ./...`.
 func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 	// loc -> placeholders that are known to be reused with a consistent type.
 	allowed := map[string]string{

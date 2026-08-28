@@ -3339,6 +3339,19 @@ if err != nil { return }   // Import 원본 정리</div>
 <p>##### 스윕이 무엇을 가져가는지도 처음으로 시험합니다</p>
 <p>경계마다 양쪽에 한 줄씩 넣습니다 — 60일 지난 지표와 5일 된 지표, 60일 지난 감사 기록과 5일 된 것, 3일 지난 로그인 시도와 방금 것, 만료된 세션과 살아 있는 세션. <strong>너무 많이 가져가는 DELETE 는 아무도 신고하지 않습니다. 그것이 지운 것은 아무도 더 보지 않는 것이기 때문입니다.</strong></p>
 <p>그리고 <code>보관일 0</code> 은 "전부 보관"이라는 뜻입니다. 10년 된 기록을 넣고 0으로 두어 살아남는지 봅니다.</p>
+<p>#### 3.10.199 v0.244.0에서 완료 — 주석이 있다고 말한 시험이 없었습니다</p>
+<p>지난 회차의 두 결함은 <strong>오류가 변수에 닿지도 않는</strong> 문장이었습니다. 그런 자리를 마흔여덟 개 세고, 하나씩 효과로 확인했습니다 — 로그인 시각은 움직이고, 세션의 마지막 활동도, 요청 지표도 쌓이고, 일부러 <code>PROCESSING</code> 으로 두고 재시작한 Import 작업도 복구됩니다. <strong>전부 제 일을 합니다.</strong></p>
+<p>그러다 <code>sqlparams_test.go</code> 의 첫 문단을 다시 읽었습니다.</p>
+<blockquote>*"The full statement set is also exercised against a real server with <strong>PREPARE</strong> in TestDatabaseMigrationsAndSecretRotation's environment"*</blockquote>
+<p><strong>그런 시험은 없습니다.</strong> 그 PREPARE 들은 추론된 형을 주석에 적으려고 <strong>손으로</strong> 돌린 것이고, 그 사실이 시험이 있다는 문장으로 굳었습니다.</p>
+<p>##### 그래서 돌려 봤습니다</p>
+<p>제품이 싣고 다니는 SQL 문자열을 전부 뽑아 실제 스키마에 PREPARE 합니다. <strong>269개가 통과합니다.</strong></p>
+<p>지금은 하나도 깨진 것이 없습니다. 그것 자체가 결과입니다 — 그리고 다음 번은 다릅니다. 마이그레이션이 열 이름을 바꾸고 한 자리를 놓치면, 그 문장을 처음 밟는 사람이 아니라 이 시험이 먼저 압니다. 확인했습니다.</p>
+<div class="phase-box">열 이름 하나를 바꿔 두었더니
+  rollup_handlers.go: ERROR: column &quot;org_name&quot; does not exist (SQLSTATE 42703)</div>
+<p>##### 조각은 조각이라고 말합니다</p>
+<p>런타임에 이어 붙는 것은 문장이 아닙니다. 세 가지 모양이 있고 셋 다 알아봅니다 — 따옴표 밖에서 <code>+</code> 로 이어지는 것, <code>Sprintf</code> 로 자리번호를 채우는 것, 그리고 <strong>변수에 담아 두고 아래에서 <code>+=</code> 로 키우는 것</strong>(범위 조건, 정렬, 때로는 <code>GROUP BY</code>).</p>
+<p>건너뛴 36개를 파일별로 세어 <strong>소리 내어 적습니다.</strong> 문장의 8분의 1을 조용히 지나가는 검사는 이름이 말하는 그 검사가 아닙니다.</p>
 </div>
 </body>
 </html>
