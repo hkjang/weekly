@@ -187,14 +187,39 @@ type organizationAnalytics struct {
 }
 
 // analyticsOrganizations compares reporting output across organisations.
+// analyticsOrganizations compares organisations on the same window.
+//
+// expectedReports used to be members × weeks, which holds everybody to every
+// week in the window whether or not they were here for it and whether or not it
+// is over. On a deployment installed today that reads "12건 중 0건 · 0%" for an
+// organisation one day old, while 참여 분석 on the next tab says nobody is
+// behind — two administrator screens answering the same question in opposite
+// directions, on the first screen an operator sees after installing.
+//
+// 참여 분석 already had the rule and the SQL for it: a week counts against
+// somebody only after they were here and after its deadline passed. Sharing the
+// fragments is what keeps the two screens from drifting again.
 func (a *App) analyticsOrganizations(w http.ResponseWriter, r *http.Request) {
 	weeks, start, end, _ := a.analyticsWindow(r)
+	deadline := a.deadlineRule(r.Context())
 	rows, err := a.db.Query(r.Context(), `
 		WITH active AS (
-		  SELECT u.id, u.organization_id FROM users u WHERE u.active=true
+		  SELECT u.id, u.organization_id,
+		    (SELECT count(*) FROM generate_series($1::date, $2::date, interval '7 day') AS week(day)
+		       WHERE week.day::date >= `+expectedFromWeek+` AND `+deadlinePassed+`) AS owed
+		  FROM users u WHERE u.active=true
+		), owed AS (
+		  -- Summed before the joins below multiply each member by their reports
+		  -- and each report by its items.
+		  SELECT organization_id, sum(owed) AS expected FROM active GROUP BY organization_id
 		), submitted AS (
-		  SELECT r.id, r.user_id FROM weekly_reports r
+		  -- The same weeks the denominator counts. A report filed for a week
+		  -- that is still open, or for a week before its author was here, is
+		  -- not evidence about a week anybody was owed.
+		  SELECT r.id, r.user_id FROM weekly_reports r JOIN users u ON u.id = r.user_id
 		  WHERE r.week_start BETWEEN $1 AND $2 AND r.status <> 'DRAFT'
+		    AND r.week_start >= `+expectedFromWeek+`
+		    AND `+deadlinePassedFor("r.week_start")+`
 		)
 		SELECT o.id, o.name,
 		  count(DISTINCT a.id),
@@ -202,12 +227,14 @@ func (a *App) analyticsOrganizations(w http.ResponseWriter, r *http.Request) {
 		  count(i.id),
 		  count(i.id) FILTER (WHERE i.progress >= 100),
 		  count(i.id) FILTER (WHERE length(trim(coalesce(i.issue,''))) > 0),
-		  coalesce(avg(i.progress), 0)
+		  coalesce(avg(i.progress), 0),
+		  coalesce(max(w.expected), 0)
 		FROM organizations o
 		LEFT JOIN active a ON a.organization_id = o.id
+		LEFT JOIN owed w ON w.organization_id = o.id
 		LEFT JOIN submitted s ON s.user_id = a.id
 		LEFT JOIN report_items i ON i.report_id = s.id
-		GROUP BY o.id, o.name ORDER BY o.name`, start, end)
+		GROUP BY o.id, o.name ORDER BY o.name`, start, end, deadline.Timezone, deadline.Days, deadline.Hour)
 	if err != nil {
 		a.logger.Error("organization analytics", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "조직 분석을 조회할 수 없습니다.")
@@ -218,11 +245,11 @@ func (a *App) analyticsOrganizations(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item organizationAnalytics
 		if err := rows.Scan(&item.OrganizationID, &item.Name, &item.Members, &item.Reports,
-			&item.Items, &item.CompletedItems, &item.IssueItems, &item.AverageProgress); err != nil {
+			&item.Items, &item.CompletedItems, &item.IssueItems, &item.AverageProgress,
+			&item.ExpectedReports); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "조직 분석을 읽을 수 없습니다.")
 			return
 		}
-		item.ExpectedReports = item.Members * weeks
 		if item.ExpectedReports > 0 {
 			item.SubmissionRate = round1(float64(item.Reports) * 100 / float64(item.ExpectedReports))
 		}
@@ -292,12 +319,22 @@ const expectedFromWeek = `least(
 		coalesce((SELECT min(r2.week_start) FROM weekly_reports r2
 		          WHERE r2.user_id=u.id AND r2.status <> 'DRAFT'), 'infinity'::date))`
 
-// deadlinePassed is true for a week that is over. $3 timezone, $4 days, $5 hour.
-const deadlinePassed = `(week.day::date + make_interval(days => $4, hours => $5)) AT TIME ZONE $3 <= now()`
+// deadlinePassedFor is true for a week that is over. $3 timezone, $4 days, $5 hour.
+//
+// It takes the column because the same question is asked of two different ones:
+// a generated week when counting what was owed, and a report's own week when
+// counting what was filed against it. Written twice they drift, and a numerator
+// and a denominator that cover different weeks produce 제출률 109.1% — measured,
+// on the table that shows them as "제출 / 기대건".
+func deadlinePassedFor(column string) string {
+	return `(` + column + `::date + make_interval(days => $4, hours => $5)) AT TIME ZONE $3 <= now()`
+}
+
+var deadlinePassed = deadlinePassedFor("week.day")
 
 // weekIsOwed combines the two: this week counted against this person, and it is
 // no longer open.
-const weekIsOwed = `week.day::date >= ` + expectedFromWeek + ` AND ` + deadlinePassed + `
+var weekIsOwed = `week.day::date >= ` + expectedFromWeek + ` AND ` + deadlinePassed + `
 		AND NOT EXISTS (SELECT 1 FROM weekly_reports r
 			WHERE r.user_id=u.id AND r.week_start=week.day::date AND r.status <> 'DRAFT')`
 
