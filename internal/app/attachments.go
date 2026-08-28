@@ -184,7 +184,19 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 	maxPerReport, maxBytes := a.attachmentLimits(r.Context())
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes*int64(maxPerReport)+(1<<20))
 	if err := r.ParseMultipartForm(maxBytes + (1 << 20)); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_UPLOAD", "업로드 형식이 올바르지 않거나 허용 용량을 초과했습니다.")
+		// Two causes with two remedies, and Go says which: a request past the
+		// reader's cap arrives as *http.MaxBytesError, anything else is a body
+		// that did not parse. "올바르지 않거나 초과했습니다" left the reader to
+		// guess between sending fewer images and sending them again.
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusBadRequest, "UPLOAD_TOO_LARGE",
+				fmt.Sprintf("한 번에 올린 이미지 전체가 허용 용량을 넘습니다. 한 개당 %dMB, 보고서당 %d개까지이며 나눠서 올리면 됩니다.",
+					maxBytes>>20, maxPerReport))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "INVALID_UPLOAD",
+			"업로드 형식을 읽을 수 없습니다. 전송이 중간에 끊겼을 수 있으니 다시 시도해 주세요.")
 		return
 	}
 	defer func() {

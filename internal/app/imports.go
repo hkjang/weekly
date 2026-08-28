@@ -116,7 +116,27 @@ func (a *App) uploadImportPPTX(w http.ResponseWriter, r *http.Request) {
 		body, readErr := io.ReadAll(io.LimitReader(file, maximumFileBytes+1))
 		file.Close()
 		if readErr != nil || int64(len(body)) == 0 || int64(len(body)) > maximumFileBytes {
-			a.insertFailedImportFile(r.Context(), jobID, name, int64(len(body)), "파일이 비어 있거나 관리자 크기 제한을 초과했습니다.")
+			// Three different things, and they were one sentence naming two of
+			// them with an "또는". A zero byte upload was told it might have
+			// exceeded the administrator's limit — the opposite fact, with the
+			// opposite remedy: re-export the file, or ask for a bigger limit.
+			// The attachment upload next door already names the file and the
+			// actual megabytes; this says the same kind of thing.
+			//
+			// The reader is capped at limit+1, so an oversized file is known to
+			// be over without being measurable. The limit is what a person can
+			// act on anyway.
+			reason := ""
+			switch {
+			case readErr != nil:
+				reason = "업로드가 중간에 끊겨 파일을 끝까지 읽지 못했습니다. 다시 올려 주세요."
+			case len(body) == 0:
+				reason = "파일이 비어 있습니다(0바이트). 내보내기가 끝난 파일인지 확인한 뒤 다시 올려 주세요."
+			default:
+				reason = fmt.Sprintf("파일이 관리자가 정한 한 개당 크기 제한(%dMB)을 넘습니다. 관리자 설정의 'PPTX 파일당 최대 MB'를 올리거나 파일을 나눠 올리세요.",
+					maximumFileBytes>>20)
+			}
+			a.insertFailedImportFile(r.Context(), jobID, name, int64(len(body)), reason)
 			failed++
 			continue
 		}
