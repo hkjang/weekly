@@ -19,7 +19,7 @@ export interface PreviousPlanItem { workItemId?: number; category: string; title
 export interface PreviousPlan { reportId: number; weekStart: string; status: ReportStatus; items: PreviousPlanItem[] }
 export interface ReportComment { id: number; userId: number; displayName: string; content: string; createdAt: string }
 export type ReportSource = 'MANUAL' | 'AI_TEXT' | 'PPTX_IMPORT' | 'CONFLUENCE_AI' | 'CLONED' | 'API' | 'JIRA'
-export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[] }
+export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; reviewedBy?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[] }
 export interface ReportListItem { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; updatedAt: string }
 export interface AnalyticsOverview { weekStart: string; totalUsers: number; submittedUsers: number; submissionRate: number; statusCounts: Record<string, number>; openIssues: number; averageProgress: number }
 export interface KeyView { id: number; name: string; prefix: string; keyVersion: number; scopes: string[]; lastUsedAt?: string; expiresAt?: string; createdAt: string }

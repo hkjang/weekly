@@ -52,21 +52,27 @@ type reportComment struct {
 }
 
 type reportView struct {
-	ID          int64           `json:"id"`
-	UserID      int64           `json:"userId"`
-	Username    string          `json:"username"`
-	DisplayName string          `json:"displayName"`
-	WeekStart   string          `json:"weekStart"`
-	Status      string          `json:"status"`
-	SourceType  string          `json:"sourceType"`
-	Summary     string          `json:"summary"`
-	Version     int             `json:"version"`
-	SubmittedAt *time.Time      `json:"submittedAt"`
-	ReviewedAt  *time.Time      `json:"reviewedAt"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
-	Items       []reportItem    `json:"items"`
-	Comments    []reportComment `json:"comments"`
+	ID          int64      `json:"id"`
+	UserID      int64      `json:"userId"`
+	Username    string     `json:"username"`
+	DisplayName string     `json:"displayName"`
+	WeekStart   string     `json:"weekStart"`
+	Status      string     `json:"status"`
+	SourceType  string     `json:"sourceType"`
+	Summary     string     `json:"summary"`
+	Version     int        `json:"version"`
+	SubmittedAt *time.Time `json:"submittedAt"`
+	ReviewedAt  *time.Time `json:"reviewedAt"`
+	// ReviewedBy is who took the review action. The column has been written on
+	// every approve and reject since the workflow existed and read by nothing —
+	// while the editor told a writer whose reason went missing to "검토자에게
+	// 직접 확인해 주세요", without ever naming them. An approved report showed
+	// a time and no person at all, which is the one fact an approval is for.
+	ReviewedBy string          `json:"reviewedBy,omitempty"`
+	CreatedAt  time.Time       `json:"createdAt"`
+	UpdatedAt  time.Time       `json:"updatedAt"`
+	Items      []reportItem    `json:"items"`
+	Comments   []reportComment `json:"comments"`
 }
 
 type reportListItem struct {
@@ -137,9 +143,11 @@ func (a *App) writeReport(w http.ResponseWriter, r *http.Request, id int64) {
 func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 	result := &reportView{Items: []reportItem{}, Comments: []reportComment{}}
 	var week time.Time
-	err := a.db.QueryRow(ctx, `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,r.submitted_at,r.reviewed_at,r.created_at,r.updated_at
-		FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, id).
-		Scan(&result.ID, &result.UserID, &result.Username, &result.DisplayName, &week, &result.Status, &result.SourceType, &result.Summary, &result.Version, &result.SubmittedAt, &result.ReviewedAt, &result.CreatedAt, &result.UpdatedAt)
+	err := a.db.QueryRow(ctx, `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,
+			r.submitted_at,r.reviewed_at,coalesce(rev.display_name,''),r.created_at,r.updated_at
+		FROM weekly_reports r JOIN users u ON u.id=r.user_id
+		LEFT JOIN users rev ON rev.id=r.reviewed_by WHERE r.id=$1`, id).
+		Scan(&result.ID, &result.UserID, &result.Username, &result.DisplayName, &week, &result.Status, &result.SourceType, &result.Summary, &result.Version, &result.SubmittedAt, &result.ReviewedAt, &result.ReviewedBy, &result.CreatedAt, &result.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}

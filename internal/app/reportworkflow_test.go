@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -252,5 +253,97 @@ func TestEditingAnApprovedReportTakesTheApprovalBackAndSaysSo(t *testing.T) {
 	}
 	if reviewer != nil {
 		t.Errorf("the report still credits reviewer %d after being rewritten", *reviewer)
+	}
+}
+
+// reviewed_by has been written on every approve and reject since the workflow
+// existed, cleared on every resubmit, and read by nothing. Meanwhile the editor
+// told a writer whose reason had gone missing to "검토자에게 직접 확인해
+// 주세요" without naming them, and an approved report showed a timestamp with
+// nobody's name on it — which is the one fact an approval is for.
+//
+// guards: loadReport, approveReport, rejectReport
+func TestAReviewedReportSaysWhoReviewedIt(t *testing.T) {
+	server := newTestServer(t)
+	server.enableWorkflow()
+	organisation := server.createOrganization("검토자 조직", "REVWHO")
+	leader := server.createUser("review_who_leader", "TEAM_LEADER", &organisation)
+	author := server.createUser("review_who_author", "USER", &organisation)
+	reportID, version := server.draft(author, "2026-08-24", "검토자 시험")
+	filled := server.request(http.MethodPut, fmt.Sprintf("/api/v1/reports/%d", reportID), map[string]any{
+		"summary": "검토자 시험", "version": version,
+		"items": []map[string]any{{"category": "개발", "title": "업무", "currentResult": "진행",
+			"nextPlan": "계속", "issue": "", "progress": 10}},
+	}, author)
+	if filled.Code != http.StatusOK {
+		t.Fatalf("write the report: %d %s", filled.Code, filled.Body.String())
+	}
+
+	reviewerOf := func() (string, string) {
+		t.Helper()
+		response := server.request(http.MethodGet, fmt.Sprintf("/api/v1/reports/%d", reportID), nil, author)
+		if response.Code != http.StatusOK {
+			t.Fatalf("read the report: %d %s", response.Code, response.Body.String())
+		}
+		var body struct {
+			Data struct {
+				Status     string `json:"status"`
+				ReviewedBy string `json:"reviewedBy"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode the report: %v", err)
+		}
+		return body.Data.Status, body.Data.ReviewedBy
+	}
+
+	submit := func() {
+		t.Helper()
+		_, current := reviewerOf()
+		_ = current
+		var loaded struct {
+			Data struct {
+				Version int `json:"version"`
+			} `json:"data"`
+		}
+		read := server.request(http.MethodGet, fmt.Sprintf("/api/v1/reports/%d", reportID), nil, author)
+		if err := json.Unmarshal(read.Body.Bytes(), &loaded); err != nil {
+			t.Fatalf("read the version: %v", err)
+		}
+		sent := server.request(http.MethodPost, fmt.Sprintf("/api/v1/reports/%d/submit", reportID),
+			map[string]any{"version": loaded.Data.Version}, author)
+		if sent.Code != http.StatusOK {
+			t.Fatalf("submit: %d %s", sent.Code, sent.Body.String())
+		}
+	}
+
+	submit()
+	rejected := server.request(http.MethodPost, fmt.Sprintf("/api/v1/reports/%d/reject", reportID),
+		map[string]any{"comment": "근거를 붙여 주세요"}, leader)
+	if rejected.Code != http.StatusOK {
+		t.Fatalf("reject: %d %s", rejected.Code, rejected.Body.String())
+	}
+	status, reviewer := reviewerOf()
+	if status != "REVISION_REQUESTED" {
+		t.Fatalf("status after a rejection: %s", status)
+	}
+	if reviewer == "" {
+		t.Error("the writer is told to ask the reviewer and is not told who that is")
+	}
+
+	// Resubmitting clears the review, and the name has to go with it — leaving
+	// it would credit somebody with a decision they have not made yet.
+	submit()
+	if status, reviewer = reviewerOf(); reviewer != "" {
+		t.Errorf("a resubmitted report still names %q as its reviewer", reviewer)
+	}
+
+	approved := server.request(http.MethodPost, fmt.Sprintf("/api/v1/reports/%d/approve", reportID),
+		map[string]any{"comment": "확인했습니다"}, leader)
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve: %d %s", approved.Code, approved.Body.String())
+	}
+	if status, reviewer = reviewerOf(); reviewer == "" {
+		t.Errorf("an approved report (%s) records no approver", status)
 	}
 }

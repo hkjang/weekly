@@ -3152,6 +3152,25 @@ bomb.pptx    615KB → 202 → PPTX 슬라이드 XML이 너무 큽니다      (�
 <p><strong>원인 셋, 문장 하나, 그중 둘만 이름이 있고 "또는"으로 묶여 있습니다.</strong> 0바이트 파일은 관리자 한도를 넘었을지도 모른다는 말을 들었습니다 — 정반대의 사실이고, 해야 할 일도 정반대입니다(파일을 다시 내보내기 / 관리자에게 한도를 올려 달라기).</p>
 <p>바로 옆 첨부 업로드는 이미 제대로 합니다 — *"huge.png의 크기가 허용 한도(10MB)를 초과했습니다."* 같은 종류의 문장을 쓰게 했습니다. 크기를 넘은 파일은 상한이 몇 MB 인지와 <strong>어느 설정을 올려야 하는지</strong>까지 듣습니다.</p>
 <p>첨부 쪽에도 같은 모양이 하나 있었습니다. <code>ParseMultipartForm</code> 실패가 "형식이 올바르지 않거나 허용 용량을 초과했습니다" 하나로 뭉쳐 있는데, Go 는 <code>*http.MaxBytesError</code> 로 <strong>어느 쪽인지 말해 줍니다.</strong> 요청 전체가 넘친 것과 몸통이 안 읽히는 것은 할 일이 다릅니다 — 나눠 올리기와 다시 시도하기.</p>
+<p>#### 3.10.189 v0.234.0에서 완료 — 누가 승인했는지를 아무도 볼 수 없었습니다</p>
+<p>이 제품의 핵심 절차를 아직 끝까지 걸어 본 적이 없었습니다. 작성 → 제출 → 반려 → 수정 → 재제출 → 승인을 실제 계정 둘로 밟았습니다.</p>
+<div class="phase-box">DRAFT v2 → SUBMITTED v3 → REVISION_REQUESTED v4 → (수정) v5 → SUBMITTED v6 → APPROVED v7</div>
+<p>절차 자체는 <strong>정확합니다.</strong> 사유 없는 반려는 <code>COMMENT_REQUIRED</code> 로 막고, 지나온 순서는 <code>report_status_history</code> 에 사유와 함께 남으며, <strong>팀장이 자기 보고서를 스스로 승인하려 하면 거절합니다.</strong></p>
+<p>##### 그런데 승인자의 이름이 어디에도 없습니다</p>
+<p>승인된 보고서의 응답에는 <code>reviewedAt</code> 만 있습니다. 시각은 있고 <strong>사람이 없습니다.</strong> 데이터베이스에는 있습니다.</p>
+<div class="phase-box">reviewed_by 를 쓰는 곳 : 다섯 (승인·반려에서 채우고, 재제출·Import 에서 지움)
+reviewed_by 를 읽는 곳 : 시험 셋. 그것이 쓰였는지를 확인하는 시험들뿐</div>
+<p>v0.225 의 <code>report_status_history</code> 와 <strong>같은 모양</strong>입니다. 다만 표가 아니라 <strong>열</strong>이라 그때 만든 도달성 시험이 못 잡습니다. <code>weekly_reports</code> 는 당연히 읽히니까요.</p>
+<p>그리고 이번에는 화면이 그 사실을 소리 내어 말하고 있었습니다.</p>
+<blockquote>*"사유가 남아 있지 않습니다. <strong>검토자에게 직접 확인해 주세요.</strong>"*</blockquote>
+<p>300명 배포에서 작성자에게 검토자를 찾아가라고 하면서, <strong>그 사람이 누구인지는 알려 주지 않는</strong> 열을 손에 쥐고 있었습니다. 승인은 그 주에 대해 누가 책임을 졌는지의 기록이고, 시각만으로는 답이 되지 않습니다.</p>
+<p>이제 <code>reviewedBy</code> 가 응답에 오고, 반려 안내는 반려한 사람의 이름을 부르며, 승인된 보고서는 누가 언제 승인했는지를 적습니다. 재제출하면 검토 기록과 함께 지워집니다 — 아직 하지 않은 결정을 누구의 것으로 돌리지 않기 위해서입니다.</p>
+<p>##### 열 단위로 훑어 나온 나머지 둘은 그대로 둡니다</p>
+<ul>
+<li><code>confluence_pages.body_hash</code> — 본문 해시를 저장하지만 읽지 않습니다. 목적이던 "바뀌지 않은 문서 건너뛰기"는 <strong>Confluence 자신의 <code>page_version</code></strong> 이 이미 하고 있고(<code>previousVersion != page.Version</code>), 그쪽이 더 정확합니다. 남은 잔재입니다.</li>
+<li><code>user_sessions.last_seen_at</code> — 5분에 한 번으로 조절된 갱신이고 읽는 곳이 없습니다. 비용이 거의 없고, 세션이 마지막으로 살아 있던 시각은 운영자가 데이터베이스에서 직접 볼 값입니다.</li>
+</ul>
+<p>둘 다 사용자에게 무언가를 약속하지 않습니다. <code>reviewed_by</code> 만 약속했고, 그것만 지키지 않고 있었습니다.</p>
 </div>
 </body>
 </html>
