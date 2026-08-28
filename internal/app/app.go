@@ -426,19 +426,40 @@ func (a *App) maintenance(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, _ = a.db.Exec(ctx, `DELETE FROM user_sessions WHERE expires_at < now(); DELETE FROM oidc_login_states WHERE expires_at < now()`)
-			retention := a.settingInt(ctx, "analytics.retention_days", 90)
-			_, _ = a.db.Exec(ctx, `DELETE FROM api_request_metrics WHERE bucket < now() - ($1 || ' days')::interval`, retention)
-			a.cleanupImportSources(ctx)
-			a.cleanupAttachmentFiles(ctx)
-			a.pruneLoginAttempts(ctx)
-			// Zero means an operator has chosen to keep everything, so the
-			// trail is only trimmed when a policy asked for it.
-			if days := a.settingInt(ctx, "audit.retention_days", 365); days > 0 {
-				if _, err := a.db.Exec(ctx, `DELETE FROM audit_logs WHERE created_at < now() - make_interval(days => $1)`, days); err != nil {
-					a.logger.Warn("prune audit logs", "error", err)
-				}
-			}
+			a.runMaintenance(ctx)
+		}
+	}
+}
+
+// runMaintenance is one sweep: everything the deployment throws away on a
+// schedule, in one place that can be called.
+//
+// It used to be the body of the ticker loop, which meant four operator-settable
+// retention policies — analytics, audit, import sources, login attempts — plus
+// the session and OIDC cleanups had no way to run except waiting half an hour,
+// and so had never run in a test. A DELETE that takes too much is the kind of
+// mistake nobody reports, because what it removed is exactly what nobody is
+// looking at any more.
+func (a *App) runMaintenance(ctx context.Context) {
+	_, _ = a.db.Exec(ctx, `DELETE FROM user_sessions WHERE expires_at < now(); DELETE FROM oidc_login_states WHERE expires_at < now()`)
+	retention := a.settingInt(ctx, "analytics.retention_days", 90)
+	// make_interval, not ($1 || ' days'). The concatenation makes PostgreSQL
+	// infer $1 as text, pgx refuses to encode a Go int into it — "unable to
+	// encode 30 into text format for text (OID 25)" — and the statement never
+	// reaches the database. Discarded with `_, _ =`, so this table has never
+	// been pruned on any deployment, whatever 분석 데이터 보관일 was set to.
+	// The audit prune below has had the right form all along.
+	if _, err := a.db.Exec(ctx, `DELETE FROM api_request_metrics WHERE bucket < now() - make_interval(days => $1)`, retention); err != nil {
+		a.logger.Warn("prune request metrics", "error", err, "retentionDays", retention)
+	}
+	a.cleanupImportSources(ctx)
+	a.cleanupAttachmentFiles(ctx)
+	a.pruneLoginAttempts(ctx)
+	// Zero means an operator has chosen to keep everything, so the trail is only
+	// trimmed when a policy asked for it.
+	if days := a.settingInt(ctx, "audit.retention_days", 365); days > 0 {
+		if _, err := a.db.Exec(ctx, `DELETE FROM audit_logs WHERE created_at < now() - make_interval(days => $1)`, days); err != nil {
+			a.logger.Warn("prune audit logs", "error", err)
 		}
 	}
 }

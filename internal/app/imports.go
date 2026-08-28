@@ -1043,9 +1043,15 @@ func (a *App) cleanupImportSources(ctx context.Context) {
 		FROM import_files f
 		WHERE f.stored_path IS NOT NULL
 		  AND f.status IN ('CONFIRMED','SKIPPED','FAILED')
-		  AND coalesce(f.confirmed_at,f.analyzed_at,f.created_at) < now() - ($1 || ' days')::interval
+		  AND coalesce(f.confirmed_at,f.analyzed_at,f.created_at) < now() - make_interval(days => $1)
 		ORDER BY f.id LIMIT 500`, retention)
 	if err != nil {
+		// Same shape as the metrics prune: ($1 || ' days') made PostgreSQL infer
+		// a text parameter, pgx would not encode an int into it, and this
+		// returned before selecting anything — every time, on every deployment,
+		// with the failure returned into a bare `return`. Import 원본 보관일 has
+		// therefore never removed a file.
+		a.logger.Warn("prune import sources", "error", err, "retentionDays", retention)
 		return
 	}
 	type expiredSource struct {

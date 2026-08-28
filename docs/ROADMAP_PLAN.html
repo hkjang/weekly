@@ -3318,6 +3318,27 @@ DB   : 원본행 35 · 업무 7 · 보고서 5</div>
 고침 후 : 창 4/12/26/104 → 겹침 최대 52주 (전부)
 비용    : 0.17~0.23s</div>
 <p>이 종류를 세 회차에 걸쳐 다섯 자리에서 찾았습니다. 공통점은 하나입니다 — <strong>한 매개변수가 "무엇을 볼지"와 "얼마나 오래됐는지" 두 가지를 동시에 정하고 있었습니다.</strong> 앞의 것은 사용자가 고르는 값이고, 뒤의 것은 데이터가 정하는 값입니다.</p>
+<p>#### 3.10.198 v0.243.0에서 완료 — 보관 기간 두 가지가 한 번도 지켜진 적이 없습니다</p>
+<p>CSV 내보내기(수식 주입은 이미 막혀 있었습니다)와 PPTX(제어문자는 U+FFFD 로 치환되어 파일이 깨지지 않습니다)를 확인한 뒤, <strong>시간이 지나면 무엇이 지워지는가</strong>를 봤습니다.</p>
+<p>보관 기간 설정은 넷이고 넷 다 집행하는 코드가 있습니다. 그런데 그 코드가 전부 <strong>30분 티커의 몸통 안에</strong> 있었습니다.</p>
+<div class="phase-box">cleanupImportSources    시험에서 0번
+cleanupAttachmentFiles  시험에서 0번
+pruneLoginAttempts      시험에서 0번</div>
+<p>부를 수 있는 함수로 떼어내고 시험을 붙였더니 <strong>첫 실행에서 붉어졌습니다.</strong></p>
+<p>##### <code>($1 || ' days')</code> 는 실행된 적이 없습니다</p>
+<div class="phase-box">failed to encode args[0]: unable to encode 30 into text format for text (OID 25)</div>
+<p><code>||</code> 로 문자열을 이어 붙이면 PostgreSQL 이 <code>$1</code> 을 <strong>text 로 추론</strong>합니다. Go 는 <code>int</code> 를 보내고, pgx 는 그것을 text 로 인코딩할 방법이 없어 <strong>문장이 데이터베이스에 닿지도 못합니다.</strong></p>
+<p>두 자리가 그 모양이었고, 둘 다 실패를 버립니다.</p>
+<div class="phase-box">_, _ = a.db.Exec(ctx, `DELETE FROM api_request_metrics ... ($1 || &#x27; days&#x27;)::interval`, retention)
+...
+if err != nil { return }   // Import 원본 정리</div>
+<p>그래서 <strong><code>분석 데이터 보관일</code> 과 <code>Import 원본 보관일</code> 은 어떤 배포에서도 한 번도 무언가를 지운 적이 없습니다.</strong> 관리자가 90일로 두든 30일로 두든 같습니다. 요청 지표 표와 업로드된 PPTX 원본은 영원히 쌓입니다.</p>
+<p><strong>바로 아래 줄의 감사 기록 정리는 처음부터 옳은 형태였습니다.</strong></p>
+<div class="phase-box">DELETE FROM audit_logs WHERE created_at &lt; now() - make_interval(days =&gt; $1)</div>
+<p>같은 파일, 세 줄 아래, 맞는 답. 둘을 그 형태로 맞췄고, 실패를 더는 버리지 않습니다.</p>
+<p>##### 스윕이 무엇을 가져가는지도 처음으로 시험합니다</p>
+<p>경계마다 양쪽에 한 줄씩 넣습니다 — 60일 지난 지표와 5일 된 지표, 60일 지난 감사 기록과 5일 된 것, 3일 지난 로그인 시도와 방금 것, 만료된 세션과 살아 있는 세션. <strong>너무 많이 가져가는 DELETE 는 아무도 신고하지 않습니다. 그것이 지운 것은 아무도 더 보지 않는 것이기 때문입니다.</strong></p>
+<p>그리고 <code>보관일 0</code> 은 "전부 보관"이라는 뜻입니다. 10년 된 기록을 넣고 0으로 두어 살아남는지 봅니다.</p>
 </div>
 </body>
 </html>
