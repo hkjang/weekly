@@ -40,10 +40,28 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
  * 500 does, and the person who has to look it up is not the one reading it.
  */
 export function errorText(error: unknown, fallback: string): string {
-  if (!(error instanceof APIError)) return error instanceof Error ? error.message : fallback
-  if (error.status >= 500 && error.traceId) return `${error.message} (추적 ID ${error.traceId})`
-  return error.message
+  if (error instanceof APIError) {
+    if (error.status >= 500 && error.traceId) return `${error.message} (추적 ID ${error.traceId})`
+    return error.message
+  }
+  // fetch itself refused: the request never reached the server, so there is no
+  // envelope and no trace id — the browser hands back its own English string.
+  // Measured on a deployment by cutting the connection mid-save: the toast read
+  // "Failed to fetch" and nothing else. On a company network that is the most
+  // likely failure anybody here will ever see, and it was the one sentence in
+  // the product not written for the person reading it.
+  //
+  // What the screen does is already right — the editor keeps what is on it and
+  // saving again after the link returns works — so the sentence says that.
+  if (error instanceof TypeError) return NETWORK_UNREACHABLE
+  // Any other message from outside the product is the platform's, in the
+  // platform's language. The caller's Korean fallback is closer to true.
+  if (error instanceof Error && /[가-힣]/.test(error.message)) return error.message
+  return fallback
 }
+
+export const NETWORK_UNREACHABLE =
+  '서버에 연결하지 못했습니다. 화면에 있는 내용은 그대로 있으니, 연결이 돌아오면 다시 시도하세요.'
 
 export const post = <T>(url: string, data?: unknown) => api<T>(url, { method: 'POST', body: JSON.stringify(data ?? {}) })
 export const put = <T>(url: string, data: unknown) => api<T>(url, { method: 'PUT', body: JSON.stringify(data) })

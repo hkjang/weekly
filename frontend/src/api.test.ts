@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { APIError, api, errorText } from './api'
+import { APIError, NETWORK_UNREACHABLE, api, errorText } from './api'
 import { onSessionLost } from './session'
 
 // Every screen goes through this layer, so what it decides is decided once for
@@ -136,5 +136,25 @@ describe('사람에게 보여 줄 문장', () => {
 
   it('문장이 없으면 준비된 문장을 쓴다', () => {
     expect(errorText('그냥 문자열', '보고서를 저장할 수 없습니다.')).toBe('보고서를 저장할 수 없습니다.')
+  })
+})
+
+describe('연결이 끊겼을 때', () => {
+  it('브라우저의 영어 대신 무슨 일인지 한국어로 말한다', () => {
+    // fetch 가 거절하면 TypeError 가 옵니다. 크롬은 "Failed to fetch",
+    // 파이어폭스는 "NetworkError...", 사파리는 "Load failed" 입니다.
+    for (const message of ['Failed to fetch', 'NetworkError when attempting to fetch resource.', 'Load failed']) {
+      expect(errorText(new TypeError(message), '저장할 수 없습니다.')).toBe(NETWORK_UNREACHABLE)
+    }
+  })
+
+  it('그 문장은 화면의 내용이 남아 있다고 알려 준다', () => {
+    expect(NETWORK_UNREACHABLE).toContain('그대로')
+    expect(NETWORK_UNREACHABLE).toContain('다시 시도')
+  })
+
+  it('제품 밖에서 온 영어 문장은 호출자의 한국어로 바꾼다', () => {
+    expect(errorText(new Error('Unexpected token < in JSON'), '보고서를 저장할 수 없습니다.'))
+      .toBe('보고서를 저장할 수 없습니다.')
   })
 })

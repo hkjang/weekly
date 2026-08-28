@@ -3452,6 +3452,22 @@ README 가 바뀌고 코드가 그대로  → &quot;README 에 &#x27;| 진척 �
 <div class="phase-box">고침 후  빠른 이동 : 닫으면 tr 로 복귀
          발표 모드 : Tab 12회 중 밖으로 0 · 닫으면 열었던 button 으로 복귀</div>
 <p><code>a11y-check.py --overlays</code> 가 그 자리를 지킵니다 — 초점 복귀를 떼어 두 오버레이가 모두 신고되는 것을 확인했습니다.</p>
+<p>#### 3.10.206 v0.251.0에서 완료 — 사내망이 끊기면 "Failed to fetch"</p>
+<p>접근성 세 회차를 마치고 다른 축으로 갔습니다. <strong>망이 끊겼을 때.</strong> 오프라인 사내망에 놓이는 제품에서 가장 흔한 실패입니다.</p>
+<p>편집 중에 연결을 끊고 저장을 눌렀습니다.</p>
+<div class="phase-box">사용자가 본 알림: &quot;Failed to fetch&quot;</div>
+<p>그게 전부입니다. 한국어 제품에서, 이 배포가 놓이는 망에서 가장 자주 일어날 일이, <strong>브라우저가 개발자에게 하는 말</strong>로 나옵니다.</p>
+<p>##### 그 자리에는 봉투가 없습니다</p>
+<div class="phase-box">const response = await fetch(url, ...)   // ← 여기서 거절되면</div>
+<p>서버까지 닿지 못한 요청에는 <code>success</code> 도 <code>error.code</code> 도 <code>traceId</code> 도 없습니다. <code>APIError</code> 가 만들어지지 못하고, <code>errorText</code> 의 첫 줄이 그것을 그대로 통과시킵니다.</p>
+<div class="phase-box">if (!(error instanceof APIError)) return error instanceof Error ? error.message : fallback</div>
+<p>제품 밖에서 온 문장은 <strong>제품 밖의 언어</strong>입니다. 크롬은 <code>Failed to fetch</code>, 파이어폭스는 <code>NetworkError when attempting to fetch resource.</code>, 사파리는 <code>Load failed</code> 라고 합니다.</p>
+<p>##### 화면이 하는 일은 이미 옳았습니다</p>
+<p>끊긴 채로 저장을 눌러도 <strong>쓰던 글은 그대로 남고</strong>, 연결이 돌아온 뒤 다시 누르면 저장됩니다. 실측했습니다. 그러니 문장이 그 사실을 말하면 됩니다.</p>
+<blockquote>*"서버에 연결하지 못했습니다. 화면에 있는 내용은 그대로 있으니, 연결이 돌아오면 다시 시도하세요."*</blockquote>
+<p>브라우저 문자열을 하나씩 알아보는 대신 <code>TypeError</code> 로 가릅니다 — <code>fetch</code> 가 거절할 때 오는 것이 그것이고, 새 브라우저가 새 문구를 쓰더라도 종류는 같습니다. 그 밖의 외부 오류는 <strong>한글이 없으면</strong> 호출자의 한국어 대체 문장으로 바꿉니다.</p>
+<p>##### 두 화면은 그 함수를 아예 지나지 않았습니다</p>
+<p><code>과거 보고</code> 와 <code>팀 주간보고</code> 가 <code>notify(error.message)</code> 로 원문을 그대로 띄우고 있었습니다. 열 개 화면에서 연결을 끊고 훑어 지금은 <strong>영어가 한 곳도 없습니다.</strong></p>
 </div>
 </body>
 </html>

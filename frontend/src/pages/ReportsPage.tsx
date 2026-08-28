@@ -47,7 +47,9 @@ export default function ReportsPage({ currentWeekStart, openReportId, notify }: 
   const query = (extra = '') => `/api/v1/reports?${status ? `status=${status}&` : ''}${extra}`
   const load = () => api<ReportListView>(query())
     .then(value => { setReports(value.items); setTotal(value.total) })
-    .catch(error => notify(error.message, 'error'))
+    // errorText, not error.message: a request that never reached the server
+    // arrives as the browser's own English string.
+    .catch(error => notify(errorText(error, '보고서를 열 수 없습니다.'), 'error'))
   const loadMore = async () => {
     if (!reports) return
     setLoadingMore(true)
