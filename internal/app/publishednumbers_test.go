@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The numbers README publishes have to be the numbers the product uses.
@@ -49,6 +50,21 @@ func TestTheNumbersREADMEPublishesAreTheOnesTheProductUses(t *testing.T) {
 		}
 	}
 
+	// A number README states that no single constant holds. Change the batch
+	// size and this sentence is wrong with nothing to notice it — the drift the
+	// name-the-constant habit does not cover, because there is no constant to
+	// name.
+	if match := regexp.MustCompile(`한 번에 최대 \*\*([\d,]+)건\*\*`).FindStringSubmatch(text); match == nil {
+		t.Error("임베딩 재생성 상한 문장을 README 에서 찾지 못했습니다")
+	} else {
+		want := fmt.Sprintf("%d,%03d", embeddingBatchSize*embeddingRebuildBatches/1000,
+			embeddingBatchSize*embeddingRebuildBatches%1000)
+		if match[1] != want {
+			t.Errorf("임베딩 재생성 상한: README 는 %s건, 코드는 %d×%d=%s건 입니다",
+				match[1], embeddingBatchSize, embeddingRebuildBatches, want)
+		}
+	}
+
 	// Two-part rows, where README writes a base and a per-week rate together.
 	for _, claim := range []struct {
 		what       string
@@ -80,6 +96,8 @@ func TestTheNumbersREADMEPublishesAreTheOnesTheProductUses(t *testing.T) {
 		{"메일 현황 기간", `최근 (\d+)일의 발송·대기·실패`, mailHealthDays},
 		{"중복 의심 제목 일치율", `제목이 (\d+)% 이상 일치하는 업무`, duplicateTitleSimilarity},
 		{"유사 업무 제목 일치율", `(\d+)% 이상 일치하는 업무. 참고할`, relatedTitleSimilarity},
+		{"의미 검색 기본 점수", `기본값 (\d+)는 시작점일 뿐`, int(semanticMinSimilarity * 100)},
+		{"임베딩 배경 주기", `배경 작업이 (\d)분마다 깨어나`, int(embeddingSweepInterval / time.Minute)},
 	} {
 		match := regexp.MustCompile(claim.pattern).FindStringSubmatch(text)
 		if match == nil {

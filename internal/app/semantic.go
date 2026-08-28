@@ -25,9 +25,13 @@ const (
 	embeddingBatchPause = 200 * time.Millisecond
 	// One request has to end. What the cap leaves behind is reported, not hidden.
 	embeddingRebuildBatches = 200
-	embeddingMaxInput       = 4000
-	semanticSearchLimit     = 20
-	semanticMinSimilarity   = 0.25
+	// How often the background pass wakes. Named because README publishes it —
+	// "배경 작업이 2분마다 깨어나 밀린 것을 전부 처리합니다" — and a number in
+	// prose that no constant holds is a number nothing keeps honest.
+	embeddingSweepInterval = 2 * time.Minute
+	embeddingMaxInput      = 4000
+	semanticSearchLimit    = 20
+	semanticMinSimilarity  = 0.25
 	// searchSemanticBudget is what the meaning pass may cost a person waiting on
 	// a search.
 	//
@@ -181,7 +185,7 @@ func embeddableText(title, category, current, next, issue string) string {
 // background. Content that has not changed is never re-embedded, and content
 // that has changed is re-embedded on the next tick.
 func (a *App) embeddingWorker(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Minute)
+	ticker := time.NewTicker(embeddingSweepInterval)
 	defer ticker.Stop()
 	for {
 		select {
