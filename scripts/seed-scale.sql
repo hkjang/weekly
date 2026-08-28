@@ -94,7 +94,28 @@ FROM generate_series(1, 4) g;
 -- year of history the rollups and forecasts read is unchanged.
 INSERT INTO weekly_reports(user_id, week_start, summary, status, submitted_at, reviewed_at, reviewed_by)
 SELECT u.id, wk.day, '주간 요약 ' || w, st.status,
+       -- When it was handed in, and not always in time.
+       --
+       -- Every report used to be submitted at exactly week_start + 4 days 15
+       -- hours. The default deadline is week_start + 7 days, end of that day,
+       -- so on every deployment ever seeded, on every one of 52 weeks, 지연 was
+       -- 0 and 정시율 was exactly 100.0%. The whole late/on-time half of the
+       -- participation screen — and the deadline settings an operator tunes to
+       -- make it mean something — had never run against a single late row.
+       --
+       -- The comment above this insert records the same lesson being learned
+       -- once already, for the report *status*. The *timing* stayed uniform.
        CASE WHEN st.status = 'DRAFT' THEN NULL
+            -- Most file on the Thursday or Friday, some over the weekend.
+            WHEN u.id % 7 = 0 THEN wk.day + interval '3 days 17 hours'
+            WHEN u.id % 7 = 1 THEN wk.day + interval '4 days 11 hours'
+            WHEN u.id % 7 = 2 THEN wk.day + interval '4 days 18 hours'
+            WHEN u.id % 7 = 3 THEN wk.day + interval '5 days 21 hours'
+            -- And some miss it. Past week_start + 8 days is past the deadline
+            -- in the default configuration, so these are the rows that make
+            -- 지연 a number rather than a zero.
+            WHEN (u.id + w) % 9 = 0 THEN wk.day + interval '8 days 10 hours'
+            WHEN (u.id + w) % 17 = 0 THEN wk.day + interval '9 days 14 hours'
             ELSE wk.day + interval '4 days 15 hours' END,
        CASE WHEN st.status IN ('DRAFT', 'SUBMITTED') THEN NULL
             ELSE wk.day + interval '5 days 10 hours' END,
@@ -121,7 +142,24 @@ LEFT JOIN LATERAL (SELECT l.id FROM users l
 -- self-scoped half of every screen answered empty from the account most likely
 -- to be used to look at the thing. An empty answer from a real account is the
 -- hardest kind of gap to notice, because it looks like a fast one.
-WHERE u.username LIKE 'u%' OR u.username LIKE 'hq%';
+WHERE (u.username LIKE 'u%' OR u.username LIKE 'hq%')
+  -- Not every week from everybody. Every one of the 305 accounts used to hold
+  -- all 52 weeks, so 보고 커버리지 was 100% for everyone, 미제출 인원 was
+  -- always empty, and the screen that exists to name who has fallen behind had
+  -- nobody to name on any deployment. A weekly reporting tool whose fixture has
+  -- never seen a missed week has not exercised the question it is for.
+  --
+  -- Spread by (owner, week) so the gaps do not line up into a week everybody
+  -- skipped, and kept off the current week, which already varies by status.
+  AND NOT ((u.id * 7 + w) % 23 = 0
+           AND wk.day <> date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date)
+  -- And a few who are conspicuously behind, not one week short like everybody
+  -- else. With every gap the same size the 미제출 현황 list — which is ordered
+  -- "누락 주차 많은 순" and cut to 25 of however many — had nothing to order by,
+  -- so the twenty-five it showed were arbitrary and the ranking it claimed was
+  -- a label on a coin toss. Somebody on long leave, somebody who left: the
+  -- reason the screen exists.
+  AND NOT (u.id % 37 = 0 AND w >= 46);
 
 -- One task per (owner, slot), repeating every week, so a work item accumulates
 -- a year of history the way a real one does.
@@ -579,6 +617,7 @@ DO $$
 DECLARE
   statuses int; issues int; plans int; blanks int; mail_states int; wk date;
   ended_4w int; ended_12w int; due_buckets int; decision_states int;
+  late_reports int; thin_weeks int; gap_sizes int;
 BEGIN
   wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
   SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
@@ -621,6 +660,32 @@ BEGIN
   SELECT count(DISTINCT due_date - wk) INTO due_buckets FROM work_items WHERE due_date IS NOT NULL;
   IF due_buckets < 5 THEN
     RAISE EXCEPTION '마감일이 %가지 자리에만 있습니다. 마감 전망 여섯 갈래 중 일부가 한 번도 나오지 않습니다.', due_buckets;
+  END IF;
+
+  -- 마감을 넘긴 제출이 하나도 없으면 참여 현황의 지연 칸은 언제나 0이고
+  -- 정시율은 언제나 100.0%입니다. 관리자가 마감 설정을 바꿔도 화면이 달라지지
+  -- 않으므로, 그 설정이 무엇을 하는지 확인할 방법이 없습니다.
+  SELECT count(*) INTO late_reports FROM weekly_reports
+   WHERE submitted_at IS NOT NULL AND submitted_at > (week_start + 8)::timestamp AT TIME ZONE 'Asia/Seoul';
+  IF late_reports < 200 THEN
+    RAISE EXCEPTION '마감을 넘긴 제출이 %건뿐입니다. 참여 현황의 지연과 정시율이 한 값으로 굳습니다.', late_reports;
+  END IF;
+
+  -- 한 주도 빠뜨리지 않은 배포에서는 보고 커버리지가 모두 100%이고, 누가
+  -- 뒤처졌는지 알려 주는 화면이 아무도 부르지 못합니다.
+  SELECT count(*) INTO thin_weeks FROM (
+    SELECT user_id FROM weekly_reports GROUP BY 1 HAVING count(*) < 50) t;
+  IF thin_weeks < 30 THEN
+    RAISE EXCEPTION '52주 중 몇 주를 빠뜨린 사람이 %명뿐입니다. 보고 커버리지와 미제출 인원이 빈 채로 굳습니다.', thin_weeks;
+  END IF;
+
+  -- 미제출 현황은 누락 주차 많은 순으로 정렬해 스물다섯 명만 보여 줍니다.
+  -- 모두가 똑같이 한 주씩 빠뜨렸다면 그 정렬은 아무것도 가르지 못하고,
+  -- 보여 준 스물다섯 명은 그냥 아무나입니다.
+  SELECT count(DISTINCT missed) INTO gap_sizes FROM (
+    SELECT user_id, 52 - count(*) AS missed FROM weekly_reports GROUP BY 1) t;
+  IF gap_sizes < 3 THEN
+    RAISE EXCEPTION '빠뜨린 주 수가 %가지뿐입니다. 미제출 현황의 정렬이 아무것도 가르지 못합니다.', gap_sizes;
   END IF;
 
   -- 결정은 뒤집힙니다. 대체됨이 없으면 목록에서 빠지는 규칙도, 이전 결정을
