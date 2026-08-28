@@ -708,8 +708,20 @@ func distributeReferenceItems(items []reportItem, slideCount int) [][]reportItem
 				load := costs[start][end]
 				candidateMaximum := maximumReferenceWeight(maximumLoads[partitions-1][start], load)
 				candidateSquared := squaredLoads[partitions-1][start] + int64(load)*int64(load)
+				// <=, not <, on the squared score: a genuine tie takes the later
+				// break, which is the one that fills the earlier slides.
+				//
+				// Both scores tie often — a week of similarly sized tasks ties
+				// every time — and keeping the first candidate meant keeping the
+				// smallest break, which puts the slack at the front. Measured on
+				// a real export: seven tasks over four pages came out 1·2·2·2,
+				// so the deck opened on a page holding one task, and two pages
+				// came out 3·4, 4·5, 5·6 — always the thinner page first. The
+				// deck is what goes into the meeting and its first page is the
+				// one everybody sees; slack belongs at the end, where a short
+				// last page reads as finished rather than as unfinished.
 				if candidateMaximum < maximumLoads[partitions][end] ||
-					(candidateMaximum == maximumLoads[partitions][end] && candidateSquared < squaredLoads[partitions][end]) {
+					(candidateMaximum == maximumLoads[partitions][end] && candidateSquared <= squaredLoads[partitions][end]) {
 					maximumLoads[partitions][end] = candidateMaximum
 					squaredLoads[partitions][end] = candidateSquared
 					previousBreak[partitions][end] = start
