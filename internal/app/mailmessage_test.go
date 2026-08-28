@@ -2,8 +2,10 @@ package app
 
 import (
 	"errors"
+	"net/mail"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Measured on a deployment with the relay unreachable: the reason on 개인 설정
@@ -62,5 +64,57 @@ func TestTheWriterIsToldWhatToDoAndNotWhereTheRelayLives(t *testing.T) {
 	// to gain nothing.
 	if got := mailUserMessage(errors.New("메일 설정이 완료되지 않았습니다.")); got != "메일 설정이 완료되지 않았습니다." {
 		t.Errorf("이미 사람이 읽을 문장인데 %q 로 바뀌었습니다", got)
+	}
+}
+
+// RFC 5322 §3.6 names Date and From as the two required header fields, and
+// leaves Message-ID as SHOULD. A submission server fills in a missing one;
+// this product relays to an internal MTA on port 25, which does not.
+//
+// Captured off the wire from a running deployment before this test existed, the
+// message carried From, To, Subject, MIME-Version, Content-Type,
+// Content-Transfer-Encoding and Auto-Submitted — and neither of these. A
+// reader's client had no send time to show or sort by, and no key to thread or
+// de-duplicate on.
+//
+// guards: buildMailMessage, mailMessageID
+func TestTheMessageCarriesTheHeadersNothingDownstreamWillAdd(t *testing.T) {
+	raw := string(buildMailMessage("weekly@internal.test", "주간보고",
+		"reader@internal.test", "2026-08-24 주간보고", "본문입니다.\n"))
+	parsed, err := mail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("만든 메시지를 파서가 읽지 못합니다: %v\n%s", err, raw)
+	}
+	sent, err := parsed.Header.Date()
+	if err != nil {
+		t.Fatalf("Date 헤더를 날짜로 읽을 수 없습니다: %v (%q)", err, parsed.Header.Get("Date"))
+	}
+	if elapsed := time.Since(sent); elapsed < -time.Minute || elapsed > time.Hour {
+		t.Errorf("Date 가 지금과 %v 떨어져 있습니다: %q", elapsed, parsed.Header.Get("Date"))
+	}
+	id := parsed.Header.Get("Message-ID")
+	if !strings.HasPrefix(id, "<") || !strings.HasSuffix(id, ">") || !strings.Contains(id, "@internal.test") {
+		t.Errorf("Message-ID 가 <무엇@보내는도메인> 모양이 아닙니다: %q", id)
+	}
+	// Two messages are two messages. A receiver that de-duplicates on this
+	// header would drop the retry of a report that failed the first time.
+	other := string(buildMailMessage("weekly@internal.test", "주간보고",
+		"reader@internal.test", "2026-08-24 주간보고", "본문입니다.\n"))
+	secondParsed, err := mail.ReadMessage(strings.NewReader(other))
+	if err != nil {
+		t.Fatalf("두 번째 메시지를 파서가 읽지 못합니다: %v", err)
+	}
+	if second := secondParsed.Header.Get("Message-ID"); second == id {
+		t.Errorf("두 메시지가 같은 Message-ID 를 씁니다: %q", id)
+	}
+	// A From with no domain still has to produce a legal header rather than
+	// "<...@>", which is what a naive split gives.
+	odd := string(buildMailMessage("weekly", "", "reader@internal.test", "제목", "본문"))
+	oddParsed, err := mail.ReadMessage(strings.NewReader(odd))
+	if err != nil {
+		t.Fatalf("도메인 없는 보내는 주소로 만든 메시지를 파서가 읽지 못합니다: %v", err)
+	}
+	if id := oddParsed.Header.Get("Message-ID"); !strings.Contains(id, "@") || strings.HasSuffix(id, "@>") {
+		t.Errorf("도메인 없는 보내는 주소에서 Message-ID 가 %q 입니다", id)
 	}
 }

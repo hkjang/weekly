@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"mime"
@@ -154,11 +156,41 @@ func headerSafe(value string) string {
 	}, value)
 }
 
+// mailMessageID returns a Message-ID nothing else will repeat.
+//
+// The local part is random rather than derived from the delivery, because a
+// retry of the same report is a second message and a receiver that dedupes on
+// this header would drop it.
+func mailMessageID(from string) string {
+	domain := "weekly.local"
+	if at := strings.LastIndex(from, "@"); at >= 0 && at+1 < len(from) {
+		if candidate := headerSafe(from[at+1:]); candidate != "" {
+			domain = candidate
+		}
+	}
+	buffer := make([]byte, 12)
+	if _, err := rand.Read(buffer); err != nil {
+		// Randomness is not available; the timestamp alone still separates two
+		// messages from this process, which is better than no header at all.
+		return fmt.Sprintf("<%d@%s>", time.Now().UnixNano(), domain)
+	}
+	return fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), hex.EncodeToString(buffer), domain)
+}
+
 // buildMailMessage returns one RFC 5322 message.
 //
 // Base64 for the body and an encoded-word for the subject, because everything
 // this product writes is Korean and a relay that is not 8-bit clean would
 // deliver it as mojibake. Both are plain ASCII on the wire.
+//
+// Date and Message-ID are written here because nothing downstream will. RFC 5322
+// names Date and From as the two required header fields, and a submission server
+// is the thing that fills in a missing one — but this product relays to an
+// internal MTA on port 25, which does not. Captured off the wire from a running
+// deployment, the message carried From, To, Subject, MIME-Version, Content-Type,
+// Content-Transfer-Encoding and Auto-Submitted, and neither of these. A reader's
+// client then has no send time to show or sort by, and no key to thread or
+// de-duplicate on.
 func buildMailMessage(from, fromName, to, subject, body string) []byte {
 	sender := from
 	if fromName != "" {
@@ -175,8 +207,10 @@ func buildMailMessage(from, fromName, to, subject, body string) []byte {
 		wrapped.WriteString("\r\n")
 	}
 	headers := []string{
+		"Date: " + time.Now().Format(time.RFC1123Z),
 		"From: " + sender,
 		"To: " + headerSafe(to),
+		"Message-ID: " + mailMessageID(from),
 		"Subject: " + mime.BEncoding.Encode("UTF-8", headerSafe(subject)),
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=UTF-8",

@@ -326,7 +326,11 @@ func TestNothingTypedIntoAReportCanAddItsOwnHeaders(t *testing.T) {
 		}
 		written[strings.ToLower(strings.TrimSpace(name))] = true
 	}
-	for _, want := range []string{"from", "to", "subject", "mime-version", "content-type", "content-transfer-encoding", "auto-submitted"} {
+	// The list is exhaustive on purpose: anything the message carries that is
+	// not named here came from somewhere it should not have. Date and
+	// Message-ID joined it when they were added, and adding them here is the
+	// point at which somebody has to look at a new header and say it is ours.
+	for _, want := range []string{"date", "from", "to", "message-id", "subject", "mime-version", "content-type", "content-transfer-encoding", "auto-submitted"} {
 		if !written[want] {
 			t.Errorf("the message lost its %s header:\n%s", want, head)
 		}
