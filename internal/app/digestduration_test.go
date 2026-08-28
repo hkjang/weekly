@@ -88,3 +88,75 @@ func TestTheDigestDurationIsTheTasksNotTheWindows(t *testing.T) {
 		t.Errorf("the digest reports %q for an issue that has stood 15 weeks", narrow)
 	}
 }
+
+// The pair sentence on 업무 인사이트 asks a reader to judge duplicated
+// investment from "서로 다른 조직에서 %d주 동안 함께 진행 중", and the overlap
+// was counted inside the loaded window. Measured on a deployment: the same pair
+// read 4주 at weeks=4 and 52주 at weeks=104, with the default at 12. linkRank
+// breaks ties between equally similar pairs by that number, so the ordering
+// collapsed once they all reached the edge.
+//
+// guards: workGraph
+func TestTheOverlapBetweenTwoTasksIsNotTheWindow(t *testing.T) {
+	server := newTestServer(t)
+	organisation := server.createOrganization("겹침 조직", "OVERORG")
+	left := server.createChildOrganization("겹침 왼쪽", "OVERL", &organisation)
+	right := server.createChildOrganization("겹침 오른쪽", "OVERR", &organisation)
+	leader := server.createUser("overlap_leader", "ORG_MANAGER", &organisation)
+	one := server.createUser("overlap_one", "USER", &left)
+	two := server.createUser("overlap_two", "USER", &right)
+
+	current := currentWeekStart(time.Now(), "MONDAY")
+	for back := 11; back >= 0; back-- {
+		week := current.AddDate(0, 0, -7*back).Format("2006-01-02")
+		for _, who := range []*http.Cookie{one, two} {
+			reportID, version := server.draft(who, week, "겹침 시험")
+			written := server.request(http.MethodPut, fmt.Sprintf("/api/v1/reports/%d", reportID), map[string]any{
+				"summary": "겹침 시험", "version": version,
+				"items": []map[string]any{{"category": "개발", "title": "차세대 관제 통합 구축",
+					"currentResult": "진행", "nextPlan": "계속", "issue": "", "progress": 40}},
+			}, who)
+			if written.Code != http.StatusOK {
+				t.Fatalf("write %s: %d %s", week, written.Code, written.Body.String())
+			}
+		}
+	}
+
+	overlapAt := func(window int) int {
+		t.Helper()
+		response := server.request(http.MethodGet,
+			fmt.Sprintf("/api/v1/insights/work-graph?weeks=%d", window), nil, leader)
+		if response.Code != http.StatusOK {
+			t.Fatalf("work graph at %d weeks: %d %s", window, response.Code, response.Body.String())
+		}
+		var body struct {
+			Data struct {
+				Duplicates []struct {
+					OverlapWeeks int `json:"overlapWeeks"`
+					Left         struct {
+						Title string `json:"title"`
+					} `json:"left"`
+				} `json:"duplicates"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode the work graph: %v", err)
+		}
+		for _, link := range body.Data.Duplicates {
+			if link.Left.Title == "차세대 관제 통합 구축" {
+				return link.OverlapWeeks
+			}
+		}
+		t.Fatalf("the pair is not in the graph at %d weeks", window)
+		return 0
+	}
+
+	narrow, wide := overlapAt(4), overlapAt(52)
+	if narrow != wide {
+		t.Errorf("the overlap changed with the window, so it describes the window: 4주 창=%d, 52주 창=%d",
+			narrow, wide)
+	}
+	if narrow != 12 {
+		t.Errorf("the two ran together for 12 weeks, the graph says %d", narrow)
+	}
+}

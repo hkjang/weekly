@@ -413,11 +413,27 @@ func (a *App) workGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	since := time.Now().In(a.serviceLocation(r.Context())).AddDate(0, 0, -7*weeks).Format("2006-01-02")
 	scope := scopeForPrincipal(p, false)
-	items, err := a.loadWorkItems(r.Context(), scope, since)
+	// Whole history, then the window. The pair sentence says "서로 다른 조직에서
+	// %d주 동안 함께 진행 중" and asks the reader to judge duplicated
+	// investment from it; overlap counted inside the window is the window.
+	// Measured on a deployment: one pair read 4주 at weeks=4 and 52주 at
+	// weeks=104, and the default is 12. linkRank breaks ties between equally
+	// similar pairs by that same number, so among the many exact-title matches
+	// the ordering collapsed as soon as they all reached the edge.
+	//
+	// The window still chooses the pairs — it is the item count that drives the
+	// pairwise comparison, and that is unchanged.
+	loaded, err := a.loadWorkItems(r.Context(), scope, "")
 	if err != nil {
 		a.logger.Error("work graph", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 인사이트를 만들 수 없습니다.")
 		return
+	}
+	items := make([]workItemView, 0, len(loaded))
+	for _, item := range loaded {
+		if item.LastWeek >= since {
+			items = append(items, item)
+		}
 	}
 	graph := linkWorkItems(items, insightLinkLimit)
 	if graph.SimilarTotal > len(graph.Similar) || graph.DuplicateTotal > len(graph.Duplicates) {

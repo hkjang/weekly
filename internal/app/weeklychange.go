@@ -294,15 +294,24 @@ func (a *App) weeklyChanges(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_WEEK", "주차는 YYYY-MM-DD 형식이어야 합니다.")
 		return
 	}
-	// The same 26 weeks of history the agenda loads: ageing figures such as
-	// stalled weeks and silent weeks are what several of the classifications
-	// rest on, and they cannot be read from two weeks of data.
+	// The ageing figures several classifications rest on — stalled weeks, silent
+	// weeks — cannot be read from two weeks of data. That was answered once by
+	// widening this to 26 weeks, which is the right instinct and the wrong
+	// shape: a stall of 32 weeks still reads 26, and "%d주째 진척이 없습니다"
+	// then states the window. Whole history, then the window, like the agenda
+	// and the digest.
 	since := parsed.AddDate(0, 0, -7*26).Format("2006-01-02")
-	items, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, scope == scopeSelf), since)
+	loaded, err := a.loadWorkItems(r.Context(), scopeForPrincipal(p, scope == scopeSelf), "")
 	if err != nil {
 		a.logger.Error("weekly changes", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "주간 변화를 만들 수 없습니다.")
 		return
+	}
+	items := make([]workItemView, 0, len(loaded))
+	for _, item := range loaded {
+		if item.LastWeek >= since {
+			items = append(items, item)
+		}
 	}
 	view := buildChangeSummary(items, week, a.rollupConfig(r.Context()))
 	view.Scope = scope
