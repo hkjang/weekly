@@ -113,6 +113,9 @@ function UsersTab({ notify }: { notify: (message: string, kind?: 'success' | 'er
   // did not, and it is the one people reach for.
   const confirmDiscardUser = () => !userChanged() || confirm('수정한 내용을 저장하지 않고 닫으시겠습니까?')
   const [form, setForm] = useState({ username: '', displayName: '', email: '', password: '', role: 'USER', organizationId: '' })
+  // userPageDefault on the server, sent explicitly so the pager's arithmetic
+  // and the page it is describing cannot drift apart.
+  const userLimit = 100
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState('')
   // The list is a page now, so the 검토 책임자 picker cannot be built from it —
@@ -125,25 +128,43 @@ function UsersTab({ notify }: { notify: (message: string, kind?: 'success' | 'er
   // have had to page through everybody looking for a blank column.
   const [unassigned, setUnassigned] = useState(0)
   const [onlyUnassigned, setOnlyUnassigned] = useState(false)
-  const load = (search = query, unassignedOnly = onlyUnassigned) => Promise.all([
-    api<AdminUserPage>(`/api/v1/admin/users?q=${encodeURIComponent(search)}${unassignedOnly ? '&organization=none' : ''}`),
+  // The cap was paired with a search, on the reasoning that somebody who needs
+  // an account can look it up. That covers finding one account and not the
+  // other half of this screen's job — reading down the directory to see who
+  // has no reviewer, who is still active, who was given which role. Measured
+  // on a 305-account deployment: the card said "사용자 305명 중 100명" and no
+  // click reached the other 205, among them 8 team leaders, 3 org managers and
+  // an administrator. The server has taken offset all along; the screen never
+  // sent one. 감사 로그, in this same file, has had 이전·다음 for as long.
+  const [offset, setOffset] = useState(0)
+  const load = (search = query, unassignedOnly = onlyUnassigned, from = offset) => Promise.all([
+    api<AdminUserPage>(`/api/v1/admin/users?q=${encodeURIComponent(search)}${unassignedOnly ? '&organization=none' : ''}&limit=${userLimit}&offset=${from}`),
     api<Organization[]>('/api/v1/admin/organizations'),
     api<AdminUserPage>('/api/v1/admin/users?role=TEAM_LEADER,ORG_MANAGER,ADMIN&limit=500'),
   ]).then(([page,o,leads]) => { setUsers(page.items); setTotal(page.total); setUnassigned(page.unassigned); setOrganizations(o); setReviewers(leads.items) })
+  const goToPage = (next: number) => { setOffset(next); void load(query, onlyUnassigned, next) }
   useEffect(() => { load() }, [])
   useEffect(() => {
     // Typed searches are debounced: one request per keystroke over a directory
     // of thousands is a lot of work to throw away.
-    const timer = setTimeout(() => { void load(query) }, 300)
+    // Back to the first page with the search: a narrowed directory has fewer
+    // pages than the one being read, and page three of a two-result search is
+    // a blank table under a filled-in search box.
+    const timer = setTimeout(() => { setOffset(0); void load(query, onlyUnassigned, 0) }, 300)
     return () => clearTimeout(timer)
   }, [query, onlyUnassigned])
   const create = async () => { try { await post('/api/v1/admin/users', { ...form, organizationId: form.organizationId ? Number(form.organizationId) : null }); setForm({ username: '', displayName: '', email: '', password: '', role: 'USER', organizationId: '' }); await load(); notify('사용자를 등록했습니다.') } catch (error) { notify(errorText(error, '등록할 수 없습니다.'), 'error') } }
   const saveUser = async () => { if (!editing) return; try { await put(`/api/v1/admin/users/${editing.id}`, { displayName: editing.displayName, email: editing.email, password: editing.password, role: editing.role, organizationId: editing.organizationId ?? null, managerId: editing.managerId ?? null, active: editing.active }); setEditing(undefined); await load(); notify('사용자 정보를 저장했습니다.') } catch (error) { notify(errorText(error, '저장할 수 없습니다.'), 'error') } }
   if (!users) return <Spinner/>
-  return <><Card title="사용자 등록"><div className="inline-form wrap"><label>아이디<input value={form.username} onChange={e => setForm({...form,username:e.target.value})}/></label><label>표시 이름<input value={form.displayName} onChange={e => setForm({...form,displayName:e.target.value})}/></label><label>이메일<input value={form.email} onChange={e => setForm({...form,email:e.target.value})}/></label><label>초기 비밀번호<input type="password" value={form.password} onChange={e => setForm({...form,password:e.target.value})} placeholder="12자 이상 또는 비움"/></label><label>역할<select value={form.role} onChange={e => setForm({...form,role:e.target.value})}><option value="USER">사용자</option><option value="TEAM_LEADER">팀장</option><option value="ORG_MANAGER">조직장</option><option value="ADMIN">관리자</option></select></label><label>조직<select value={form.organizationId} onChange={e => setForm({...form,organizationId:e.target.value})}><option value="">미지정</option>{organizations.map(o => <option value={o.id} key={o.id}>{o.name}</option>)}</select></label><Button onClick={create}>등록</Button></div></Card><Card title={total > users.length ? `사용자 ${total}명 중 ${users.length}명` : `사용자 ${users.length}명`} action={<input className="search-inline" value={query} onChange={e => setQuery(e.target.value)} placeholder="아이디·이름·이메일 검색"/>}>
+  return <><Card title="사용자 등록"><div className="inline-form wrap"><label>아이디<input value={form.username} onChange={e => setForm({...form,username:e.target.value})}/></label><label>표시 이름<input value={form.displayName} onChange={e => setForm({...form,displayName:e.target.value})}/></label><label>이메일<input value={form.email} onChange={e => setForm({...form,email:e.target.value})}/></label><label>초기 비밀번호<input type="password" value={form.password} onChange={e => setForm({...form,password:e.target.value})} placeholder="12자 이상 또는 비움"/></label><label>역할<select value={form.role} onChange={e => setForm({...form,role:e.target.value})}><option value="USER">사용자</option><option value="TEAM_LEADER">팀장</option><option value="ORG_MANAGER">조직장</option><option value="ADMIN">관리자</option></select></label><label>조직<select value={form.organizationId} onChange={e => setForm({...form,organizationId:e.target.value})}><option value="">미지정</option>{organizations.map(o => <option value={o.id} key={o.id}>{o.name}</option>)}</select></label><Button onClick={create}>등록</Button></div></Card><Card title={`사용자 ${total.toLocaleString()}명`} action={<input className="search-inline" value={query} onChange={e => setQuery(e.target.value)} placeholder="아이디·이름·이메일 검색"/>}>
     {unassigned > 0 && <p className="capture-warning">소속 조직이 지정되지 않은 계정이 <strong>{unassigned}명</strong> 있습니다. 이 계정의 주간보고는 어느 팀장에게도 보이지 않아, 제출해도 검토 대기 상태로 남습니다.{' '}
       <button className="text-button" onClick={() => setOnlyUnassigned(!onlyUnassigned)}>{onlyUnassigned ? '전체 보기' : '해당 계정만 보기'}</button></p>}
-    <div className="table-wrap"><table><thead><tr><th>사용자</th><th>역할</th><th>조직</th><th>키 버전</th><th>최근 로그인</th><th>상태</th><th/></tr></thead><tbody>{users.map(user => <tr key={user.id}><td><strong>{user.displayName}</strong><small className="cell-sub">{user.username} · {user.email}</small></td><td>{user.role}</td><td>{organizations.find(o => o.id === user.organizationId)?.name ?? '-'}</td><td>{user.keyVersion}</td><td>{formatDate(user.lastLoginAt)}</td><td><span className={`dot ${user.active ? 'on' : ''}`}/>{user.active ? '활성' : '비활성'}</td><td><button className="text-button" onClick={() => setEditing({...user,password:''})}>편집</button></td></tr>)}</tbody></table></div></Card>
+    <div className="table-wrap"><table><thead><tr><th>사용자</th><th>역할</th><th>조직</th><th>키 버전</th><th>최근 로그인</th><th>상태</th><th/></tr></thead><tbody>{users.map(user => <tr key={user.id}><td><strong>{user.displayName}</strong><small className="cell-sub">{user.username} · {user.email}</small></td><td>{user.role}</td><td>{organizations.find(o => o.id === user.organizationId)?.name ?? '-'}</td><td>{user.keyVersion}</td><td>{formatDate(user.lastLoginAt)}</td><td><span className={`dot ${user.active ? 'on' : ''}`}/>{user.active ? '활성' : '비활성'}</td><td><button className="text-button" onClick={() => setEditing({...user,password:''})}>편집</button></td></tr>)}</tbody></table></div>
+    {total > users.length && <div className="audit-pager">
+      <span className="muted">전체 {total.toLocaleString()}명 중 {users.length ? offset + 1 : 0}~{Math.min(offset + users.length, total)}</span>
+      <Button variant="secondary" disabled={offset === 0} onClick={() => goToPage(Math.max(0, offset - userLimit))}>이전</Button>
+      <Button variant="secondary" disabled={offset + users.length >= total} onClick={() => goToPage(offset + userLimit)}>다음</Button>
+    </div>}</Card>
     {editing && <Modal onClose={() => setEditing(undefined)} beforeClose={confirmDiscardUser} label={`${editing.username} 사용자 편집`}><header><h2>{editing.username} 사용자 편집</h2><button onClick={() => { if (confirmDiscardUser()) setEditing(undefined) }}>×</button></header><div className="modal-form"><label>표시 이름<input value={editing.displayName} onChange={e => setEditing({...editing,displayName:e.target.value})}/></label><label>이메일<input value={editing.email} onChange={e => setEditing({...editing,email:e.target.value})}/></label><label>역할<select value={editing.role} onChange={e => setEditing({...editing,role:e.target.value as AdminUser['role']})}><option value="USER">사용자</option><option value="TEAM_LEADER">팀장</option><option value="ORG_MANAGER">조직장</option><option value="ADMIN">관리자</option></select></label><label>조직<select value={editing.organizationId ?? ''} onChange={e => setEditing({...editing,organizationId:e.target.value?Number(e.target.value):undefined})}><option value="">미지정</option>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label><label>검토 책임자<select value={editing.managerId ?? ''} onChange={e => setEditing({...editing,managerId:e.target.value?Number(e.target.value):undefined})}><option value="">미지정</option>{reviewers.filter(u=>u.id!==editing.id).map(u=><option key={u.id} value={u.id}>{u.displayName}</option>)}</select></label><label>새 비밀번호<input type="password" value={editing.password} onChange={e => setEditing({...editing,password:e.target.value})} placeholder="변경할 때만 12자 이상 입력"/></label><label className="checkbox-line"><input type="checkbox" checked={editing.active} onChange={e=>setEditing({...editing,active:e.target.checked})}/> 활성 계정</label></div><footer><Button variant="secondary" onClick={()=>setEditing(undefined)}>취소</Button><Button onClick={saveUser}>저장</Button></footer></Modal>}
   </>
 }
