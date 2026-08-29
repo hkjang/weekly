@@ -73,8 +73,16 @@ func TestTheRollupAModelReadsIsTrimmedAndSaysSo(t *testing.T) {
 
 	data := app.rollupForModel(&view)
 	items, _ := data["items"].([]rollupItem)
-	if len(items) != mcpRollupItems {
-		t.Fatalf("returned %d rows, want %d", len(items), mcpRollupItems)
+	// At most the row cap, and fewer when the bytes say so. This asserted
+	// exactly the cap while the budget counted one of the two copies the
+	// protocol sends; once it counted both, a hundred of even these small rows
+	// no longer fit and the trimming cut to 55. Fewer is the honest answer —
+	// what changed is the accounting, not the rows.
+	if len(items) == 0 || len(items) > mcpRollupItems {
+		t.Fatalf("returned %d rows, want between 1 and %d", len(items), mcpRollupItems)
+	}
+	if len(items) >= tasks {
+		t.Fatalf("returned %d of %d rows — nothing was capped", len(items), tasks)
 	}
 	if total, _ := data["itemsTotal"].(int); total != tasks {
 		t.Errorf("itemsTotal=%v, want %d — a caller that cannot scroll needs the number", data["itemsTotal"], tasks)
@@ -87,8 +95,8 @@ func TestTheRollupAModelReadsIsTrimmedAndSaysSo(t *testing.T) {
 			carrying++
 		}
 	}
-	if carrying != rollupTimelineItems {
-		t.Errorf("%d rows carry a weekly series, want %d", carrying, rollupTimelineItems)
+	if carrying > rollupTimelineItems || carrying == 0 {
+		t.Errorf("%d rows carry a weekly series, want between 1 and %d", carrying, rollupTimelineItems)
 	}
 	// And the field that says how many do has to agree with how many do. It
 	// said zero while every row carried one.

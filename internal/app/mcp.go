@@ -291,6 +291,13 @@ const mcpRollupItems = 100
 // not.
 const mcpRollupBytes = 64 << 10
 
+// mcpRollupContributors is how many people the period summary names.
+//
+// The screen lists everybody because a reader scrolls; this caller is handed
+// the list whole and pays for it. Twenty is the size of a page somebody would
+// actually read, and the note says how many there were.
+const mcpRollupContributors = 20
+
 // mcpRollupTimelineFloor is how many weekly series survive the budget.
 //
 // Not zero. The series are the heaviest part of a row, so shedding them buys
@@ -319,14 +326,30 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 	if len(view.Items) > mcpRollupItems {
 		view.Items = view.Items[:mcpRollupItems]
 	}
+	// Contributors is a row per person, and nothing bounded it.
+	//
+	// Measured on a 300 person deployment: 304 people, 40,865 bytes — 79% of the
+	// payload, more than the tasks, the trend, the highlights and the summary
+	// put together. The byte trimming below could not reach it, so a year at
+	// team scope shed every one of its 264 tasks and was still over budget: the
+	// caller lost the whole answer to keep a list of names it did not ask for.
+	//
+	// Ranked, so the ones that are cut are the ones that contributed least, and
+	// counted in the note like everything else here.
+	contributorsTotal := len(view.Contributors)
+	contributors := view.Contributors
+	if len(contributors) > mcpRollupContributors {
+		contributors = contributors[:mcpRollupContributors]
+	}
 	data := map[string]any{
-		"kind": view.Kind, "period": view.Period, "label": view.Label,
+		"contributorsTotal": contributorsTotal,
+		"kind":              view.Kind, "period": view.Period, "label": view.Label,
 		"start": view.Start, "end": view.End,
 		"scope": view.Scope, "scopeLabel": view.ScopeLabel,
 		"summary": view.Summary, "insights": view.Insights,
 		"highlights": view.Highlights, "items": view.Items,
 		"itemsTotal": total, "timelineItems": view.TimelineItems,
-		"categories": view.Categories, "contributors": view.Contributors,
+		"categories": view.Categories, "contributors": contributors,
 		"trend": view.Trend, "weeks": view.Weeks,
 	}
 	// Then by weight, heaviest thing first. The weekly series is two thirds of
@@ -337,6 +360,35 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 	// first took the year from 256 tasks to 13; taking the series first leaves
 	// the tasks and their totals.
 	byBytes := false
+	// The note is part of the payload, so it has to be on the payload while the
+	// payload is being measured. It was appended after the last measurement,
+	// and the result went out 248 bytes over — invisible while the budget
+	// counted one copy and had a 2x headroom, and the existing test that
+	// measures "the model's whole view" caught it the moment the headroom went.
+	writeNote := func() {
+		notes := []string{fmt.Sprintf(
+			"업무 %d건 중 주차별 진척 이력(weeks)은 상위 %d건에만 있습니다. 나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.",
+			total, view.TimelineItems)}
+		if contributorsTotal > len(contributors) {
+			notes = append(notes, fmt.Sprintf(
+				"기여자 %d명 중 상위 %d명만 담았습니다. 나머지 인원의 실적은 위 집계에는 이미 들어가 있습니다.",
+				contributorsTotal, len(contributors)))
+		}
+		if total > len(view.Items) {
+			reason := ""
+			if byBytes {
+				// Said, because a caller told only "100 of 256" may reasonably
+				// ask for the rest by paging, and the answer would be the same
+				// size.
+				reason = " 응답 크기 상한에 맞춰 더 줄였습니다."
+			}
+			notes = append(notes, fmt.Sprintf(
+				"업무 %d건 중 %d건만 반환했습니다.%s 이 목록을 전체로 보고 요약하지 마세요.",
+				total, len(view.Items), reason))
+		}
+		data["note"] = strings.Join(notes, " ")
+	}
+	writeNote()
 	// trimTimelineSeries names a fixed twenty whether or not there are twenty
 	// rows, so a rollup of three said its top twenty carried a series. Clamped
 	// here because the loop below indexes by this number.
@@ -349,6 +401,7 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 		view.Items[view.TimelineItems].Weeks = nil
 		data["timelineItems"] = view.TimelineItems
 		byBytes = true
+		writeNote()
 	}
 	// Only then the rows themselves, from the end, keeping the order the screen
 	// and the row cap already chose.
@@ -356,28 +409,27 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 		view.Items = view.Items[:len(view.Items)-1]
 		data["items"] = view.Items
 		byBytes = true
+		writeNote()
 	}
-	notes := []string{fmt.Sprintf(
-		"업무 %d건 중 주차별 진척 이력(weeks)은 상위 %d건에만 있습니다. 나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.",
-		total, view.TimelineItems)}
-	if total > len(view.Items) {
-		reason := ""
-		if byBytes {
-			// Said, because a caller told only "100 of 256" may reasonably ask
-			// for the rest by paging, and the answer would be the same size.
-			reason = " 응답 크기 상한에 맞춰 더 줄였습니다."
-		}
-		notes = append(notes, fmt.Sprintf(
-			"업무 %d건 중 %d건만 반환했습니다.%s 이 목록을 전체로 보고 요약하지 마세요.",
-			total, len(view.Items), reason))
-	}
-	data["note"] = strings.Join(notes, " ")
 	return data
 }
 
 // encodedSize is how many bytes this result becomes on the way to the caller.
 // Measured rather than estimated: the fields carry Korean prose, and a rune
 // count is not a byte count.
+// encodedSize is what this payload costs the caller — both copies of it.
+//
+// The budget exists because "the caller here has only a context window", and a
+// context window is charged for what arrives, not for what the server counted.
+// This measured one serialisation while the protocol requires two: the same
+// answer goes out as structuredContent and again as its text mirror. Measured
+// on a three-year deployment, the year at team scope trimmed its items from 264
+// down to 5 to land text at 64,977 bytes — and then shipped 71,471 more beside
+// it, so the caller received 144 KB against a documented 64 KiB cap.
+//
+// Halving the payload to keep the promise is the cheaper mistake. A model that
+// is handed twice its budget has no way to give the excess back, and the note
+// already tells the reader how many rows were left out.
 func encodedSize(data map[string]any) int {
 	encoded, err := json.Marshal(data)
 	if err != nil {
@@ -386,7 +438,17 @@ func encodedSize(data map[string]any) int {
 		// still holds.
 		return 0
 	}
-	return len(encoded)
+	// The mirror is the same bytes with every quote escaped, wrapped in the
+	// content envelope. Measuring the assembled result rather than guessing a
+	// multiplier keeps this true if the envelope ever changes.
+	mirrored, err := json.Marshal(map[string]any{
+		"content":           []map[string]any{{"type": "text", "text": string(encoded)}},
+		"structuredContent": data,
+	})
+	if err != nil {
+		return len(encoded)
+	}
+	return len(mirrored)
 }
 
 // mcpReportPageMaximum is the most reports one tool call returns. The cap is
