@@ -24,6 +24,12 @@
 -- deployment that imported its history looks like, and it is the case
 -- expectedFromWeek exists for.
 --
+-- It copies whatever is there, including anything you added by hand. A test
+-- report written while poking at the product comes back two more times, and a
+-- probe task with a 상위 조직 요청 on it then turns up by name in a management
+-- highlight for a year it was never written in — measured, on this database.
+-- Clean the deployment before stretching it, or stretch it before you start.
+--
 -- Run against a database seeded by seed-scale.sql (or a real copy):
 --   docker exec -i <pg> psql -U postgres -d <db> -v years=2 -f - < scripts/seed-years.sql
 -- Then restart the application. Takes a few seconds per year.
