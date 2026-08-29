@@ -345,11 +345,33 @@ func (p periodRange) normalized() periodRange {
 
 // expectedWeekStarts lists every reporting week whose 7 day span overlaps the
 // period. It is the denominator for reporting coverage.
-func expectedWeekStarts(period periodRange, weekday string) []string {
+// expectedWeekStarts lists the weeks of this period that have actually begun —
+// not every week the period touches.
+//
+// A period that includes the present touches weeks that have not happened.
+// Counting those made 보고 커버리지 the fraction of the calendar that has gone
+// by, dressed as a data-quality figure: measured on 2026-08-29, 2026-Q3 read
+// "기간 내 14개 보고 주차 중 9개 주차에 보고가 등록되었습니다 · 64.3%" with the
+// warning that a low coverage makes the whole aggregate less trustworthy —
+// while every week that had actually happened was reported. Five of the missing
+// weeks were September.
+//
+// The cut is "has this week started", not "has its deadline passed". 참여 분석
+// uses the deadline because it names people who are late, and an open week must
+// not count against anybody. Coverage asks a different question — how much of
+// this period does the aggregate in front of you rest on — and its numerator
+// counts reports filed for weeks that have begun. Using the deadline here made
+// the denominator smaller than the numerator: 기대 4주 · 보고 5주 · 125%,
+// measured, which is the same trap v0.264 recorded one screen over. A numerator
+// and a denominator that count different weeks are not a fraction.
+func expectedWeekStarts(period periodRange, weekday string, startedThrough time.Time) []string {
 	first := currentWeekStart(period.StartDate, weekday)
 	result := []string{}
 	for cursor := first; !cursor.After(period.EndDate); cursor = cursor.AddDate(0, 0, 7) {
 		if cursor.AddDate(0, 0, 6).Before(period.StartDate) {
+			continue
+		}
+		if !startedThrough.IsZero() && cursor.After(startedThrough) {
 			continue
 		}
 		result = append(result, cursor.Format("2006-01-02"))

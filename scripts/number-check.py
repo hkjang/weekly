@@ -62,14 +62,28 @@ def query(container, database, statement):
     return [line.split("|") for line in done.stdout.strip().split("\n") if line]
 
 
-def weeks_overlapping(start, end):
-    """How many week starts produce a week that touches this period."""
+def weeks_overlapping(start, end, today=None):
+    """How many week starts produce a week that touches this period **and have begun**.
+
+    Third lesson, and again the checker rather than the product. 보고 커버리지 is
+    a data-quality figure, so a week that has not started belongs in neither its
+    numerator nor its denominator: on 2026-08-29 the old count made the year read
+    "35개 주차 중 35개" against an expectation of 53, i.e. 66%, with a warning that
+    the aggregate was therefore less trustworthy. Nothing was missing — September
+    to December had not happened.
+
+    The cut is "has this week started", not "has its deadline passed". The two
+    differ by one week and that one week is in the numerator, which is how a
+    coverage of 125% was measured while this was being fixed.
+    """
     first = datetime.date.fromisoformat(start)
     last = datetime.date.fromisoformat(end)
     cursor = first - datetime.timedelta(days=first.weekday())
+    today = today or datetime.date.today()
+    started = today - datetime.timedelta(days=today.weekday())
     count = 0
     while cursor <= last:
-        if cursor + datetime.timedelta(days=6) >= first:
+        if cursor + datetime.timedelta(days=6) >= first and cursor <= started:
             count += 1
         cursor += datetime.timedelta(days=7)
     return count

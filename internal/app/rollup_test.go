@@ -54,7 +54,7 @@ func TestExpectedWeekStartsCoversOverlappingWeeks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	weeks := expectedWeekStarts(period, "MONDAY")
+	weeks := expectedWeekStarts(period, "MONDAY", time.Time{})
 	// 2026-08-01 is a Saturday, so the first overlapping Monday week starts 2026-07-27.
 	if weeks[0] != "2026-07-27" {
 		t.Errorf("first week = %s, want 2026-07-27", weeks[0])
@@ -275,7 +275,7 @@ func TestBuildRollupInsightsAndHighlights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := expectedWeekStarts(period, "MONDAY")
+	expected := expectedWeekStarts(period, "MONDAY", time.Time{})
 	entries := []sourceEntry{
 		entry("2026-08-03", "플랫폼", "AI 게이트웨이 구축", "설계", "PoC", "GPU 부족", 40),
 		entry("2026-08-10", "플랫폼", "AI 게이트웨이 구축", "PoC", "성능 시험", "GPU 부족", 40),
@@ -343,7 +343,7 @@ func TestBuildRollupHandlesEmptyPeriod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view := buildRollup(period, scopeTeam, "AI엔지니어링", nil, nil, expectedWeekStarts(period, "MONDAY"), defaultRollupConfig())
+	view := buildRollup(period, scopeTeam, "AI엔지니어링", nil, nil, expectedWeekStarts(period, "MONDAY", time.Time{}), defaultRollupConfig())
 	if view.Insights.TotalItems != 0 {
 		t.Errorf("totalItems = %d, want 0", view.Insights.TotalItems)
 	}

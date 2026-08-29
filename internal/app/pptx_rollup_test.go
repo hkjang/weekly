@@ -16,7 +16,7 @@ func sampleRollup(t *testing.T, kind, period string, itemCount, linesPerItem int
 		t.Fatal(err)
 	}
 	entries := []sourceEntry{}
-	weeks := expectedWeekStarts(resolved, "MONDAY")
+	weeks := expectedWeekStarts(resolved, "MONDAY", time.Time{})
 	for index := 0; index < itemCount; index++ {
 		details := make([]string, 0, linesPerItem)
 		for line := 0; line < linesPerItem; line++ {

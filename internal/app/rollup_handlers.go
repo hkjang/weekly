@@ -106,7 +106,8 @@ const rollupTimelineItems = 20
 // caller's permission scope and folds it into a single de-duplicated view.
 func (a *App) loadRollup(ctx context.Context, p *principal, period periodRange, scope string) (rollupView, error) {
 	weekday := a.setting(ctx, "workflow.week_start", "MONDAY")
-	expected := expectedWeekStarts(period, weekday)
+	// The week that has started is in the aggregate, so it is in the denominator.
+	expected := expectedWeekStarts(period, weekday, currentWeekStart(time.Now().In(a.serviceLocation(ctx)), weekday))
 	maxWeeks := a.settingInt(ctx, "rollup.max_weeks", 80)
 	if maxWeeks < 1 || maxWeeks > 400 {
 		maxWeeks = 80
