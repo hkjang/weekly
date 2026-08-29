@@ -4,11 +4,16 @@ import type { MeetingView, Report, Rollup } from './types'
 
 /**
  * Slide builders. Every screen that can export a PPTX can also present, and the
- * deck shown on screen carries the same content as the exported file.
+ * deck shown on screen is built from the same report and the same figures as
+ * the exported file — measured: both read one `insights` object, and an export
+ * of a nine-item report with 1,300-character entries carried every title, every
+ * result, every plan, every issue and the management ask.
  *
- * The rule throughout: a slide is what someone can read from across a room, so
- * long text is truncated with a marker rather than shrunk to fit. Anyone who
- * needs the full wording has the report or the exported file.
+ * It does not carry the same *text*, and saying so was overstating it. A slide
+ * is what someone can read from across a room, so long text is truncated with a
+ * marker rather than shrunk to fit; the presenter's own screen gets every word
+ * through presenterText, and the exported file is uncut. The two decks also
+ * place captures differently, on purpose, for the reason captureSlides gives.
  */
 
 const SLIDE_TEXT_LIMIT = 700
