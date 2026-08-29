@@ -57,6 +57,11 @@ expect deploy/.env.example "WEEKLY_VERSION=$version"
 expect deploy/compose.yaml "WEEKLY_VERSION:-$version"
 expect deploy/kubernetes.yaml "image: weekly:v$version"
 expect README.md "weekly-v$version.tar.gz"
+# The guides ship inside the release, so their version is the release's. Both
+# said v0.7.0-ENTERPRISE while the product was v0.272.0 — 265 releases apart —
+# and a reader had no way to tell whether the manual described their deployment.
+expect docs/USER_GUIDE.md "문서 버전\*\*: v$version"
+expect docs/ADMIN_GUIDE.md "문서 버전\*\*: v$version"
 
 # The notes are what an operator reads before upgrading; a tag without them is
 # a release nobody can find out about.
@@ -69,4 +74,4 @@ if [ "$problems" -gt 0 ]; then
   echo "버전 검사: $problems 곳이 $version 과 어긋납니다." >&2
   exit 1
 fi
-echo "버전 검사: 통과 — 일곱 곳이 모두 $version 입니다."
+echo "버전 검사: 통과 — 아홉 곳이 모두 $version 입니다."
