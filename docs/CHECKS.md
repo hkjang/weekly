@@ -35,6 +35,7 @@ CI 는 이 중 `go test`·`go vet`·`guard-check`·`modal-close-check`·`openapi
 | 도구 | 무엇을 세우나 |
 |---|---|
 | `seed-scale.sql` | 조직 46 · 사람 305 · 52주 · 보고 항목 110,534. 한 축이라도 납작해지면 **스스로 실패합니다** |
+| `seed-years.sql` | 이미 씨 뿌린 배포를 **뒤로 늘립니다** — 3년치 47,424건에서 읽기는 모두 350ms 아래, 동시 쓰기 120·읽기 25에 오류 0, 참여 규칙은 세 방향 모두 정확. 다시 돌려도 0건 (처음 판은 중복 키로 롤백되면서 행 수가 그대로라 **성공처럼 보였습니다**) |
 | `fake-ai-gateway.py` | AI Gateway 자리. 요청의 JSON Schema 를 읽어 그것을 만족하는 답을 돌려줍니다 |
 | `fake-confluence.py` | Confluence Server 6.9.1 자리. 연동이 실제로 부르는 REST 두 개에 답합니다 |
 | `seed-captures.py` | 화면 캡처 첨부. 제품의 업로드 경로로 올려 행과 파일이 함께 생깁니다 |
