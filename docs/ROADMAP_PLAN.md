@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.275.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.276.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -7770,3 +7770,55 @@ WEEKLY_BOOTSTRAP_ADMIN_PASSWORD  관리자가 없을 때만 · 주어졌다면 1
 #### 있던 시험이 옛 약속을 지키고 있었습니다
 
 `TestARefusedStartUpNamesWhatIsMissingAndWhatToDo` 가 세 변수 모두를 `loadEnvironment` 에서 요구했습니다. 시험을 지운 것이 아니라 **약속이 사는 자리로 옮겼습니다** — DSN 은 그대로 `loadEnvironment`, 나머지 둘은 사용자를 지운 데이터베이스에 대고 `bootstrapAdmin`. 셋 다 여전히 "없는 것만 이름 대기"와 ".env 를 보라"를 지킵니다.
+
+### v0.276.0 — CI 가 열아홉 커밋 동안 빨간불이었고 릴리즈는 계속 나갔습니다
+
+v0.275.0 을 밀어 올린 뒤 CI 를 봤습니다.
+
+```
+2026-08-29T05:58  guard-check  failure   ← v0.275.0
+2026-08-29T05:11  guard-check  failure   ← v0.274.0
+...
+2026-08-28T18:18  go test      failure   ← 여기서 시작
+2026-08-28T17:08  success                ← 마지막 초록불
+```
+
+**열아홉 커밋입니다.** 그동안 릴리즈는 매번 성공했습니다 — 워크플로가 둘이고, `Offline Docker Release` 는 계속 초록불이었고, 자산은 매번 나왔기 때문입니다. 끝난 것처럼 보이는 신호가 하나라도 있으면 나머지는 안 봅니다.
+
+#### 왜 릴리즈 의식이 이것을 놓쳤는가
+
+의식은 `version-check` → 커밋 → 태그 → **자산이 나왔는지** 확인이었습니다. "시험이 통과했는지"는 어디에도 없었습니다. 자산이 나오는 것과 시험이 통과하는 것은 **다른 워크플로**입니다.
+
+`release-check.sh` 에 물음을 더했습니다. 가장 최근 태그의 CI 결과가 실패면 막습니다. **가장 최근 것만** 봅니다 — 밀린 것까지 전부 막으면 열두 번의 릴리즈 동안 빨간불로 남고, 늘 빨간 검사는 읽지 않게 되어 이 검사가 막으려던 바로 그 일이 됩니다. 지난 것은 세어서 보여 주기만 합니다.
+
+#### 무엇이 빨갛게 있었는가 — 셋
+
+```
+never executed mcpRollupContributors   (v0.274.0 부터)
+never executed migrations              (v0.262.0 무렵부터)
+never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)
+```
+
+앞의 둘은 **함수가 아닙니다.** `mcpRollupContributors` 는 상수, `migrations` 는… 없습니다. 그런 이름은 이 꾸러미에 **한 번도 존재한 적이 없습니다.** 변수 이름은 `migrationFiles` 입니다.
+
+커버리지는 함수만 보고합니다. 상수와 원장 변수는 백분율을 가질 수 없으니 "never executed" 규칙은 무엇을 하든 유죄였습니다. 그래서 셋 중 둘은 **고칠 수 없는 빨간불**이었고, 고칠 수 없는 빨간불은 읽히지 않는 빨간불입니다.
+
+#### 셈이 안 되는 대상에는 다른 약속을 물었습니다
+
+```
+함수      → 그 시험이 실제로 실행했는가 (커버리지)
+상수·원장 → 그 시험이 그 이름을 실제로 부르는가 (본문)
+없는 이름 → "이 꾸러미가 선언하지 않습니다" 라고 말합니다
+```
+
+세 번째가 `migrations` 를 하루 만에 정확히 짚었을 문장입니다. 옛 문장은 "never executed" 라 **약한 시험**처럼 읽혔지, **틀린 이름**처럼 읽히지 않았습니다.
+
+#### 그리고 그 절반은 커버리지 없이도 물을 수 있습니다
+
+"이 꾸러미가 그 이름을 선언하는가"는 정적입니다. `TestEveryGuardMarkerNamesSomethingThisPackageHas` 를 더했습니다 — `go test ./...` 안에서 1초에 답합니다. guard-check.py 와 **같은 규칙으로** 표시를 읽습니다: 시험 함수 바로 위 주석 덩어리에 있는 것만. `refusalledger_test.go` 의 산문 표시(`guards: every writeError(w, 403, ...)`)는 둘 다 무시합니다.
+
+되돌려 확인했습니다 — `loadEnvironment` 를 `loadEnvironmentt` 로 한 글자 바꾸니 잡습니다.
+
+```
+전체 쓸기: 259개 guard 가 모두 이름 댄 것에 닿았습니다.
+```

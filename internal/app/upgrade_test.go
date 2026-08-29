@@ -292,7 +292,7 @@ func schemaDifference(want, got []string) string {
 // Adding a migration means adding its line here, deliberately. Changing one
 // means this test failing, which is the point.
 //
-// guards: migrations
+// guards: migrationFiles
 func TestAMigrationThatHasShippedIsNeverEdited(t *testing.T) {
 	recorded := map[string]string{}
 	ledger, err := os.ReadFile("migrations.sums")

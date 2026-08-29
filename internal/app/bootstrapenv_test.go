@@ -15,7 +15,7 @@ import (
 // Kubernetes manifest and whatever CI writes them. Measured: a container given
 // only the DSN against a populated database refused to start.
 //
-// guards: loadEnvironment, bootstrapAdmin
+// guards: loadEnvironment
 func TestOnlyTheDatabaseAddressIsNeededToStart(t *testing.T) {
 	t.Setenv("WEEKLY_POSTGRES_DSN", "postgres://user:pass@host:5432/weekly?sslmode=disable")
 	t.Setenv("WEEKLY_BOOTSTRAP_ADMIN", "")
