@@ -5,6 +5,8 @@ metadata:
 type: Opaque
 stringData:
   WEEKLY_POSTGRES_DSN: "postgres://weekly:CHANGE_ME@postgres.internal:5432/weekly?sslmode=require"
+  # 아래 2개는 관리자가 없는 첫 기동에만 필요합니다. 최초 관리자가 만들어지면
+  # 두 줄을 지우고 Secret 을 다시 적용하십시오. 이후 기동에는 읽히지 않습니다.
   WEEKLY_BOOTSTRAP_ADMIN: "admin"
   WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: "CHANGE_ME_AT_LEAST_12_CHARS"
   # 필수. `openssl rand -base64 32` 결과로 교체하고 모든 업그레이드에서 유지합니다.
@@ -59,7 +61,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: weekly
-          image: weekly:v0.274.0
+          image: weekly:v0.275.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:

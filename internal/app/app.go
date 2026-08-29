@@ -128,6 +128,9 @@ func New(ctx context.Context, options Options) (*App, error) {
 	}
 	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1)}
 	a.conditions = newConditionLog(logger)
+	// Required only when there is nobody to let in. A first install must say who
+	// the administrator is; a deployment that already has one can take the
+	// password out of its environment and never put it back.
 	if err := a.bootstrapAdmin(ctx, env.BootstrapAdmin, env.BootstrapPassword); err != nil {
 		db.Close()
 		return nil, err

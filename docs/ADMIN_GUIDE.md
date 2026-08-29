@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.274.0
+- **문서 버전**: v0.275.0
 - **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자  
 - **문서 개요**: Weekly 단일 컨테이너 환경변수 부트스트랩, Keycloak OIDC SSO 연동, RBAC 권한 매핑, PPTX 템플릿 등록 및 감사 로그 운영  
 
@@ -8,15 +8,19 @@
 
 ## 1. 시스템 부트스트랩 (Bootstrap Environment Variables)
 
-Weekly 컨테이너 프로세스는 **3개의 필수 환경변수**로 부팅하며, 업그레이드 후에도 암호화 설정을 복구하기 위해 `WEEKLY_ENCRYPTION_KEY`를 운영 필수 수준으로 권장합니다.
+Weekly 컨테이너 프로세스는 **`WEEKLY_POSTGRES_DSN` 하나**로 부팅합니다. 관리자 계정이 하나도 없는 데이터베이스, 즉 **첫 기동에만** 부트스트랩 관리자 2개 변수를 추가로 요구합니다. 업그레이드 후에도 암호화 설정을 복구하기 위해 `WEEKLY_ENCRYPTION_KEY`를 운영 필수 수준으로 권장합니다.
 
 ```bash
 # deploy/.env 파일 설정 예시
 WEEKLY_POSTGRES_DSN=postgres://weekly:Secr3tPass@10.10.30.5:5432/weekly?sslmode=disable
+# 아래 2개는 첫 기동에만 필요하며, 관리자 계정이 생긴 뒤에는 지웁니다.
 WEEKLY_BOOTSTRAP_ADMIN=admin
 WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
 WEEKLY_ENCRYPTION_KEY=<openssl rand -base64 32 결과>
 ```
+
+> **첫 기동 이후 (Bootstrap Secret Removal)**:  
+> 최초 관리자가 만들어지면 `WEEKLY_BOOTSTRAP_ADMIN`과 `WEEKLY_BOOTSTRAP_ADMIN_PASSWORD`는 다시 읽히지 않습니다. `.env`, Compose 파일, Kubernetes Secret, CI 변수에서 두 값을 삭제하십시오. 삭제한 뒤에도 컨테이너는 정상 기동합니다. 관리자가 전부 사라진 데이터베이스로 기동하면 두 값을 다시 요구하며 그 사실을 로그에 적고 멈춥니다.
 
 > **중요 (Volume Backup Notice)**:  
 > `/var/lib/weekly` 볼륨과 `WEEKLY_ENCRYPTION_KEY`는 별도로 정기 백업해야 합니다. 기존 볼륨 키만 사용하던 환경은 볼륨을 유지한 상태에서 환경 키를 처음 설정하면 Keycloak/AI/Confluence 비밀값이 새 키로 자동 재암호화됩니다.

@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.274.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.275.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -3944,6 +3944,30 @@ highlights     2,386B
 <p>##### 있던 시험이 248바이트를 잡았습니다</p>
 <p>여유가 2배일 때는 보이지 않던 것이 하나 더 드러났습니다. <strong>노트는 마지막 측정 뒤에 붙습니다.</strong> <code>mcp_test.go</code> 의 "the model's whole view" 시험이 65,784 &gt; 65,536 으로 정확히 그것을 짚었습니다. 노트를 클로저로 뽑아 <strong>잴 때마다 최신 노트가 실려 있게</strong> 했습니다.</p>
 <p>그리고 100행이 남기를 기대하던 시험은 이제 55행입니다. 행이 아니라 <strong>셈이 바뀐 것</strong>이고, 그렇게 적어 두었습니다.</p>
+<h3>v0.275.0 — 첫날 한 번 쓰이는 비밀번호를 영원히 두게 했습니다</h3>
+<p>문서 대조를 배포 문서로 옮겼습니다. 숫자는 전부 맞았습니다 — 미제출 최대 25명, 반복 업무 4주/60%/10%, 중복 70%·유사 50%, 첨부 20장/10MB, 임베딩 6,400건, 요약 최대 10건, <code>ai.timeout_seconds</code> 90, <code>import.retention_days</code> 365. 한 문장만 남았습니다.</p>
+<div class="phase-box">ADMIN_GUIDE: &quot;Weekly 컨테이너 프로세스는 3개의 필수 환경변수로 부팅하며&quot;</div>
+<p>#### 문서는 정확했습니다 — 그것이 문제였습니다</p>
+<p><code>weekly:v0.274.0</code> 에 <code>WEEKLY_POSTGRES_DSN</code> 하나만 주고 두 번 세워 봤습니다.</p>
+<div class="phase-box">빈 DB      → 거절: &quot;WEEKLY_BOOTSTRAP_ADMIN, WEEKLY_BOOTSTRAP_ADMIN_PASSWORD 환경변수가 없습니다&quot;
+관리자 있는 DB → 거절: 같은 문장</div>
+<p>두 번째가 틀렸습니다. <code>bootstrapAdmin</code> 은 <code>count(*) FROM users WHERE role='ADMIN' &gt; 0</code> 이면 <strong>아무것도 하지 않고 돌아옵니다.</strong> 즉 설치 첫날 이후 그 두 값은 읽히고, 검사되고, 버려집니다. 그런데 없으면 뜨지 않습니다.</p>
+<p>그 결과가 운영에 남기는 것: <strong>최초 관리자의 비밀번호가 <code>.env</code> 에, Compose 파일에, Kubernetes Secret 에, CI 변수에 영원히 남습니다.</strong> 다시 쓰이지 않는 비밀을 지우면 서비스가 죽으니 지울 수 없습니다. 화면에서 그 비밀번호를 바꾼 뒤에도 파일 속 옛 값은 그대로 남습니다.</p>
+<p>#### 검사를 필요한 곳으로 옮겼습니다</p>
+<p>요구는 <code>loadEnvironment()</code> 에 있었습니다 — 데이터베이스를 열기 <strong>전</strong>입니다. 그래서 "관리자가 있는가"를 물을 수가 없었습니다. 검사를 <code>bootstrapAdmin</code> 안, 셈을 이미 한 그 자리로 내렸습니다.</p>
+<div class="phase-box">WEEKLY_POSTGRES_DSN        항상 필요       (아무것도 대신할 수 없음)
+WEEKLY_BOOTSTRAP_ADMIN     관리자가 없을 때만
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD  관리자가 없을 때만 · 주어졌다면 12자 규칙은 그대로</div>
+<p>거절 문장은 이제 왜 필요한지까지 말합니다: <code>"관리자 계정이 없는 데이터베이스입니다. … 환경변수가 없으면 아무도 로그인할 수 없습니다."</code></p>
+<p>#### 컨테이너 셋으로 확인했습니다</p>
+<div class="phase-box">① 관리자 있는 weeklyimp · DSN 만        → readyz 200 · 기존 admin 로그인 성공
+② 빈 weeklymin · DSN 만                → 거절 &quot;관리자 계정이 없는 데이터베이스입니다…&quot;
+③ 빈 weeklymin · 5자 비밀번호           → 거절 &quot;12자 이상이어야 합니다&quot;</div>
+<p>#### Compose 가 두 값을 <code>:?required</code> 로 걸고 있었습니다</p>
+<p>프로세스만 고쳤다면 안내대로 <code>.env</code> 에서 두 줄을 지운 운영자는 <strong>컨테이너가 아니라 compose 렌더에서</strong> 막혔을 것입니다. <code>${…:-}</code> 로 바꿨습니다. v0.253.0 에서 <code>WEEKLY_ENCRYPTION_KEY</code> 에 같은 판단을 한 자리 바로 옆입니다 — 걸 수 있는 곳이 아니라 <strong>설명할 수 있는 곳</strong>에서 막아야 합니다.</p>
+<p>문서 다섯 곳(README·ADMIN_GUIDE·DESIGN·OPERATIONS·.env.example)과 Kubernetes Secret 주석이 "첫 기동 이후에는 지우십시오"라고 말하게 했습니다.</p>
+<p>#### 있던 시험이 옛 약속을 지키고 있었습니다</p>
+<p><code>TestARefusedStartUpNamesWhatIsMissingAndWhatToDo</code> 가 세 변수 모두를 <code>loadEnvironment</code> 에서 요구했습니다. 시험을 지운 것이 아니라 <strong>약속이 사는 자리로 옮겼습니다</strong> — DSN 은 그대로 <code>loadEnvironment</code>, 나머지 둘은 사용자를 지운 데이터베이스에 대고 <code>bootstrapAdmin</code>. 셋 다 여전히 "없는 것만 이름 대기"와 ".env 를 보라"를 지킵니다.</p>
 </div>
 </body>
 </html>

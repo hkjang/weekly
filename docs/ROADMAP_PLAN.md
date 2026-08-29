@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.274.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.275.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -7719,3 +7719,54 @@ highlights     2,386B
 여유가 2배일 때는 보이지 않던 것이 하나 더 드러났습니다. **노트는 마지막 측정 뒤에 붙습니다.** `mcp_test.go` 의 "the model's whole view" 시험이 65,784 > 65,536 으로 정확히 그것을 짚었습니다. 노트를 클로저로 뽑아 **잴 때마다 최신 노트가 실려 있게** 했습니다.
 
 그리고 100행이 남기를 기대하던 시험은 이제 55행입니다. 행이 아니라 **셈이 바뀐 것**이고, 그렇게 적어 두었습니다.
+
+### v0.275.0 — 첫날 한 번 쓰이는 비밀번호를 영원히 두게 했습니다
+
+문서 대조를 배포 문서로 옮겼습니다. 숫자는 전부 맞았습니다 — 미제출 최대 25명, 반복 업무 4주/60%/10%, 중복 70%·유사 50%, 첨부 20장/10MB, 임베딩 6,400건, 요약 최대 10건, `ai.timeout_seconds` 90, `import.retention_days` 365. 한 문장만 남았습니다.
+
+```
+ADMIN_GUIDE: "Weekly 컨테이너 프로세스는 3개의 필수 환경변수로 부팅하며"
+```
+
+#### 문서는 정확했습니다 — 그것이 문제였습니다
+
+`weekly:v0.274.0` 에 `WEEKLY_POSTGRES_DSN` 하나만 주고 두 번 세워 봤습니다.
+
+```
+빈 DB      → 거절: "WEEKLY_BOOTSTRAP_ADMIN, WEEKLY_BOOTSTRAP_ADMIN_PASSWORD 환경변수가 없습니다"
+관리자 있는 DB → 거절: 같은 문장
+```
+
+두 번째가 틀렸습니다. `bootstrapAdmin` 은 `count(*) FROM users WHERE role='ADMIN' > 0` 이면 **아무것도 하지 않고 돌아옵니다.** 즉 설치 첫날 이후 그 두 값은 읽히고, 검사되고, 버려집니다. 그런데 없으면 뜨지 않습니다.
+
+그 결과가 운영에 남기는 것: **최초 관리자의 비밀번호가 `.env` 에, Compose 파일에, Kubernetes Secret 에, CI 변수에 영원히 남습니다.** 다시 쓰이지 않는 비밀을 지우면 서비스가 죽으니 지울 수 없습니다. 화면에서 그 비밀번호를 바꾼 뒤에도 파일 속 옛 값은 그대로 남습니다.
+
+#### 검사를 필요한 곳으로 옮겼습니다
+
+요구는 `loadEnvironment()` 에 있었습니다 — 데이터베이스를 열기 **전**입니다. 그래서 "관리자가 있는가"를 물을 수가 없었습니다. 검사를 `bootstrapAdmin` 안, 셈을 이미 한 그 자리로 내렸습니다.
+
+```
+WEEKLY_POSTGRES_DSN        항상 필요       (아무것도 대신할 수 없음)
+WEEKLY_BOOTSTRAP_ADMIN     관리자가 없을 때만
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD  관리자가 없을 때만 · 주어졌다면 12자 규칙은 그대로
+```
+
+거절 문장은 이제 왜 필요한지까지 말합니다: `"관리자 계정이 없는 데이터베이스입니다. … 환경변수가 없으면 아무도 로그인할 수 없습니다."`
+
+#### 컨테이너 셋으로 확인했습니다
+
+```
+① 관리자 있는 weeklyimp · DSN 만        → readyz 200 · 기존 admin 로그인 성공
+② 빈 weeklymin · DSN 만                → 거절 "관리자 계정이 없는 데이터베이스입니다…"
+③ 빈 weeklymin · 5자 비밀번호           → 거절 "12자 이상이어야 합니다"
+```
+
+#### Compose 가 두 값을 `:?required` 로 걸고 있었습니다
+
+프로세스만 고쳤다면 안내대로 `.env` 에서 두 줄을 지운 운영자는 **컨테이너가 아니라 compose 렌더에서** 막혔을 것입니다. `${…:-}` 로 바꿨습니다. v0.253.0 에서 `WEEKLY_ENCRYPTION_KEY` 에 같은 판단을 한 자리 바로 옆입니다 — 걸 수 있는 곳이 아니라 **설명할 수 있는 곳**에서 막아야 합니다.
+
+문서 다섯 곳(README·ADMIN_GUIDE·DESIGN·OPERATIONS·.env.example)과 Kubernetes Secret 주석이 "첫 기동 이후에는 지우십시오"라고 말하게 했습니다.
+
+#### 있던 시험이 옛 약속을 지키고 있었습니다
+
+`TestARefusedStartUpNamesWhatIsMissingAndWhatToDo` 가 세 변수 모두를 `loadEnvironment` 에서 요구했습니다. 시험을 지운 것이 아니라 **약속이 사는 자리로 옮겼습니다** — DSN 은 그대로 `loadEnvironment`, 나머지 둘은 사용자를 지운 데이터베이스에 대고 `bootstrapAdmin`. 셋 다 여전히 "없는 것만 이름 대기"와 ".env 를 보라"를 지킵니다.

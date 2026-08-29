@@ -1,6 +1,6 @@
 services:
   weekly:
-    image: weekly:v${WEEKLY_VERSION:-0.274.0}
+    image: weekly:v${WEEKLY_VERSION:-0.275.0}
     container_name: weekly
     restart: unless-stopped
     ports:
@@ -14,8 +14,15 @@ services:
       - ALL
     environment:
       WEEKLY_POSTGRES_DSN: ${WEEKLY_POSTGRES_DSN:?required}
-      WEEKLY_BOOTSTRAP_ADMIN: ${WEEKLY_BOOTSTRAP_ADMIN:?required}
-      WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: ${WEEKLY_BOOTSTRAP_ADMIN_PASSWORD:?required}
+      # Not :?required either. These are needed only by a database with no
+      # administrator in it. Demanding them here would refuse to render for
+      # every deployment that has already had its first boot and has since
+      # taken the first administrator's password back out of its .env — which
+      # is what the guide now tells operators to do. A genuine first install
+      # that forgets them is refused by the process, with a message naming
+      # the two variables.
+      WEEKLY_BOOTSTRAP_ADMIN: ${WEEKLY_BOOTSTRAP_ADMIN:-}
+      WEEKLY_BOOTSTRAP_ADMIN_PASSWORD: ${WEEKLY_BOOTSTRAP_ADMIN_PASSWORD:-}
       # Not :?required. The product supports running without it — the key then
       # lives only in the state volume — and README documents that mode and the
       # upgrade path out of it. Demanding it here refused to render at all for

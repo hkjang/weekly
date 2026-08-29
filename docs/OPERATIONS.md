@@ -9,7 +9,7 @@
 
 Confluence 자동화를 사용하는 경우 Confluence Server 6.9.1 Base URL과 읽기 전용 Service Account, 선택된 Space에서 사내 AI Gateway로의 정책상 허용 여부도 사전에 확인한다. 연동값은 모두 관리자 UI에 저장한다.
 
-Weekly 프로세스에는 세 필수 환경변수와 운영에서 강력히 권장하는 `WEEKLY_ENCRYPTION_KEY`를 전달한다. 암호화 키는 `openssl rand -base64 32`로 한 번 생성하고 Secret Manager나 Kubernetes Secret에 보관한 뒤 모든 업그레이드에서 같은 값을 유지한다. DSN에는 `sslmode=require` 또는 사내 CA 검증이 가능한 `verify-full`을 권장한다.
+Weekly 프로세스에는 `WEEKLY_POSTGRES_DSN`과 운영에서 강력히 권장하는 `WEEKLY_ENCRYPTION_KEY`를 전달한다. 부트스트랩 관리자 2개 변수는 첫 기동에만 전달하고, 최초 관리자가 만들어지면 배포 파일과 Secret에서 지운다. 암호화 키는 `openssl rand -base64 32`로 한 번 생성하고 Secret Manager나 Kubernetes Secret에 보관한 뒤 모든 업그레이드에서 같은 값을 유지한다. DSN에는 `sslmode=require` 또는 사내 CA 검증이 가능한 `verify-full`을 권장한다.
 
 ## 백업
 

@@ -28,6 +28,18 @@ func (a *App) bootstrapAdmin(ctx context.Context, username, password string) err
 	if count > 0 {
 		return nil
 	}
+	// Nobody can get in, so the pair is required here and only here.
+	if missing := missingRequired(environment{PostgresDSN: "set", BootstrapAdmin: username, BootstrapPassword: password}); len(missing) > 0 {
+		return fmt.Errorf(
+			"관리자 계정이 없는 데이터베이스입니다. %s 환경변수가 없으면 아무도 로그인할 수 없습니다. "+
+				"deploy/.env.example 을 복사해 채운 뒤 --env-file 로 넘기십시오",
+			strings.Join(missing, ", "))
+	}
+	if len(password) < 12 {
+		return errors.New(
+			"WEEKLY_BOOTSTRAP_ADMIN_PASSWORD 는 12자 이상이어야 합니다. " +
+				"첫 관리자 계정의 비밀번호이며, 기동한 뒤 화면에서 바꿀 수 있습니다")
+	}
 	hash, err := hashPassword(password)
 	if err != nil {
 		return err
