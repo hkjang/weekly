@@ -87,7 +87,14 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 		}
 	}
 	if result.TotalUsers > 0 {
-		result.SubmissionRate = float64(result.SubmittedUsers) * 100 / float64(result.TotalUsers)
+		// round1, as every other analytics figure in this product is rounded.
+		// This file was the only one that never called it, and the difference
+		// leaves the API: 참여 분석 answers 90.8 and this endpoint answered
+		// 90.78947368421052 for the same week and the same people. The screen
+		// formats it, so the screen was fine; the API and the MCP tool built on
+		// it were not, and an AI client asked to summarise a week was handed
+		// sixteen digits of a percentage to quote.
+		result.SubmissionRate = round1(float64(result.SubmittedUsers) * 100 / float64(result.TotalUsers))
 	}
 	itemArgs := []any{week}
 	itemFilter := ""
@@ -96,6 +103,7 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 		itemFilter = ` AND u.organization_id IN ` + orgSubtree(len(itemArgs))
 	}
 	err = a.db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE length(trim(i.issue))>0),coalesce(avg(i.progress),0) FROM report_items i JOIN weekly_reports r ON r.id=i.report_id JOIN users u ON u.id=r.user_id WHERE r.week_start=$1`+itemFilter, itemArgs...).Scan(&result.OpenIssues, &result.AverageProgress)
+	result.AverageProgress = round1(result.AverageProgress)
 	return result, err
 }
 
