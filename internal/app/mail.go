@@ -392,7 +392,12 @@ func (a *App) mailWorker(ctx context.Context) {
 		case <-a.mailWake:
 		case <-ticker.C:
 		}
-		for a.sendNextQueuedMail(ctx) {
+		for {
+			reportMore := a.sendNextQueuedMail(ctx)
+			reminderMore := a.sendNextQueuedReminder(ctx)
+			if !reportMore && !reminderMore {
+				break
+			}
 		}
 	}
 }

@@ -1,8 +1,8 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.276.0
-- **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자  
-- **문서 개요**: Weekly 단일 컨테이너 환경변수 부트스트랩, Keycloak OIDC SSO 연동, RBAC 권한 매핑, PPTX 템플릿 등록 및 감사 로그 운영  
+- **문서 버전**: v0.277.0
+- **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자
+- **문서 개요**: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·SMTP, PPTX 템플릿과 감사 로그 운영
 
 ---
 
@@ -32,6 +32,10 @@ WEEKLY_ENCRYPTION_KEY=<openssl rand -base64 32 결과>
 1. 부트스트랩 관리자 계정으로 로그인 ➔ `관리자 설정 ➔ 서비스 설정 ➔ 인증 · Keycloak OIDC`로 이동.
 2. Valid Redirect URI 등록: `https://weekly.internal/api/v1/auth/oidc/callback`
 3. Group Claim Mappers 설정 및 관리자 그룹(`ADMIN`) 지정 시 자동 승격 연동.
+
+OIDC가 활성화된 배포에서 Weekly 세션이 없는 브라우저가 앱을 처음 열면 Authorization Code + PKCE 흐름을 `prompt=none`으로 한 번 시작합니다. Keycloak SSO 세션과 사전 동의가 있으면 로그인 화면 없이 원래 `#/...` 화면으로 돌아오고, `login_required`·`interaction_required`·`consent_required`·`account_selection_required`이면 Weekly의 일반 로그인 화면으로 되돌아옵니다. state·nonce·PKCE와 10분 만료 검증은 대화형 로그인과 동일하며, ID·Access·Refresh Token은 Weekly DB에 보관하지 않습니다.
+
+이 자동 확인은 앱 최초 세션 조회가 401인 경우만 수행합니다. PostgreSQL 장애나 네트워크 실패를 로그아웃으로 오인해 Keycloak으로 보내지 않으며, 작성 중 세션 만료 시에는 전체 탭을 이동하지 않습니다. Weekly의 명시적 로그아웃은 Keycloak Realm 로그아웃을 호출하지 않고 현재 탭의 자동 확인만 억제합니다. 따라서 다른 사내 서비스의 SSO는 유지되고, 사용자가 SSO 버튼을 직접 누르면 즉시 다시 로그인할 수 있습니다. 이 억제는 브라우저 탭의 `sessionStorage`에 있으므로 새 탭에는 공유되지 않습니다.
 
 ### RBAC (Role-Based Access Control) 권한 매트릭스
 
@@ -99,3 +103,25 @@ Endpoint와 Model을 먼저 저장하고 `AI 연결 시험`으로 JSON Schema St
 사용자 매핑 우선순위는 관리자 명시값, Keycloak/Weekly 이메일의 `@` 앞부분, Weekly 로그인 아이디입니다. 예를 들어 `hkjang@koreacb.com`은 Confluence `hkjang`에 자동 매핑됩니다. 유일하게 판정할 수 없는 미매핑 사용자만 표에서 직접 지정합니다.
 
 Confluence 본문은 PostgreSQL이나 로그에 저장되지 않습니다. 규칙 점수를 통과한 Page의 제한된 본문 미리보기는 제목·문단·목록·표 구조와 입력 앞·뒤 문맥을 보존해 AI 업무 판정과 원자 사실 요약에 일시 사용됩니다. 모델은 각 사실에 하나 이상의 `evidencePageIds`를 반환하고, 서버는 비어 있거나 실제 입력 Page 집합에 없는 ID를 거부합니다. 의미 검증 실패 시 사유를 포함해 한 번만 교정 호출하며 재실패하면 `AI_SUMMARY` 진단 후 결정적 제목 기반 후보로 대체합니다. 검색 메타데이터와 본문 조회 사이에 Page Version이 달라지면 `BODY_VERSION_CHANGED` 단계 진단을 남기고 해당 버전을 후보에 연결하지 않습니다. 이는 동기화 중 수정된 두 버전의 내용을 섞지 않기 위한 재시도 가능한 상태입니다. 외부 AI 데이터 반출이 허용되지 않으면 사내 AI Gateway를 사용하거나 `후보 문서 본문 분석`을 끄십시오. 전체 운영 규격과 장애 코드는 [Confluence 연동 문서](CONFLUENCE.md)를 참고하십시오.
+
+## 7. 개인 주간보고 자동화와 권고 메일 운영
+
+사용자는 `개인 설정 → 주간보고 자동화`에서 지난주 전체 자동 복제를 켤 수 있습니다. 팀장·조직장·관리자에게는 팀원 작성 권고 메일과 발송 요일 선택이 추가로 보입니다. 저장 직후 Worker를 깨우며, 서비스 기동 시 한 번 실행한 뒤 매분 현재 주차를 확인합니다.
+
+| 자동화 | 실행 기준 | 대상과 중복 방지 | 외부 의존성 |
+|---|---|---|---|
+| 지난주 전체 자동 복제 | 새 보고 주차, 서비스 시간대와 `workflow.week_start` 기준 | 사용자별 주차당 한 번. 이번 주와 날짜가 겹치는 보고서가 있으면 건너뜀 | 없음 |
+| 팀원 작성 권고 | 선택한 요일 오전 9시 이후 | 받는 사람별 주차당 한 번. 보고서가 없거나 `DRAFT`인 활성 사용자만 | 사용 가능한 SMTP 설정 |
+
+자동 복제는 정확히 한 주 전 보고서에 업무 항목이 있을 때 요약과 구분·실적·계획·이슈·상위 조직 요청·진척도 및 이어지는 업무 식별자를 새 `DRAFT`로 복제합니다. 댓글·검토 이력·첨부·외부 출처는 옮기지 않습니다. `user_weekly_preferences.auto_clone_processed_week`을 먼저 잠그고 처리하므로 여러 프로세스가 동시에 확인해도 같은 초안을 둘 만들지 않으며, 사용자가 자동 초안을 지운 뒤 매분 되살아나지도 않습니다.
+
+권고 메일의 범위는 서버가 발송 직전 다시 계산합니다.
+
+- `TEAM_LEADER`와 `ORG_MANAGER`: 본인이 속한 조직과 전체 하위 조직. 소속 조직이 없으면 발송하지 않습니다.
+- `ADMIN`: 조직과 관계없이 전체 활성 사용자.
+- 공통: 권고자 본인은 제외하고, 사용자의 개인 메일 주소를 우선 사용하며 없으면 계정 이메일로 대체합니다. 유효한 주소가 없으면 로그에 건수만 남기고 건너뜁니다.
+- 여러 권고자의 조직 범위가 겹쳐도 `recipient_user_id + week_start` 유일 제약으로 한 통만 만듭니다. 큐를 집은 뒤에도 제출 여부, 현재 주차, 권고자의 활성 상태·역할·조직 범위와 설정을 다시 확인해 오래된 권고를 폐기합니다.
+
+권고 메일은 기존 보고서 제출 메일과 같은 SMTP 연결, 전체 제한시간, 최대 시도 횟수와 지수형 재시도를 사용합니다. SMTP가 선택 시각에 준비되지 않았을 때는 과거 주차 backlog를 만들지 않고, 현재 주 안에 설정이 정상화되면 다음 분 확인에서 따라잡습니다. `mail.enabled`, 호스트·포트·보내는 주소와 보안을 저장하고 관리자 시험 메일을 통과시킨 뒤 팀장에게 기능을 안내하십시오. 서비스 시간대가 실제 조직 시간대와 다르면 오전 9시도 그만큼 어긋나므로 `service.timezone`을 함께 확인해야 합니다.
+
+새 데이터는 `user_weekly_preferences`와 `team_reminder_deliveries` 두 테이블에 저장됩니다. 설정 저장은 `weekly.preference`, 자동 복제는 `report.auto_clone`, 권고 큐 생성은 `mail.team_reminders_queued` 감사 이벤트로 남습니다. 주소 누락, 재시도와 최종 실패는 서버 로그에 기록됩니다. 현재 관리자 메일 현황 카드와 사용자 발송 이력은 제출 메일만 집계하며 팀 권고 메일의 개별 결과 화면은 제공하지 않으므로, 권고 장애는 서버 로그와 큐 테이블을 함께 확인하십시오.

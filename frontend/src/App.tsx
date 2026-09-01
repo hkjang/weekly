@@ -24,6 +24,11 @@ import InsightsPage from './pages/InsightsPage'
 import HandoverPage from './pages/HandoverPage'
 import RollupPage from './pages/RollupPage'
 import WorkItemsPage from './pages/WorkItemsPage'
+import {
+  beginOIDCAutoLogin, clearOIDCAutoLoginMarkers, isAnonymousSessionProbe,
+  oidcAutoLoginMarkers, oidcStartURL, rememberOIDCAutoReturn,
+  shouldAttemptOIDCAutoLogin, skipOIDCAutoLogin, withoutOIDCAutoResult,
+} from './oidcAutoLogin'
 
 type Page = PageName
 
@@ -55,6 +60,10 @@ export default function App() {
   // has to be brought into view; otherwise the later entries look missing.
   const navRef = useRef<HTMLElement>(null)
   const [signedOut, setSignedOut] = useState(false)
+  const [initiallyAnonymous, setInitiallyAnonymous] = useState(false)
+  const [autoLoginStarted, setAutoLoginStarted] = useState(false)
+  const [oidcAutoReturned] = useState(() => new URLSearchParams(window.location.search).has('oidc_auto'))
+  const [oidcAutoUnavailable] = useState(() => new URLSearchParams(window.location.search).get('oidc_auto') === 'unavailable')
 
   const expiredRef = useRef(false)
   const notify = (message: string, kind: 'success' | 'error' = 'success') => {
@@ -76,9 +85,42 @@ export default function App() {
   }
   const refreshSession = async () => { const value = await api<SessionInfo>('/api/v1/me'); setSession(value) }
   useEffect(() => {
-    Promise.all([api<Providers>('/api/v1/auth/providers'), api<SessionInfo>('/api/v1/me').catch(() => undefined)])
-      .then(([p, s]) => { setProviders(p); setSession(s) }).finally(() => setLoading(false))
+    const oidcResult = new URLSearchParams(window.location.search).get('oidc_auto')
+    if (oidcResult) {
+      rememberOIDCAutoReturn()
+      history.replaceState(history.state, '', withoutOIDCAutoResult(window.location.pathname, window.location.search, window.location.hash))
+    }
+    const sessionProbe = api<SessionInfo>('/api/v1/me')
+      .then(value => ({ value, anonymous: false }))
+      .catch(error => {
+        if (isAnonymousSessionProbe(error)) return { value: undefined, anonymous: true }
+        throw error
+      })
+    Promise.all([api<Providers>('/api/v1/auth/providers'), sessionProbe])
+      .then(([p, result]) => { setProviders(p); setSession(result.value); setInitiallyAnonymous(result.anonymous) })
+      .catch(() => { /* the existing unavailable screen is rendered below */ })
+      .finally(() => setLoading(false))
   }, [])
+  // Only the cold-start 401 is eligible. A database outage, an in-flight
+  // session expiry, and an editor holding unsaved work must never navigate the
+  // whole tab away to ask Keycloak a question.
+  useEffect(() => {
+    if (loading || !providers || session) return
+    const markers = oidcAutoLoginMarkers()
+    // A redirect without durable per-tab memory can repeat forever after the
+    // provider comes back, so browsers that deny storage stay on the login page.
+    if (!markers) return
+    let { attempted, skipped } = markers
+    attempted ||= oidcAutoReturned
+    if (!shouldAttemptOIDCAutoLogin({ oidc: providers.oidc, anonymous: initiallyAnonymous, signedOut, attempted, skipped })) return
+    if (!beginOIDCAutoLogin()) return
+    setAutoLoginStarted(true)
+    window.location.replace(oidcStartURL(window.location.hash, true))
+  }, [loading, providers, session, initiallyAnonymous, signedOut, oidcAutoReturned])
+  useEffect(() => {
+    if (!session) return
+    clearOIDCAutoLoginMarkers()
+  }, [session])
   // The API layer announces a 401; deciding what to do with it belongs here.
   const sessionRef = useRef<SessionInfo | undefined>(undefined)
   sessionRef.current = session
@@ -214,22 +256,22 @@ export default function App() {
     return () => { window.removeEventListener('keydown', onKeyDown); window.clearTimeout(timer) }
   }, [session, paletteOpen, go])
 
-  if (loading) return <div className="splash"><div className="brand-mark">W</div><Spinner /></div>
+  if (loading || autoLoginStarted) return <div className="splash"><div className="brand-mark">W</div><Spinner /></div>
   if (!providers) return <div className="splash"><p>서비스 정보를 불러올 수 없습니다.</p></div>
   // The toast lives in the shell below, which this branch never reaches, so it
   // is rendered here too. Without it the "your session expired" message is
   // created and then thrown away at the exact moment it is needed.
   if (!session) return <>
     <Login providers={providers} notify={notify}
-      notice={signedOut ? '세션이 만료되어 로그아웃됐습니다. 다시 로그인해 주세요.' : undefined}
-      onLogin={async () => { expiredRef.current = false; setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
+      notice={signedOut ? '세션이 만료되어 로그아웃됐습니다. 다시 로그인해 주세요.' : oidcAutoUnavailable ? 'Keycloak 자동 로그인을 확인하지 못했습니다. 아래 방식으로 로그인해 주세요.' : undefined}
+      onLogin={async () => { clearOIDCAutoLoginMarkers(); expiredRef.current = false; setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
     {toast && <Toast key={toast.id} {...toast} onClose={() => setToast(undefined)} />}
   </>
 
   const canTeam = session.user.role !== 'USER'
   const isAdmin = session.user.role === 'ADMIN'
   const navigate = (next: Page) => go(next)
-  const logout = async () => { if (!confirmDiscard()) return; setSignedOut(false); await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
+  const logout = async () => { if (!confirmDiscard()) return; skipOIDCAutoLogin(); setSignedOut(false); await post('/api/v1/auth/logout'); replaceRoute('dashboard'); setPage('dashboard'); setParams({}); setSession(undefined); setProfileOpen(false) }
 
   const screens: { page: Page; label: string; keywords: string[]; visible: boolean }[] = [
     { page: 'dashboard', label: '대시보드', keywords: ['dashboard', 'home', '홈'], visible: true },
@@ -369,7 +411,7 @@ function Login({ providers, onLogin, notify, notice }: { providers: Providers; o
   return <div className="login-page"><div className="login-panel"><div className="login-brand"><span className="brand-mark">W</span><div><h1>{providers.name}</h1><p>한 주의 성과를 선명하게 기록하세요.</p></div></div>{notice && <div className="login-expired" role="alert">{notice}</div>}{providers.notice && <div className="login-notice">{providers.notice}</div>}
     {providers.local && <form onSubmit={submit}><label>아이디<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label><label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label><Button disabled={busy} className="full">{busy ? '로그인 중…' : '로그인'}</Button></form>}
     {providers.local && providers.oidc && <div className="divider"><span>또는</span></div>}
-    {providers.oidc && <a className="button secondary full sso" href="/api/v1/auth/oidc/start">Keycloak SSO로 로그인</a>}
+    {providers.oidc && <a className="button secondary full sso" href={oidcStartURL(window.location.hash, false)} onClick={() => { clearOIDCAutoLoginMarkers() }}>Keycloak SSO로 로그인</a>}
     {!providers.local && !providers.oidc && <p className="login-error">활성화된 로그인 방식이 없습니다. 관리자에게 문의하세요.</p>}
     <footer><span>{providers.name} v{providers.build.version}</span><span>Commit {providers.build.commit.slice(0, 8)}</span></footer>
   </div><div className="login-art"><div className="orb one"/><div className="orb two"/><div className="week-grid">{['MON','TUE','WED','THU','FRI'].map((day, index) => <div key={day} style={{ '--i': index } as React.CSSProperties}><strong>{day}</strong><span/><span/><span/></div>)}</div></div></div>

@@ -221,3 +221,13 @@
 /* A misconfiguration of the signed-in account, not an announcement. Warmer than
    the service notice because somebody has to act on it. */
 .notice.account-notice{border:1px solid #fdba74;background:#fff7ed;color:#9a3412}
+
+/* Personal weekly automations are saved together but remain two explicit
+   choices. The explanatory copy is part of the control: "full clone" and
+   "team reminder" both have consequences beyond this screen. */
+.automation-options{border-top:1px solid #f1f5f9}
+.automation-options .toggle-row,.automation-options .setting-row{grid-template-columns:minmax(260px,1fr) minmax(160px,260px)}
+.automation-options strong{color:#334155;font-size:13px}
+.automation-options small{margin-top:4px;color:var(--muted);line-height:1.5}
+.automation-save{display:flex;justify-content:flex-end;margin-top:16px}
+@media(max-width:600px){.automation-options .toggle-row,.automation-options .setting-row{grid-template-columns:1fr}.automation-options .toggle-row input{justify-self:start}}

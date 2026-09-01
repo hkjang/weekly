@@ -1,118 +1,124 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weekly 엔터프라이즈 관리자 가이드 (Admin Guide)</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #10b981;
-            --primary-dark: #047857;
-            --text-dark: #0f172a;
-            --text-muted: #475569;
-            --bg-light: #f8fafc;
-            --border-color: #e2e8f0;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', -apple-system, sans-serif; color: var(--text-dark); background: var(--bg-light); line-height: 1.65; padding: 48px 24px; }
-        .doc-card { max-width: 1040px; margin: 0 auto; background: #ffffff; border: 1px solid var(--border-color); border-radius: 20px; padding: 56px; box-shadow: 0 12px 30px rgba(0,0,0,0.06); }
-        .header-meta { border-bottom: 3px solid var(--primary); padding-bottom: 28px; margin-bottom: 36px; }
-        .header-meta h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.2rem; color: #0f172a; margin-bottom: 16px; letter-spacing: -0.02em; }
-        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 0.9rem; color: var(--text-muted); }
-        .meta-item { background: #f1f5f9; padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
-        h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.45rem; color: var(--primary-dark); margin: 40px 0 20px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }
-        p { margin-bottom: 18px; font-size: 1rem; color: #334155; }
-        table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.92rem; }
-        th, td { border: 1px solid var(--border-color); padding: 12px 16px; text-align: left; }
-        th { background: #f8fafc; font-weight: 700; color: #0f172a; }
-        pre { background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; overflow-x: auto; margin: 20px 0; }
-        code { font-family: 'JetBrains Mono', monospace; background: #e2e8f0; color: #0f172a; padding: 2px 6px; border-radius: 4px; font-size: 0.88rem; }
-        pre code { background: none; color: inherit; padding: 0; }
-        .print-btn { display: inline-block; background: var(--primary); color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.92rem; float: right; }
-        .print-btn:hover { background: var(--primary-dark); }
-        @media print { .print-btn { display: none; } body { background: #ffffff; padding: 0; } .doc-card { border: none; box-shadow: none; padding: 0; } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly 엔터프라이즈 관리자 가이드 (Admin &amp; Operational Guide)</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 18px 60px; background: #f1f5f9;
+  font-family: 'Pretendard', 'Noto Sans KR', -apple-system, system-ui, sans-serif;
+  color: #1e293b; line-height: 1.75; }
+.doc-card { max-width: 980px; margin: 0 auto; background: #fff; border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .10); padding: 44px 48px 56px; }
+.header-meta { border-bottom: 2px solid #e2e8f0; padding-bottom: 22px; margin-bottom: 30px; }
+.header-meta h1 { margin: 0 0 16px; font-size: 1.85rem; color: #0f172a; letter-spacing: -.02em; }
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.meta-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px;
+  padding: 9px 12px; font-size: .82rem; color: #475569; }
+.meta-item strong { color: #1d4ed8; }
+h2 { margin: 38px 0 14px; font-size: 1.3rem; color: #172554;
+  border-left: 4px solid #2563eb; padding-left: 12px; }
+h3 { margin: 26px 0 10px; font-size: 1.05rem; color: #1e293b; }
+p { margin: 12px 0; }
+ul, ol { margin: 12px 0; padding-left: 24px; }
+li { margin: 6px 0; }
+code { background: #eef2ff; color: #4338ca; padding: 2px 6px; border-radius: 5px;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; font-size: .88em; }
+.phase-box { background: #0f172a; color: #a7f3d0; border-radius: 11px; padding: 18px 20px;
+  overflow-x: auto; font-family: ui-monospace, Menlo, monospace; font-size: .78rem;
+  line-height: 1.6; white-space: pre; margin: 18px 0; }
+table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: .88rem; }
+th { background: #2563eb; color: #fff; text-align: left; padding: 10px 12px; font-weight: 700; }
+td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+hr { border: 0; border-top: 1px solid #e2e8f0; margin: 34px 0; }
+blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
+  border-left: 4px solid #f59e0b; color: #78350f; border-radius: 0 8px 8px 0; }
+.print-btn { display: inline-block; margin-bottom: 20px; background: #2563eb; color: #fff;
+  border: 0; border-radius: 9px; padding: 9px 16px; font-size: .85rem; font-weight: 700;
+  cursor: pointer; text-decoration: none; }
+@media print {
+  body { background: #fff; padding: 0; }
+  .doc-card { box-shadow: none; padding: 0; max-width: none; }
+  .print-btn { display: none; }
+  h2 { break-after: avoid; }
+  .phase-box { color: #0f172a; background: #f1f5f9; }
+}
+</style>
 </head>
 <body>
-    <div class="doc-card">
-        <a href="javascript:window.print()" class="print-btn">🖨️ PDF / 인쇄하기</a>
-        <div class="header-meta">
-            <h1>Weekly 엔터프라이즈 관리자 가이드 (Admin Guide)</h1>
-            <div class="meta-grid">
-                <div class="meta-item"><strong>문서 버전:</strong> v0.3.0-ENTERPRISE</div>
-                <div class="meta-item"><strong>작성일자:</strong> 2026년 8월 9일</div>
-                <div class="meta-item"><strong>대상:</strong> 시스템 관리자, Security/DevOps</div>
-                <div class="meta-item"><strong>분류:</strong> 공식 관리자 & 운영 매뉴얼</div>
-            </div>
-        </div>
-
-        <h2>1. 시스템 부트스트랩</h2>
-        <pre><code>WEEKLY_POSTGRES_DSN=postgres://weekly:Secr3tPass@10.10.30.5:5432/weekly?sslmode=disable
+<div class="doc-card">
+<a class="print-btn" href="ADMIN_GUIDE.pdf">PDF 내려받기</a>
+<div class="header-meta"><h1>Weekly 엔터프라이즈 관리자 가이드 (Admin &amp; Operational Guide)</h1>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.277.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
+<h2>1. 시스템 부트스트랩 (Bootstrap Environment Variables)</h2>
+<p>Weekly 컨테이너 프로세스는 <strong><code>WEEKLY_POSTGRES_DSN</code> 하나</strong>로 부팅합니다. 관리자 계정이 하나도 없는 데이터베이스, 즉 <strong>첫 기동에만</strong> 부트스트랩 관리자 2개 변수를 추가로 요구합니다. 업그레이드 후에도 암호화 설정을 복구하기 위해 <code>WEEKLY_ENCRYPTION_KEY</code>를 운영 필수 수준으로 권장합니다.</p>
+<div class="phase-box"># deploy/.env 파일 설정 예시
+WEEKLY_POSTGRES_DSN=postgres://weekly:Secr3tPass@10.10.30.5:5432/weekly?sslmode=disable
+# 아래 2개는 첫 기동에만 필요하며, 관리자 계정이 생긴 뒤에는 지웁니다.
 WEEKLY_BOOTSTRAP_ADMIN=admin
-WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!</code></pre>
-
-        <h2>2. Keycloak OIDC SSO 및 RBAC 연동</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>역할 (Role)</th>
-                    <th>개인 작성</th>
-                    <th>팀 승인/반려</th>
-                    <th>조직 전체 조회</th>
-                    <th>PPTX 템플릿 등록</th>
-                    <th>OIDC/시스템 설정</th>
-                    <th>감사 로그</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><strong>ADMIN</strong></td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                </tr>
-                <tr>
-                    <td><strong>ORG_MANAGER</strong></td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                </tr>
-                <tr>
-                    <td><strong>TEAM_LEADER</strong></td>
-                    <td>✅</td>
-                    <td>✅</td>
-                    <td>❌ (소속 팀만)</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                </tr>
-                <tr>
-                    <td><strong>USER</strong></td>
-                    <td>✅</td>
-                    <td>❌</td>
-                    <td>❌ (본인 것만)</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h2>3. 사내 PPTX 템플릿 등록 및 토큰 검증</h2>
-        <p>관리자 화면에서 사내 표준 PPTX 파일을 업로드하면 원본 디자인 양식을 보존하면서 <code>{{THIS_WEEK}}</code>, <code>{{NEXT_WEEK}}</code>, <code>{{ISSUES}}</code> 토큰이 자동 교체됩니다.</p>
-
-        <h2>4. AI Gateway 및 과거 PPTX Import</h2>
-        <p><code>관리자 설정 → AI · Import</code>에서 OpenAI 호환 Chat Completions 전체 Endpoint, 모델, 선택형 API Key와 호출·업로드 제한을 관리합니다. API Key는 인스턴스 키로 암호화되며 환경변수는 추가되지 않습니다.</p>
-        <p>설정 저장 후 <strong>AI Structured Output 연결 시험</strong>을 실행하고 AI 기능을 켭니다. PPTX 원본 보존기간이 지나면 바이너리만 제거되고 파일 해시, 추출 결과, 확정 보고 연결과 감사 기록은 PostgreSQL에 남습니다.</p>
-    </div>
+WEEKLY_BOOTSTRAP_ADMIN_PASSWORD=SuperSecretAdminPassword123!
+WEEKLY_ENCRYPTION_KEY=&lt;openssl rand -base64 32 결과&gt;</div>
+<blockquote><strong>첫 기동 이후 (Bootstrap Secret Removal)</strong>:</blockquote>
+<blockquote>최초 관리자가 만들어지면 <code>WEEKLY_BOOTSTRAP_ADMIN</code>과 <code>WEEKLY_BOOTSTRAP_ADMIN_PASSWORD</code>는 다시 읽히지 않습니다. <code>.env</code>, Compose 파일, Kubernetes Secret, CI 변수에서 두 값을 삭제하십시오. 삭제한 뒤에도 컨테이너는 정상 기동합니다. 관리자가 전부 사라진 데이터베이스로 기동하면 두 값을 다시 요구하며 그 사실을 로그에 적고 멈춥니다.</blockquote>
+<blockquote><strong>중요 (Volume Backup Notice)</strong>:</blockquote>
+<blockquote><code>/var/lib/weekly</code> 볼륨과 <code>WEEKLY_ENCRYPTION_KEY</code>는 별도로 정기 백업해야 합니다. 기존 볼륨 키만 사용하던 환경은 볼륨을 유지한 상태에서 환경 키를 처음 설정하면 Keycloak/AI/Confluence 비밀값이 새 키로 자동 재암호화됩니다.</blockquote>
+<hr>
+<h2>2. Keycloak OIDC SSO 및 RBAC 연동</h2>
+<ul>
+<li>부트스트랩 관리자 계정으로 로그인 ➔ <code>관리자 설정 ➔ 서비스 설정 ➔ 인증 · Keycloak OIDC</code>로 이동.</li>
+<li>Valid Redirect URI 등록: <code>https://weekly.internal/api/v1/auth/oidc/callback</code></li>
+<li>Group Claim Mappers 설정 및 관리자 그룹(<code>ADMIN</code>) 지정 시 자동 승격 연동.</li>
+</ul>
+<p>OIDC가 활성화된 배포에서 Weekly 세션이 없는 브라우저가 앱을 처음 열면 Authorization Code + PKCE 흐름을 <code>prompt=none</code>으로 한 번 시작합니다. Keycloak SSO 세션과 사전 동의가 있으면 로그인 화면 없이 원래 <code>#/...</code> 화면으로 돌아오고, <code>login_required</code>·<code>interaction_required</code>·<code>consent_required</code>·<code>account_selection_required</code>이면 Weekly의 일반 로그인 화면으로 되돌아옵니다. state·nonce·PKCE와 10분 만료 검증은 대화형 로그인과 동일하며, ID·Access·Refresh Token은 Weekly DB에 보관하지 않습니다.</p>
+<p>이 자동 확인은 앱 최초 세션 조회가 401인 경우만 수행합니다. PostgreSQL 장애나 네트워크 실패를 로그아웃으로 오인해 Keycloak으로 보내지 않으며, 작성 중 세션 만료 시에는 전체 탭을 이동하지 않습니다. Weekly의 명시적 로그아웃은 Keycloak Realm 로그아웃을 호출하지 않고 현재 탭의 자동 확인만 억제합니다. 따라서 다른 사내 서비스의 SSO는 유지되고, 사용자가 SSO 버튼을 직접 누르면 즉시 다시 로그인할 수 있습니다. 이 억제는 브라우저 탭의 <code>sessionStorage</code>에 있으므로 새 탭에는 공유되지 않습니다.</p>
+<h3>RBAC (Role-Based Access Control) 권한 매트릭스</h3>
+<table><thead><tr><th>역할 (Role)</th><th>개인 보고서 작성</th><th>팀 승인/반려</th><th>조직 전체 조회</th><th>PPTX 템플릿 등록</th><th>OIDC/시스템 설정</th><th>감사 로그</th></tr></thead><tbody><tr><td><strong>ADMIN</strong></td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr><tr><td><strong>ORG_MANAGER</strong></td><td>✅</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr><tr><td><strong>TEAM_LEADER</strong></td><td>✅</td><td>✅</td><td>❌ (소속 팀만)</td><td>❌</td><td>❌</td><td>❌</td></tr><tr><td><strong>USER</strong></td><td>✅</td><td>❌</td><td>❌ (본인 것만)</td><td>❌</td><td>❌</td><td>❌</td></tr></tbody></table>
+<hr>
+<h2>3. 사내 PPTX 템플릿 등록 및 토큰 검증</h2>
+<p><code>관리자 설정 ➔ PPTX 템플릿</code> 메뉴에서 사내 표준 PPTX 파일을 등록합니다. 등록 시 ZIP 구조와 아래 필수 토큰 포함 여부를 자동으로 시스템이 검증합니다.</p>
+<ul>
+<li><code>{{WEEK_SCHEDULE}}</code>: 주간 일정 범위</li>
+<li><code>{{THIS_WEEK}}</code>: 업무별 이번 주 한 일 (필수)</li>
+<li><code>{{NEXT_WEEK}}</code>: 업무별 다음 주 할 일 (필수)</li>
+<li><code>{{ISSUES}}</code>: 주요 이슈 및 지원 요청</li>
+<li><code>{{AUTHOR}}</code>: 작성자</li>
+<li><code>{{TEAM}}</code>: 조직명</li>
+</ul>
+<p>기본 4장 참조 형식은 항목 순서를 유지하면서 구분·제목, 예상 줄바꿈과 실적·계획 중 더 긴 열을 비용으로 계산해 슬라이드 높이를 균형화합니다. 같은 구분이 한 장을 넘으면 여러 장으로 나누고 각 장에서 구분 제목을 반복합니다. 관리자 등록 토큰 템플릿은 기존처럼 원본 슬라이드 수와 레이아웃을 변경하지 않습니다.</p>
+<hr>
+<h2>4. API / MCP 키 무중단 회전 (Key Rotation) &amp; 감사 로그 (Audit Log)</h2>
+<ul>
+<li><strong>키 회전</strong>: 관리자는 사내 보안 위협 시 [전체 개인 키 즉시 폐기] 기능을 실행하여 발급된 모든 API/MCP 키를 일괄 무효화할 수 있습니다.</li>
+<li><strong>감사 로그 (Audit Trail)</strong>: 보고서 작성, 승인, 반려, OIDC 설정 변경 및 템플릿 업로드 내역이 DB 감사 로그 테이블에 영구 보존됩니다.</li>
+</ul>
+<hr>
+<h2>5. AI Gateway 및 Import 정책</h2>
+<p><code>서비스 설정</code>의 주차 시작 요일은 월·화·수·목·금·토·일 중 하나를 선택할 수 있습니다. 이 값은 현재 주차 조회, 팀 분석, Confluence 후보, PPTX 날짜와 Import의 단독 날짜 보정에 공통 적용됩니다.</p>
+<p><code>관리자 설정 ➔ AI · Import</code>에서 다음 연결값을 관리합니다. 배포 환경에는 연결값 대신 공통 암호화 키만 둡니다.</p>
+<table><thead><tr><th>설정</th><th>의미</th><th>기본값</th></tr></thead><tbody><tr><td>AI 사용</td><td>사용자 AI 작성·PPTX 분석 허용</td><td>꺼짐</td></tr><tr><td>Endpoint</td><td>OpenAI 호환 Chat Completions 전체 URL</td><td>없음</td></tr><tr><td>Model</td><td>Gateway가 제공하는 모델 식별자</td><td>없음</td></tr><tr><td>API Key</td><td>선택형 Bearer 토큰, 암호화 저장</td><td>없음</td></tr><tr><td>Timeout</td><td>한 번의 AI 호출 제한 시간(초)</td><td>90</td></tr><tr><td>최대 입력 문자</td><td>정규화 입력 상한</td><td>50,000</td></tr><tr><td>작업당 파일 수</td><td>다중 업로드 상한</td><td>20</td></tr><tr><td>파일당 크기</td><td>PPTX 한 개 상한(MB)</td><td>25</td></tr><tr><td>원본 보존일</td><td>확정·건너뜀·실패 원본 보존기간</td><td>365</td></tr></tbody></table>
+<p>Endpoint와 Model을 먼저 저장하고 <code>AI 연결 시험</code>으로 JSON Schema Structured Output 지원 여부를 확인한 다음 AI 사용을 켭니다. v0.7.0의 모델 계약은 실적·계획·이슈를 원자 문자열 배열로 반환하며, PPTX 분석은 각 항목에 실제 근거 슬라이드 번호와 별도 업무 구분 신뢰도를 요구합니다. 존재하지 않는 슬라이드, 근거 없는 항목 또는 잘못된 구조를 반환하는 모델은 분석 실패로 처리되므로 업그레이드 전에 운영 모델의 Structured Output 호환성을 다시 시험하십시오. API Key 입력란을 비워 저장하면 기존 비밀값이 유지됩니다. 내부 Gateway가 인증을 요구하지 않는 경우 API Key는 비워둘 수 있습니다.</p>
+<p>원본 보존기간이 지나면 해당 PPTX 바이너리만 상태 볼륨에서 삭제됩니다. 파일 해시, 추출 텍스트, 구조화 결과, 연결된 보고서와 감사 기록은 PostgreSQL에 남습니다. 원본이 남아 있고 아직 확정되지 않은 <code>FAILED</code>, <code>READY</code>, <code>NEEDS_REVIEW</code> 파일은 파일 ID를 지정해 다시 분석할 수 있습니다. 본문 없는 기존 호출은 종전처럼 실패 파일 전체만 재시도하므로 기존 클라이언트와 호환됩니다. <code>NEEDS_REVIEW</code>는 UI에서 기본 선택하지 않고, 확정 API도 관리자 주차 시작 요일과 항목 구분·제목을 다시 검증합니다.</p>
+<p>보안상 AI에는 PPTX 파일 자체가 아니라 서버에서 추출·정규화한 텍스트만 전달됩니다. 추출기는 프레젠테이션 관계의 화면 표시 순서, 원본 슬라이드 번호, 도형 이름, 문단·글머리표 단계, 표 행·열과 빈 셀을 보존합니다. 입력 상한을 넘으면 슬라이드별 공정 예산으로 자르고 일부 내용이 잘린 슬라이드를 <code>NEEDS_REVIEW</code> 경고에 기록하므로 운영자는 해당 원본을 대조해야 합니다. 데이터 반출 정책상 외부 AI 호출이 허용되지 않는 환경에서는 사내망 OpenAI 호환 Gateway를 사용하십시오.</p>
+<h2>6. Confluence 6.9.1 자동화</h2>
+<p><code>서비스 설정 ➔ Confluence 6.9.1 자동화</code>에서 Base URL, <code>BASIC</code> 인증, 연동 전용 계정과 암호화 비밀번호를 저장한 뒤 연결 시험을 수행합니다. 대상·제외 Space, 5분 이상의 동기화 주기, Blog 포함 여부, AI/본문 분석, 후보 점수와 업무 키워드를 운영 환경에 맞게 지정합니다. Confluence 연결값 자체는 환경변수로 전달하지 않습니다.</p>
+<p><code>Confluence 자동화</code> 탭에서는 마지막 성공·시도 시각, 조회/변경 Page 수, 생성 후보, 실패 수와 최근 단계별 오류를 확인하고 관리자 강제 증분 Sync를 요청할 수 있습니다. 일반 사용자에게는 Sync 버튼을 제공하지 않습니다.</p>
+<p>사용자 매핑 우선순위는 관리자 명시값, Keycloak/Weekly 이메일의 <code>@</code> 앞부분, Weekly 로그인 아이디입니다. 예를 들어 <code>hkjang@koreacb.com</code>은 Confluence <code>hkjang</code>에 자동 매핑됩니다. 유일하게 판정할 수 없는 미매핑 사용자만 표에서 직접 지정합니다.</p>
+<p>Confluence 본문은 PostgreSQL이나 로그에 저장되지 않습니다. 규칙 점수를 통과한 Page의 제한된 본문 미리보기는 제목·문단·목록·표 구조와 입력 앞·뒤 문맥을 보존해 AI 업무 판정과 원자 사실 요약에 일시 사용됩니다. 모델은 각 사실에 하나 이상의 <code>evidencePageIds</code>를 반환하고, 서버는 비어 있거나 실제 입력 Page 집합에 없는 ID를 거부합니다. 의미 검증 실패 시 사유를 포함해 한 번만 교정 호출하며 재실패하면 <code>AI_SUMMARY</code> 진단 후 결정적 제목 기반 후보로 대체합니다. 검색 메타데이터와 본문 조회 사이에 Page Version이 달라지면 <code>BODY_VERSION_CHANGED</code> 단계 진단을 남기고 해당 버전을 후보에 연결하지 않습니다. 이는 동기화 중 수정된 두 버전의 내용을 섞지 않기 위한 재시도 가능한 상태입니다. 외부 AI 데이터 반출이 허용되지 않으면 사내 AI Gateway를 사용하거나 <code>후보 문서 본문 분석</code>을 끄십시오. 전체 운영 규격과 장애 코드는 [Confluence 연동 문서](CONFLUENCE.md)를 참고하십시오.</p>
+<h2>7. 개인 주간보고 자동화와 권고 메일 운영</h2>
+<p>사용자는 <code>개인 설정 → 주간보고 자동화</code>에서 지난주 전체 자동 복제를 켤 수 있습니다. 팀장·조직장·관리자에게는 팀원 작성 권고 메일과 발송 요일 선택이 추가로 보입니다. 저장 직후 Worker를 깨우며, 서비스 기동 시 한 번 실행한 뒤 매분 현재 주차를 확인합니다.</p>
+<table><thead><tr><th>자동화</th><th>실행 기준</th><th>대상과 중복 방지</th><th>외부 의존성</th></tr></thead><tbody><tr><td>지난주 전체 자동 복제</td><td>새 보고 주차, 서비스 시간대와 <code>workflow.week_start</code> 기준</td><td>사용자별 주차당 한 번. 이번 주와 날짜가 겹치는 보고서가 있으면 건너뜀</td><td>없음</td></tr><tr><td>팀원 작성 권고</td><td>선택한 요일 오전 9시 이후</td><td>받는 사람별 주차당 한 번. 보고서가 없거나 <code>DRAFT</code>인 활성 사용자만</td><td>사용 가능한 SMTP 설정</td></tr></tbody></table>
+<p>자동 복제는 정확히 한 주 전 보고서에 업무 항목이 있을 때 요약과 구분·실적·계획·이슈·상위 조직 요청·진척도 및 이어지는 업무 식별자를 새 <code>DRAFT</code>로 복제합니다. 댓글·검토 이력·첨부·외부 출처는 옮기지 않습니다. <code>user_weekly_preferences.auto_clone_processed_week</code>을 먼저 잠그고 처리하므로 여러 프로세스가 동시에 확인해도 같은 초안을 둘 만들지 않으며, 사용자가 자동 초안을 지운 뒤 매분 되살아나지도 않습니다.</p>
+<p>권고 메일의 범위는 서버가 발송 직전 다시 계산합니다.</p>
+<ul>
+<li><code>TEAM_LEADER</code>와 <code>ORG_MANAGER</code>: 본인이 속한 조직과 전체 하위 조직. 소속 조직이 없으면 발송하지 않습니다.</li>
+<li><code>ADMIN</code>: 조직과 관계없이 전체 활성 사용자.</li>
+<li>공통: 권고자 본인은 제외하고, 사용자의 개인 메일 주소를 우선 사용하며 없으면 계정 이메일로 대체합니다. 유효한 주소가 없으면 로그에 건수만 남기고 건너뜁니다.</li>
+<li>여러 권고자의 조직 범위가 겹쳐도 <code>recipient_user_id + week_start</code> 유일 제약으로 한 통만 만듭니다. 큐를 집은 뒤에도 제출 여부, 현재 주차, 권고자의 활성 상태·역할·조직 범위와 설정을 다시 확인해 오래된 권고를 폐기합니다.</li>
+</ul>
+<p>권고 메일은 기존 보고서 제출 메일과 같은 SMTP 연결, 전체 제한시간, 최대 시도 횟수와 지수형 재시도를 사용합니다. SMTP가 선택 시각에 준비되지 않았을 때는 과거 주차 backlog를 만들지 않고, 현재 주 안에 설정이 정상화되면 다음 분 확인에서 따라잡습니다. <code>mail.enabled</code>, 호스트·포트·보내는 주소와 보안을 저장하고 관리자 시험 메일을 통과시킨 뒤 팀장에게 기능을 안내하십시오. 서비스 시간대가 실제 조직 시간대와 다르면 오전 9시도 그만큼 어긋나므로 <code>service.timezone</code>을 함께 확인해야 합니다.</p>
+<p>새 데이터는 <code>user_weekly_preferences</code>와 <code>team_reminder_deliveries</code> 두 테이블에 저장됩니다. 설정 저장은 <code>weekly.preference</code>, 자동 복제는 <code>report.auto_clone</code>, 권고 큐 생성은 <code>mail.team_reminders_queued</code> 감사 이벤트로 남습니다. 주소 누락, 재시도와 최종 실패는 서버 로그에 기록됩니다. 현재 관리자 메일 현황 카드와 사용자 발송 이력은 제출 메일만 집계하며 팀 권고 메일의 개별 결과 화면은 제공하지 않으므로, 권고 장애는 서버 로그와 큐 테이블을 함께 확인하십시오.</p>
+</div>
 </body>
 </html>

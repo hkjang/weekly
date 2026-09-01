@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // One deployment, one meaning for 제출률.
@@ -23,7 +24,8 @@ import (
 func TestBothScreensCountTheSameSubmissions(t *testing.T) {
 	server := newTestServer(t)
 	organization := server.createOrganization("한 정의 조직", "ONERATE")
-	week := "2026-08-24"
+	week := currentWeekStart(time.Now().In(server.app.serviceLocation(server.ctx())),
+		server.app.setting(server.ctx(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
 
 	// One report in each state a week can end in, so any definition that
 	// disagrees about any of them shows up here.
@@ -76,7 +78,7 @@ func TestBothScreensCountTheSameSubmissions(t *testing.T) {
 		}
 	}
 
-	overview := decodeData(t, server.request(http.MethodGet, "/api/v1/analytics/overview?week="+week, nil, server.admin))
+	overview := decodeData(t, server.request(http.MethodGet, "/api/v1/analytics/overview?weekStart="+week, nil, server.admin))
 	fromOverview := int(overview["submittedUsers"].(float64))
 
 	participation := server.request(http.MethodGet, "/api/v1/admin/analytics/participation?weeks=8", nil, server.admin)

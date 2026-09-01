@@ -28,7 +28,7 @@ func cloneInto(t *testing.T, server *testServer, cookie *http.Cookie, reportID i
 func clonedItems(t *testing.T, server *testServer, week string) []reportItem {
 	t.Helper()
 	rows, err := server.app.db.Query(server.ctx(),
-		`SELECT i.title, i.current_result, i.next_plan, i.progress
+		`SELECT i.work_item_id, i.title, i.current_result, i.next_plan, i.issue, i.management_ask, i.progress
 			FROM report_items i JOIN weekly_reports r ON r.id = i.report_id
 			WHERE r.week_start = $1::date ORDER BY i.sort_order`, week)
 	if err != nil {
@@ -38,7 +38,7 @@ func clonedItems(t *testing.T, server *testServer, week string) []reportItem {
 	items := []reportItem{}
 	for rows.Next() {
 		var item reportItem
-		if err := rows.Scan(&item.Title, &item.CurrentResult, &item.NextPlan, &item.Progress); err != nil {
+		if err := rows.Scan(&item.WorkItemID, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.ManagementAsk, &item.Progress); err != nil {
 			t.Fatal(err)
 		}
 		items = append(items, item)
@@ -51,6 +51,12 @@ func TestCloningInFullModeCarriesTheWritingAndStructureModeDoesNot(t *testing.T)
 	server := newTestServer(t)
 	author := server.createUser("clone_modes", "USER", nil)
 	reportID := server.submitted(author, "2026-08-24", "복제할 보고서")
+	var sourceWorkItemID int64
+	if err := server.app.db.QueryRow(server.ctx(), `UPDATE report_items SET management_ask='검토자 지정'
+		WHERE id=(SELECT id FROM report_items WHERE report_id=$1 ORDER BY sort_order,id LIMIT 1)
+		RETURNING work_item_id`, reportID).Scan(&sourceWorkItemID); err != nil {
+		t.Fatal(err)
+	}
 
 	if reply := cloneInto(t, server, author, reportID, "2026-09-07", "FULL"); reply.StatusCode != http.StatusOK && reply.StatusCode != http.StatusCreated {
 		t.Fatalf("FULL 복제: %d", reply.StatusCode)
@@ -61,8 +67,11 @@ func TestCloningInFullModeCarriesTheWritingAndStructureModeDoesNot(t *testing.T)
 	}
 	carried := false
 	for _, item := range full {
-		if item.CurrentResult != "" || item.Progress != 0 {
+		if item.CurrentResult != "" || item.Progress != 0 || item.ManagementAsk != "" {
 			carried = true
+		}
+		if item.WorkItemID == nil || *item.WorkItemID != sourceWorkItemID {
+			t.Errorf("FULL 복제가 업무의 주차간 연결을 잃었습니다: %+v", item)
 		}
 	}
 	if !carried {
@@ -80,8 +89,11 @@ func TestCloningInFullModeCarriesTheWritingAndStructureModeDoesNot(t *testing.T)
 		if item.Title == "" {
 			t.Errorf("STRUCTURE 인데 업무 이름이 비었습니다: %+v", item)
 		}
-		if item.CurrentResult != "" || item.NextPlan != "" || item.Progress != 0 {
+		if item.CurrentResult != "" || item.NextPlan != "" || item.Issue != "" || item.ManagementAsk != "" || item.Progress != 0 {
 			t.Errorf("STRUCTURE 인데 지난주 내용이 따라왔습니다: %+v", item)
+		}
+		if item.WorkItemID == nil || *item.WorkItemID != sourceWorkItemID {
+			t.Errorf("STRUCTURE 복제가 업무의 주차간 연결을 잃었습니다: %+v", item)
 		}
 	}
 

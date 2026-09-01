@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.276.0
+  version: 0.277.0
   description: |
-    주간보고 작성·복제, 근거 검증형 Confluence 6.9.1 자동 초안, 원자 사실 AI 구조화,
-    PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
+    주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
+    원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
 
     ## 화면이 쓰지 않는 응답 필드
 
@@ -61,6 +61,12 @@ paths:
     get:
       security: []
       summary: 로그인 방식과 공개 서비스 정보
+      description: |
+        로컬 로그인과 OIDC 사용 가능 여부를 공개한다. SPA는 처음 연 탭에서 `/me`가 401이고
+        OIDC가 사용 가능한 경우에만 브라우저 전용 OIDC 시작 경로로 한 번 이동해
+        `prompt=none` 로그인을 시도한다. Keycloak 세션이 없거나 상호작용이 필요하면 일반
+        로그인 화면으로 돌아오며 반복하지 않는다. 네트워크·DB 오류와 작성 중 세션 만료는
+        이 자동 이동의 조건이 아니다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /auth/login:
@@ -91,6 +97,10 @@ paths:
       description: |
         세션 행을 지우고 쿠키를 만료시킨다. 쿠키가 없어도 성공으로 답한다 — 로그아웃은
         멱등이어야 하고, 이미 끊긴 세션으로 다시 부르는 것이 오류일 이유가 없다.
+
+        Weekly 세션만 끝내며 Keycloak Realm 세션은 종료하지 않는다. 웹 화면은 명시적으로
+        로그아웃한 현재 탭에서만 `prompt=none` 자동 로그인을 건너뛴다. 사용자가 OIDC 로그인
+        버튼을 직접 누르거나 Keycloak 세션이 남은 새 탭을 열면 다시 로그인할 수 있다.
       tags: [Auth]
       responses:
         "200": { $ref: "#/components/responses/Success" }
@@ -1139,6 +1149,67 @@ paths:
                                 limit: { type: integer, description: 한 그룹이 싣는 최대 항목 수. count 가 이보다 크면 변화가 큰 것부터 limit 개만 담깁니다. }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /me/preferences:
+    get:
+      summary: 개인 주간보고 자동화 설정 조회
+      description: |
+        `autoClonePrevious`는 정확히 한 주 전 보고서 전체를 새 주차 `DRAFT`로 한 번만
+        복제할지 나타낸다. 이번 주와 날짜가 겹치는 보고서가 있으면 덮어쓰지 않으며,
+        댓글·검토 이력·첨부·외부 출처는 복제하지 않는다.
+
+        `reminderAvailable`은 현재 역할이 TEAM_LEADER·ORG_MANAGER·ADMIN 중 하나인지,
+        `relayReady`는 권고 메일에 쓸 SMTP 설정이 준비됐는지 나타낸다. 권고 메일은 선택한
+        요일의 서비스 시간대 `reminderHour`(현재 9시) 이후 아직 제출하지 않은 담당 범위의
+        활성 사용자에게 주차당 한 번 발송된다. 역할이 낮아진 사용자의 저장된 선택은 지우지
+        않지만 `reminderEnabled`는 false로 반환하고 Worker도 실행하지 않는다.
+      responses:
+        "200":
+          description: 현재 설정과 실행 조건
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WeeklyPreference"
+    put:
+      summary: 개인 주간보고 자동화 설정 저장
+      description: |
+        자동 복제는 모든 사용자가 설정할 수 있다. 팀 권고 메일은 TEAM_LEADER·ORG_MANAGER·
+        ADMIN만 켤 수 있으며 권한이 없는데 `reminderEnabled=true`이면 403을 반환한다.
+        권고 가능한 역할에는 유효한 `reminderWeekday`가 필요하다. 저장하면 Worker를 깨워
+        현재 주차에 실행할 일이 있는지 즉시 다시 확인한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [autoClonePrevious, reminderEnabled, reminderWeekday]
+              properties:
+                autoClonePrevious:
+                  type: boolean
+                  description: 새 주차에 정확히 한 주 전 보고서 전체를 DRAFT로 한 번 복제
+                reminderEnabled:
+                  type: boolean
+                  description: 담당 범위의 미제출 사용자에게 작성 권고 메일 발송
+                reminderWeekday:
+                  $ref: "#/components/schemas/WeekdayName"
+      responses:
+        "200":
+          description: 저장된 설정과 실행 조건
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WeeklyPreference"
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /me/mail:
     get:
       summary: 주간보고 메일 발송 설정과 최근 발송 결과
@@ -1969,6 +2040,42 @@ components:
             status, 오류 코드, 소요 시간을 함께 적습니다. 4xx 는 남기지 않습니다 —
             화면이 추적 ID 를 보여 주지 않고, 요청마다 한 줄을 남기면 정작 물어 온
             요청이 묻힙니다.
+    WeekdayName:
+      type: string
+      enum: [SUNDAY, MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY]
+    WeeklyPreference:
+      type: object
+      required:
+        - autoClonePrevious
+        - reminderAvailable
+        - reminderEnabled
+        - reminderWeekday
+        - reminderHour
+        - timezone
+        - relayReady
+      properties:
+        autoClonePrevious:
+          type: boolean
+          description: 정확히 한 주 전 보고서 전체를 새 주차 DRAFT로 한 번 자동 복제
+        reminderAvailable:
+          type: boolean
+          description: 현재 역할로 팀 작성 권고 메일을 설정할 수 있는지
+        reminderEnabled:
+          type: boolean
+          description: 현재 역할까지 반영해 실제로 활성인 팀 작성 권고 메일 설정
+        reminderWeekday:
+          $ref: "#/components/schemas/WeekdayName"
+        reminderHour:
+          type: integer
+          const: 9
+          description: 서비스 시간대 기준 발송 시작 시각
+        timezone:
+          type: string
+          description: 요일과 시각 계산에 사용하는 IANA 서비스 시간대
+          example: Asia/Seoul
+        relayReady:
+          type: boolean
+          description: 관리자가 권고 메일에 사용할 수 있는 SMTP 설정을 저장했는지
     ReportStatus:
       type: string
       enum: [DRAFT, SUBMITTED, REVISION_REQUESTED, APPROVED, CLOSED]

@@ -37,3 +37,4 @@ workitemlinks.go  createWorkItemLink  FORBIDDEN  본인 업무의 선행 관계�
 workitemlinks.go  deleteWorkItemLink  FORBIDDEN  관계된 업무의 담당자만 삭제할 수 있습니다.
 workitems.go  listWorkItems  FORBIDDEN  조직 단위 조회는 팀장 이상만 가능합니다.
 worksearch.go  searchWorkItems  FORBIDDEN  조직 단위 조회는 팀장 이상만 가능합니다.
+weekly_automation.go  updateMyWeeklyPreferences  REMINDER_ROLE_REQUIRED  팀원 권고 메일은 팀장 이상만 설정할 수 있습니다.

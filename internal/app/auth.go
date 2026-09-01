@@ -355,14 +355,24 @@ func (a *App) oidcConfig(ctx context.Context) (oidcConfiguration, error) {
 }
 
 func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
+	silent := r.URL.Query().Get("silent") == "1"
+	returnTo := safeOIDCReturnTo(r.URL.Query().Get("returnTo"))
 	cfg, err := a.oidcConfig(r.Context())
 	if err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusServiceUnavailable, "OIDC_UNAVAILABLE", "OIDC 로그인이 설정되지 않았습니다.")
 		return
 	}
 	provider, err := oidc.NewProvider(r.Context(), cfg.Issuer)
 	if err != nil {
 		a.logger.Error("OIDC discovery", "error", err)
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusBadGateway, "OIDC_DISCOVERY_FAILED", "OIDC 제공자에 연결할 수 없습니다.")
 		return
 	}
@@ -371,8 +381,15 @@ func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
 	verifier, _ := randomToken(48)
 	challengeRaw := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(challengeRaw[:])
-	_, err = a.db.Exec(r.Context(), `INSERT INTO oidc_login_states(state_hash,nonce,pkce_verifier,expires_at) VALUES($1,$2,$3,now()+interval '10 minutes')`, tokenHash(state), nonce, verifier)
+	_, err = a.db.Exec(r.Context(), `INSERT INTO oidc_login_states
+		(state_hash,nonce,pkce_verifier,expires_at,silent,return_to)
+		VALUES($1,$2,$3,now()+interval '10 minutes',$4,$5)`,
+		tokenHash(state), nonce, verifier, silent, returnTo)
 	if err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "OIDC_STATE_ERROR", "로그인 요청을 시작할 수 없습니다.")
 		return
 	}
@@ -387,30 +404,81 @@ func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
 		redirectURL = scheme + "://" + r.Host + "/api/v1/auth/oidc/callback"
 	}
 	oauthCfg := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: provider.Endpoint(), RedirectURL: redirectURL, Scopes: cfg.Scopes}
-	http.Redirect(w, r, oauthCfg.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.SetAuthURLParam("code_challenge", challenge), oauth2.SetAuthURLParam("code_challenge_method", "S256")), http.StatusFound)
+	options := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.SetAuthURLParam("code_challenge", challenge), oauth2.SetAuthURLParam("code_challenge_method", "S256")}
+	if silent {
+		// Keycloak checks its own SSO cookie without drawing a login screen. No
+		// cookie means an OIDC error callback, which is handled below as the
+		// ordinary Weekly login page rather than as a failed login.
+		options = append(options, oauth2.SetAuthURLParam("prompt", "none"))
+	}
+	http.Redirect(w, r, oauthCfg.AuthCodeURL(state, options...), http.StatusFound)
 }
 
 func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
-	code := r.URL.Query().Get("code")
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	providerError := strings.TrimSpace(r.URL.Query().Get("error"))
 	cookie, cookieErr := r.Cookie("weekly_oidc_state")
-	if state == "" || code == "" || cookieErr != nil || cookie.Value != tokenHash(state) {
+	if state == "" || cookieErr != nil || cookie.Value != tokenHash(state) {
 		writeError(w, http.StatusBadRequest, "OIDC_INVALID_CALLBACK", "OIDC 응답 검증에 실패했습니다.")
 		return
 	}
-	var nonce, verifier string
-	err := a.db.QueryRow(r.Context(), `DELETE FROM oidc_login_states WHERE state_hash=$1 AND expires_at>now() RETURNING nonce,pkce_verifier`, tokenHash(state)).Scan(&nonce, &verifier)
+	// A provider callback has exactly one outcome to consume: an authorization
+	// code or an OAuth error. A blank/malformed request may be retried with the
+	// real provider response, so it must not spend the one-time state first.
+	if code == "" && providerError == "" {
+		writeError(w, http.StatusBadRequest, "OIDC_INVALID_CALLBACK", "OIDC 응답 검증에 실패했습니다.")
+		return
+	}
+	var nonce, verifier, returnTo string
+	var silent bool
+	err := a.db.QueryRow(r.Context(), `DELETE FROM oidc_login_states
+		WHERE state_hash=$1 AND expires_at>now()
+		RETURNING nonce,pkce_verifier,silent,return_to`, tokenHash(state)).
+		Scan(&nonce, &verifier, &silent, &returnTo)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "OIDC_STATE_EXPIRED", "OIDC 로그인 요청이 만료되었습니다.")
 		return
 	}
+	returnTo = safeOIDCReturnTo(returnTo)
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	http.SetCookie(w, &http.Cookie{Name: "weekly_oidc_state", Value: "", Path: "/api/v1/auth/oidc/callback", HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	if providerError != "" {
+		if silent {
+			reason := "unavailable"
+			switch providerError {
+			case "login_required", "interaction_required", "consent_required", "account_selection_required":
+				reason = "miss"
+			}
+			redirectFromSilentOIDC(w, r, returnTo, reason)
+			return
+		}
+		writeError(w, http.StatusUnauthorized, "OIDC_PROVIDER_ERROR", "OIDC 제공자가 로그인을 완료하지 않았습니다.")
+		return
+	}
+	if code == "" {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "OIDC_INVALID_CALLBACK", "OIDC 응답 검증에 실패했습니다.")
+		return
+	}
 	cfg, err := a.oidcConfig(r.Context())
 	if err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusServiceUnavailable, "OIDC_UNAVAILABLE", "OIDC 설정을 읽을 수 없습니다.")
 		return
 	}
 	provider, err := oidc.NewProvider(r.Context(), cfg.Issuer)
 	if err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusBadGateway, "OIDC_DISCOVERY_FAILED", "OIDC 제공자에 연결할 수 없습니다.")
 		return
 	}
@@ -425,21 +493,37 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	oauthCfg := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: provider.Endpoint(), RedirectURL: redirectURL, Scopes: cfg.Scopes}
 	token, err := oauthCfg.Exchange(r.Context(), code, oauth2.SetAuthURLParam("code_verifier", verifier))
 	if err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "OIDC_EXCHANGE_FAILED", "OIDC 인증 코드를 확인할 수 없습니다.")
 		return
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "OIDC_ID_TOKEN_MISSING", "OIDC ID 토큰이 없습니다.")
 		return
 	}
 	idToken, err := provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}).Verify(r.Context(), rawIDToken)
 	if err != nil || idToken.Nonce != nonce {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "OIDC_TOKEN_INVALID", "OIDC ID 토큰 검증에 실패했습니다.")
 		return
 	}
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "OIDC_CLAIMS_INVALID", "OIDC 사용자 정보를 읽을 수 없습니다.")
 		return
 	}
@@ -454,6 +538,10 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	email := claimString(claims, "email")
 	subject := claimString(claims, "sub")
 	if subject == "" || username == "" {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "OIDC_CLAIMS_MISSING", "OIDC 사용자 식별 정보가 없습니다.")
 		return
 	}
@@ -465,6 +553,10 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	err = a.db.QueryRow(r.Context(), `SELECT id FROM users WHERE oidc_subject=$1 OR lower(username)=lower($2) ORDER BY oidc_subject=$1 DESC LIMIT 1`, subject, username).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if !cfg.AutoProvision {
+			if silent {
+				redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+				return
+			}
 			writeError(w, http.StatusForbidden, "OIDC_USER_NOT_PROVISIONED", "Weekly에 등록되지 않은 사용자입니다.")
 			return
 		}
@@ -476,14 +568,42 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.logger.Error("provision OIDC user", "error", err)
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "OIDC_PROVISION_FAILED", "OIDC 사용자를 등록할 수 없습니다.")
 		return
 	}
 	if err := a.issueSession(w, r, userID); err != nil {
+		if silent {
+			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "SESSION_ERROR", "로그인 세션을 만들 수 없습니다.")
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, "/"+returnTo, http.StatusFound)
+}
+
+// safeOIDCReturnTo accepts only this SPA's own hash route. A value supplied in
+// the login-start URL must never turn the callback into an open redirect.
+func safeOIDCReturnTo(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 2048 || !strings.HasPrefix(value, "#/") || strings.ContainsAny(value, "\\\r\n\t") {
+		return ""
+	}
+	return value
+}
+
+func redirectFromSilentOIDC(w http.ResponseWriter, r *http.Request, returnTo, reason string) {
+	reason = strings.TrimSpace(reason)
+	target := "/"
+	if reason != "" {
+		target += "?oidc_auto=" + reason
+	}
+	target += safeOIDCReturnTo(returnTo)
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func claimString(claims map[string]any, key string) string {

@@ -535,7 +535,7 @@ func (a *App) cloneReport(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT category,title,current_result,next_plan,issue,progress,sort_order
+	rows, err := tx.Query(r.Context(), `SELECT work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order
 		FROM report_items WHERE report_id=$1 ORDER BY sort_order,id`, sourceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "원본 보고서 항목을 조회할 수 없습니다.")
@@ -544,7 +544,7 @@ func (a *App) cloneReport(w http.ResponseWriter, r *http.Request) {
 	sourceItems := []reportItem{}
 	for rows.Next() {
 		var item reportItem
-		if err = rows.Scan(&item.Category, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.Progress, &item.SortOrder); err != nil {
+		if err = rows.Scan(&item.WorkItemID, &item.Category, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.ManagementAsk, &item.Progress, &item.SortOrder); err != nil {
 			rows.Close()
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "원본 보고서 항목을 조회할 수 없습니다.")
 			return
@@ -575,8 +575,8 @@ func (a *App) cloneReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for index, item := range clonedItems {
-		_, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,category,title,current_result,next_plan,issue,progress,sort_order)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, reportID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.Progress, index)
+		_, err = tx.Exec(r.Context(), `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, reportID, item.WorkItemID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk, item.Progress, index)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "복제 보고서 항목을 저장할 수 없습니다.")
 			return
@@ -601,11 +601,12 @@ func (a *App) cloneReport(w http.ResponseWriter, r *http.Request) {
 func prepareClonedReport(summary string, items []reportItem, mode string) (string, []reportItem) {
 	result := make([]reportItem, 0, len(items))
 	for index, item := range items {
-		cloned := reportItem{Category: item.Category, Title: item.Title, SortOrder: index}
+		cloned := reportItem{WorkItemID: item.WorkItemID, Category: item.Category, Title: item.Title, SortOrder: index}
 		if mode == "FULL" {
 			cloned.CurrentResult = item.CurrentResult
 			cloned.NextPlan = item.NextPlan
 			cloned.Issue = item.Issue
+			cloned.ManagementAsk = item.ManagementAsk
 			cloned.Progress = item.Progress
 		}
 		result = append(result, cloned)

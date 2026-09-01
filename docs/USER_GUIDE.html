@@ -1,93 +1,187 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weekly 엔터프라이즈 사용자 가이드 (User Guide)</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #10b981;
-            --primary-dark: #047857;
-            --text-dark: #0f172a;
-            --text-muted: #475569;
-            --bg-light: #f8fafc;
-            --border-color: #e2e8f0;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', -apple-system, sans-serif; color: var(--text-dark); background: var(--bg-light); line-height: 1.65; padding: 48px 24px; }
-        .doc-card { max-width: 1040px; margin: 0 auto; background: #ffffff; border: 1px solid var(--border-color); border-radius: 20px; padding: 56px; box-shadow: 0 12px 30px rgba(0,0,0,0.06); }
-        .header-meta { border-bottom: 3px solid var(--primary); padding-bottom: 28px; margin-bottom: 36px; }
-        .header-meta h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.2rem; color: #0f172a; margin-bottom: 16px; letter-spacing: -0.02em; }
-        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 0.9rem; color: var(--text-muted); }
-        .meta-item { background: #f1f5f9; padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
-        h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.45rem; color: var(--primary-dark); margin: 40px 0 20px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }
-        h3 { font-size: 1.15rem; color: #0f172a; margin: 24px 0 12px; }
-        p { margin-bottom: 18px; font-size: 1rem; color: #334155; }
-        ul, ol { margin-bottom: 20px; padding-left: 24px; }
-        li { margin-bottom: 8px; }
-        pre { background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; overflow-x: auto; margin: 20px 0; }
-        code { font-family: 'JetBrains Mono', monospace; background: #e2e8f0; color: #0f172a; padding: 2px 6px; border-radius: 4px; font-size: 0.88rem; }
-        pre code { background: none; color: inherit; padding: 0; }
-        .print-btn { display: inline-block; background: var(--primary); color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.92rem; float: right; }
-        .print-btn:hover { background: var(--primary-dark); }
-        @media print { .print-btn { display: none; } body { background: #ffffff; padding: 0; } .doc-card { border: none; box-shadow: none; padding: 0; } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 18px 60px; background: #f1f5f9;
+  font-family: 'Pretendard', 'Noto Sans KR', -apple-system, system-ui, sans-serif;
+  color: #1e293b; line-height: 1.75; }
+.doc-card { max-width: 980px; margin: 0 auto; background: #fff; border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .10); padding: 44px 48px 56px; }
+.header-meta { border-bottom: 2px solid #e2e8f0; padding-bottom: 22px; margin-bottom: 30px; }
+.header-meta h1 { margin: 0 0 16px; font-size: 1.85rem; color: #0f172a; letter-spacing: -.02em; }
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.meta-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px;
+  padding: 9px 12px; font-size: .82rem; color: #475569; }
+.meta-item strong { color: #1d4ed8; }
+h2 { margin: 38px 0 14px; font-size: 1.3rem; color: #172554;
+  border-left: 4px solid #2563eb; padding-left: 12px; }
+h3 { margin: 26px 0 10px; font-size: 1.05rem; color: #1e293b; }
+p { margin: 12px 0; }
+ul, ol { margin: 12px 0; padding-left: 24px; }
+li { margin: 6px 0; }
+code { background: #eef2ff; color: #4338ca; padding: 2px 6px; border-radius: 5px;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; font-size: .88em; }
+.phase-box { background: #0f172a; color: #a7f3d0; border-radius: 11px; padding: 18px 20px;
+  overflow-x: auto; font-family: ui-monospace, Menlo, monospace; font-size: .78rem;
+  line-height: 1.6; white-space: pre; margin: 18px 0; }
+table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: .88rem; }
+th { background: #2563eb; color: #fff; text-align: left; padding: 10px 12px; font-weight: 700; }
+td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+hr { border: 0; border-top: 1px solid #e2e8f0; margin: 34px 0; }
+blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
+  border-left: 4px solid #f59e0b; color: #78350f; border-radius: 0 8px 8px 0; }
+.print-btn { display: inline-block; margin-bottom: 20px; background: #2563eb; color: #fff;
+  border: 0; border-radius: 9px; padding: 9px 16px; font-size: .85rem; font-weight: 700;
+  cursor: pointer; text-decoration: none; }
+@media print {
+  body { background: #fff; padding: 0; }
+  .doc-card { box-shadow: none; padding: 0; max-width: none; }
+  .print-btn { display: none; }
+  h2 { break-after: avoid; }
+  .phase-box { color: #0f172a; background: #f1f5f9; }
+}
+</style>
 </head>
 <body>
-    <div class="doc-card">
-        <a href="javascript:window.print()" class="print-btn">🖨️ PDF / 인쇄하기</a>
-        <div class="header-meta">
-            <h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide)</h1>
-            <div class="meta-grid">
-                <div class="meta-item"><strong>문서 버전:</strong> v0.3.0-ENTERPRISE</div>
-                <div class="meta-item"><strong>작성일자:</strong> 2026년 8월 9일</div>
-                <div class="meta-item"><strong>대상:</strong> 임직원 작성자, 팀장, 조직 관리자</div>
-                <div class="meta-item"><strong>분류:</strong> 공식 사용자 매뉴얼</div>
-            </div>
-        </div>
-
-        <h2>1. 개요</h2>
-        <p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
-
-        <h2>2. 주간업무보고 작성 및 제출</h2>
-        <ul>
-            <li><strong>ReportItem 입력:</strong> 금주 실적, 차주 계획, 주요 이슈 및 진척도(%)를 항목별로 입력합니다.</li>
-            <li><strong>승인 요청:</strong> 하단 [승인 요청] 버튼을 누르면 상태가 <code>SUBMITTED</code>로 변경되며 본인 수정이 잠금 처리됩니다.</li>
-        </ul>
-
-        <h2>3. 팀장 승인 및 검토 매뉴얼</h2>
-        <p>팀장은 제출된 주간보고를 검토한 후 <strong>[승인]</strong> 또는 보완 사유를 입력하여 <strong>[수정 요청]</strong>을 진행합니다. 모든 상태 변화는 히스토리에 자동 기록됩니다.</p>
-
-        <h2>4. PPTX 원클릭 내보내기</h2>
-        <p>보고서 화면 상단의 <strong>[PPTX 다운로드]</strong> 버튼을 누르면 사내 원본 PPTX 슬라이드 마스터 및 디자인 양식을 100% 보존한 상태로 자동 치환된 결과물이 생성됩니다.</p>
-
-        <h2>5. API / MCP Key 발급 및 AI 연동</h2>
-        <pre><code>{
-  "mcpServers": {
-    "weekly": {
-      "command": "curl",
-      "args": [
-        "-X", "POST",
-        "-H", "Authorization: Bearer wky_58a1f90b2c3d4e5f",
-        "https://weekly.internal/mcp"
+<div class="doc-card">
+<a class="print-btn" href="USER_GUIDE.pdf">PDF 내려받기</a>
+<div class="header-meta"><h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</h1>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.277.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
+<h2>1. 개요</h2>
+<p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
+<h3>1.1 Keycloak 기존 세션으로 로그인</h3>
+<ul>
+<li>관리자가 Keycloak OIDC를 켠 환경에서는 Weekly 세션 없이 앱을 처음 열 때 Keycloak 로그인 상태를 한 번 확인합니다.</li>
+<li>이미 Keycloak에 로그인돼 있으면 로그인 화면을 거치지 않고 원래 열려던 Weekly 화면으로 돌아옵니다. Keycloak 세션이 없으면 반복 이동하지 않고 아이디·비밀번호 또는 <code>Keycloak SSO로 로그인</code>을 고르는 일반 로그인 화면이 표시됩니다.</li>
+<li>작성 도중 Weekly 세션이 만료된 경우에는 자동으로 탭을 이동하지 않습니다. 화면에 쓴 내용을 지키기 위해 기존처럼 다른 탭에서 로그인하라는 안내를 표시합니다.</li>
+<li>Weekly의 <code>로그아웃</code>은 Weekly 세션만 끝냅니다. 같은 탭에서는 자동 재로그인을 건너뛰지만 Keycloak과 다른 사내 서비스의 SSO 세션은 유지됩니다. 다시 들어오려면 <code>Keycloak SSO로 로그인</code>을 직접 누르십시오.</li>
+</ul>
+<hr>
+<h2>2. 주간업무보고 작성 및 제출 (Employee Workflow)</h2>
+<h3>2.1 작성 화면 구성</h3>
+<ul>
+<li><strong>주차 선택</strong>: 상단 주차 선택 드롭다운에서 작성 타겟 주차(예: <code>2026년 32주차</code>) 선택.</li>
+<li><strong>ReportItem 항목 추가</strong>:</li>
+<ul>
+<li><code>금주 실적 (This Week)</code>: 금주 완료된 주요 실적 항목 작성</li>
+<li><code>차주 계획 (Next Week)</code>: 차주 진행 예정 업무 및 달성 목표 작성</li>
+<li><code>이슈 및 지원요청 (Issues)</code>: 리스크 항목 및 타 부서 지원 필요사항 작성</li>
+<li><code>진척도 (%)</code>: 업무 완료 비율 입력</li>
+</ul>
+</ul>
+<h3>2.2 승인 제출 신청 (<code>Draft</code> ➔ <code>Submitted</code>)</h3>
+<ul>
+<li>내용 작성이 완료되면 하단의 <strong>[승인 요청 / 제출]</strong> 버튼 클릭.</li>
+<li>상태가 <code>SUBMITTED</code>로 전환되며 담당 팀장의 검토 대상이 됩니다.</li>
+</ul>
+<h3>2.3 내 보고서 수정·삭제</h3>
+<ul>
+<li>현재 보고서와 <code>과거 보고</code> 상세 화면에서 본인 보고서를 수정하거나 삭제할 수 있습니다.</li>
+<li>동시 변경을 덮어쓰지 않도록 버전을 확인합니다. 충돌하면 <strong>새로고침하지 말고 저장을 한 번 더</strong> 누르십시오 — 화면에 쓴 내용은 그대로 남아 있고, 새로고침은 그것을 지웁니다. 안내 문구도 그렇게 말합니다.</li>
+<li>제출·승인·확정된 보고서를 수정하면 기존 검토 결과가 해제되고 <code>DRAFT</code>로 돌아갑니다. 수정 후 다시 제출해야 합니다.</li>
+<li>검토 절차를 쓰지 않는 배포(<code>workflow.enabled = false</code>)에서는 제출이 곧 확정(<code>CLOSED</code>)이며, 확정본을 고쳐도 같은 규칙이 적용됩니다. 내용이 바뀐 보고서는 더 이상 확정된 그 보고서가 아니기 때문입니다.</li>
+<li>삭제는 확인 창을 거치며 보고 항목·댓글·상태 이력도 함께 제거되므로 복구할 수 없습니다.</li>
+</ul>
+<h3>2.4 과거 보고서 복제</h3>
+<ul>
+<li><code>과거 보고</code> 상세에서 <code>복제</code>를 누르고 대상 주차를 선택합니다.</li>
+<li><code>업무 구조만 복제</code>는 분류와 제목만 옮기고 주간 요약, 실적, 계획, 이슈와 진척도를 초기화하므로 새 주차 작성에 권장합니다.</li>
+<li><code>전체 내용 복제</code>는 원문 전체를 옮기며 반복 업무를 편집해 사용할 때 적합합니다.</li>
+<li>복제본은 항상 <code>DRAFT</code>로 생성되고 승인 이력, 댓글, Confluence/PPTX 연결과 원본 항목 ID는 복사하지 않습니다.</li>
+<li>같은 대상 주차에 보고서가 이미 있으면 덮어쓰지 않고 충돌을 안내합니다.</li>
+</ul>
+<h3>2.5 개인 설정의 주간보고 자동화</h3>
+<p>우측 상단 프로필 메뉴의 <code>개인 설정 → 주간보고 자동화</code>에서 선택한 뒤 <code>자동화 설정 저장</code>을 누릅니다. 두 기능은 기본으로 꺼져 있습니다.</p>
+<p><strong>지난주 보고서 전체 자동 복제</strong></p>
+<ul>
+<li>모든 사용자가 켤 수 있습니다. 새 보고 주차가 시작되면 정확히 한 주 전 보고서의 요약과 업무별 구분·실적·계획·이슈·상위 조직 요청·진척도를 이번 주 <code>DRAFT</code>로 한 번 복제합니다.</li>
+<li>지난주 보고서에 업무 항목이 없거나 이번 주 보고서가 이미 있으면 건너뛰며, 기존 내용을 덮어쓰지 않습니다. 자동 초안을 삭제해도 같은 주에 매분 다시 만들지 않습니다.</li>
+<li>댓글·승인 이력·첨부 파일·Confluence/PPTX 출처는 옮기지 않습니다. <code>전체 내용</code>이므로 끝난 실적과 지난 이슈도 들어옵니다. 이번 주 사실에 맞게 고친 뒤 제출하십시오.</li>
+</ul>
+<p><strong>팀원 작성 권고 메일</strong></p>
+<ul>
+<li>팀장·조직장·관리자에게만 선택 항목이 보입니다. 월요일부터 일요일 중 고른 요일의 서비스 시간대 오전 9시 이후, 담당 범위에서 아직 제출하지 않은 활성 사용자에게 한 주에 한 번 보냅니다.</li>
+<li>팀장과 조직장은 자기 조직의 하위 조직까지, 관리자는 전체 사용자를 대상으로 하며 권고한 본인은 제외됩니다. 여러 관리자의 범위가 겹쳐도 받는 사람은 같은 주에 한 통만 받습니다.</li>
+<li>사용자가 개인 설정의 <code>주간보고 메일 발송</code>에 저장한 주소가 있으면 그 주소로, 없으면 계정 이메일로 갑니다. <code>제출할 때 보내기</code>를 켜는 것과는 별개입니다.</li>
+<li>관리자가 SMTP를 아직 설정하지 않았다면 화면에 그 사실이 표시됩니다. 현재 주 안에 메일 설정이 정상화되면 선택한 요일이 지난 경우에도 뒤늦게 발송을 시작합니다.</li>
+<li>메일을 보내기 전에 보고서가 제출되거나 권고자의 역할·조직·설정이 바뀌면 예약된 권고는 취소됩니다.</li>
+</ul>
+<hr>
+<h2>3. 팀장 승인 및 검토 매뉴얼 (Team Leader Workflow)</h2>
+<p>관리자 설정에서 <code>workflow.enabled = true</code> 상태일 때 검토 및 승인 절차가 활성화됩니다.</p>
+<div class="phase-box"> [DRAFT (초안)]  ➔ (임직원 제출) ➔  [SUBMITTED (제출 완료)]
+                                           │
+                           ┌───────────────┴───────────────┐
+                           ▼                               ▼
+                 [APPROVED (승인 완료)]     [REVISION_REQUESTED (보완 요청)]</div>
+<ul>
+<li><strong>승인 (Approve)</strong>: 보고 내용 확인 후 [승인] 버튼을 클릭하면 상태가 <code>APPROVED</code>로 확정됩니다.</li>
+<li><strong>반려/보완 요청 (Revision Request)</strong>: 보완이 필요한 경우 사유를 작성하여 [수정 요청]을 클릭하면 작성자에게 알림이 전달되며 <code>REVISION_REQUESTED</code> 상태로 되돌아갑니다.</li>
+</ul>
+<hr>
+<h2>4. PPTX 원클릭 내보내기 (PPTX Export)</h2>
+<ul>
+<li>보고서 상세 페이지 또는 팀 종합 보고서 화면 상단의 <strong>[PPTX 다운로드]</strong> 버튼 클릭.</li>
+<li>시스템이 관리자에 의해 등록된 원본 PPTX 템플릿의 슬라이드 마스터, 레이아웃, 도형, 폰트를 그대로 유지한 채 <code>{{THIS_WEEK}}</code>, <code>{{NEXT_WEEK}}</code>, <code>{{ISSUES}}</code> 토큰 위치에 실시간 치환 결과를 파일로 다운로드합니다.</li>
+</ul>
+<p>기본 4장 표 형식은 작성 순서를 바꾸지 않고 실적·계획 중 더 긴 내용과 예상 줄바꿈 수를 기준으로 업무를 균형 배치합니다. 하나의 업무 구분이 여러 장에 걸리면 각 장에 구분 제목이 다시 표시되며, 모든 업무 항목은 정확히 한 번 출력됩니다.</p>
+<hr>
+<h2>5. API / MCP Key 발급 및 AI 에이전트 연동</h2>
+<ul>
+<li>우측 상단 프로필 메뉴 ➔ <strong>[개인 API/MCP 키 관리]</strong>로 이동.</li>
+<li><strong>[신규 MCP 키 발급]</strong>을 클릭하여 <code>wky_...</code> 형태의 키 생성.</li>
+<li>Claude Desktop 또는 Cursor의 MCP 설정파일(<code>claude_desktop_config.json</code>)에 아래와 같이 등록:</li>
+</ul>
+<div class="phase-box">{
+  &quot;mcpServers&quot;: {
+    &quot;weekly&quot;: {
+      &quot;command&quot;: &quot;curl&quot;,
+      &quot;args&quot;: [
+        &quot;-X&quot;, &quot;POST&quot;,
+        &quot;-H&quot;, &quot;Authorization: Bearer wky_58a1f90b2c3d4e5f&quot;,
+        &quot;https://weekly.internal/mcp&quot;
       ]
     }
   }
-}</code></pre>
-
-        <h2>6. 자유 텍스트 AI 작성</h2>
-        <ol>
-            <li>이번 주 한 일, 다음 주 할 일과 이슈를 자유롭게 붙여 넣고 <strong>AI 분석</strong>을 실행합니다.</li>
-            <li>구조화 결과, 신뢰도와 경고를 검토하고 항목을 직접 수정합니다.</li>
-            <li>기존 내용에 병합하거나 교체한 뒤 일반 저장 버튼으로 최종 저장합니다.</li>
-        </ol>
-        <p>AI 결과는 자동 저장되지 않으며 사용자가 명시적으로 적용·저장해야 보고서에 반영됩니다.</p>
-
-        <h2>7. 과거 PPTX 가져오기</h2>
-        <p>개인 메뉴의 <strong>PPTX 가져오기</strong>에서 여러 파일을 업로드한 뒤 감지 주차와 업무 항목을 수정·확정합니다. 동일 파일은 SHA-256 중복으로 표시되며 같은 주차 보고가 있으면 병합, 교체 또는 건너뛰기를 선택합니다.</p>
-    </div>
+}</div>
+<hr>
+<h2>6. 자유 텍스트로 AI 작성</h2>
+<p>관리자가 AI 기능을 켠 경우 보고서 작성 화면에 <code>AI로 초안 만들기</code> 영역이 표시됩니다.</p>
+<ul>
+<li>이번 주 한 일, 다음 주 할 일, 이슈를 텍스트 영역에 자유롭게 붙여 넣습니다.</li>
+<li><code>AI 분석</code>을 누르고 구조화된 항목과 신뢰도·경고를 확인합니다.</li>
+<li>제목, 분류, 금주 실적, 차주 계획, 이슈와 진척도를 직접 수정합니다.</li>
+<li>기존 편집 내용에 <code>병합</code>하거나 분석 결과로 <code>교체</code>합니다.</li>
+<li>일반 보고서 편집 화면에서 최종 확인한 뒤 <code>저장</code>합니다.</li>
+</ul>
+<p>AI 분석 결과는 미리보기일 뿐 자동 저장되지 않습니다. 서로 독립적인 한 일·할 일·이슈는 AI 응답 단계부터 개별 사실로 구분되고, 편집기에는 쉼표 나열 대신 한 줄 한 항목의 글머리표로 표시됩니다. 같은 구조가 PPTX의 개별 문단으로 출력됩니다. 분석 내용에 없는 사실이 추가되었거나 신뢰도가 낮게 표시되면 반드시 고친 후 적용하십시오.</p>
+<h2>7. 과거 PPTX 가져오기</h2>
+<p>개인 메뉴의 <code>PPTX 가져오기</code>에서 과거 보고 파일을 여러 개 선택할 수 있습니다.</p>
+<ul>
+<li>PPTX 파일을 업로드합니다.</li>
+<li>작업 상태가 <code>분석 완료</code> 또는 <code>확인 필요</code>가 될 때까지 기다립니다.</li>
+<li>자동 감지한 주차, 요약, 업무 구분과 항목별 <code>원본 슬라이드</code>·<code>구분 신뢰도</code>를 확인합니다.</li>
+<li>잘못 분류된 항목은 내용을 수정하고 위·아래 버튼으로 순서를 조정합니다.</li>
+<li>같은 주차 보고가 있으면 <code>병합</code>, <code>교체</code>, <code>건너뛰기</code> 중 하나를 선택합니다.</li>
+<li>저장할 파일을 선택해 <code>확정</code>합니다.</li>
+</ul>
+<p>같은 파일을 다시 올리면 SHA-256 중복으로 표시됩니다. 분석 파이프라인이 개선되었거나 결과가 부정확하면 원본 보관기간 안에 <code>최신 파이프라인으로 다시 분석</code>을 눌러 해당 파일만 재처리할 수 있습니다. 이 동작은 화면에서 편집 중인 분석값을 버리지만 이미 확정한 보고서는 대상으로 삼지 않습니다.</p>
+<p>날짜·항목·업무 구분 신뢰도가 낮거나 AI 입력 한도로 일부 슬라이드 내용이 잘린 <code>확인 필요</code> 파일은 기본 선택되지 않습니다. 잘림 경고에 표시된 슬라이드와 원본 내용을 검토한 뒤 직접 선택해야 하며, 관리자 주차 시작 요일과 다른 날짜는 확정할 수 없습니다. 같은 Import 작업에서 동일 주차 파일이 여러 개면 후속 파일은 기본적으로 <code>병합</code> 전략을 사용합니다. 사용자가 수정·확정하기 전에는 정식 주간보고 데이터가 생성되지 않습니다.</p>
+<h2>8. Confluence 자동 초안</h2>
+<p>관리자가 연동을 활성화하면 주간보고 화면을 열었을 때 이번 주 Confluence 작성·수정 활동에서 발견한 업무 후보가 이미 표시됩니다. 별도 Confluence 검색, 파일 가져오기 또는 Sync 버튼을 사용할 필요가 없습니다.</p>
+<ul>
+<li>정규화된 업무 제목, 금주 실적, 차주 계획, 이슈와 신뢰도를 확인합니다. 독립된 실적·계획·이슈는 한 행씩 표시됩니다.</li>
+<li><code>Confluence 출처 N건</code>을 펼쳐 원본 Page 제목·Space·Version을 확인합니다.</li>
+<li>필요한 내용을 직접 고친 뒤 <code>초안 수정 저장</code>을 누릅니다.</li>
+<li>업무가 아니면 <code>제외</code>, 보고에 사용할 항목이면 <code>보고서에 반영</code>을 누릅니다.</li>
+<li>일반 업무 항목에서 최종 검토한 뒤 임시저장 또는 제출합니다.</li>
+</ul>
+<p>수정한 자동 초안은 다음 동기화가 덮어쓰지 않으며, 제외한 원본 Page는 같은 주차에 다시 나타나지 않습니다. 동기화 도중 원본 Page 버전이 바뀌면 혼합된 내용을 초안으로 만들지 않고 다음 동기화에서 다시 처리합니다. AI 요약의 각 사실은 근거가 된 입력 Page를 함께 가리키며, 서버가 알 수 없는 Page를 근거로 든 응답은 한 번 교정한 뒤에도 유효하지 않으면 결정적 원본 제목 후보로 대체합니다. 후보의 출처 링크에서 실제 문맥을 최종 확인하십시오. 보고서에 반영한 경우 출처가 <code>Confluence 자동 초안</code>으로 표시됩니다.</p>
+</div>
 </body>
 </html>
