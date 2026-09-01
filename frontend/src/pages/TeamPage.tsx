@@ -4,6 +4,7 @@ import { errorText, api, post , download} from '../api'
 import { Modal, Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge , openable} from '../components'
 import ReportPresentation from '../ReportPresentation'
 import ReportComments from '../ReportComments'
+import IncludedReportMaterials from '../IncludedReportMaterials'
 import type { Report, ReportListItem, ReportListView } from '../types'
 
 export default function TeamPage({ workflowEnabled, currentUserId, notify }: { workflowEnabled: boolean; currentUserId: number; notify: (message: string, kind?: 'success' | 'error') => void }) {
@@ -80,7 +81,7 @@ export default function TeamPage({ workflowEnabled, currentUserId, notify }: { w
         {reports.length < total && <Button variant="secondary" disabled={busy} onClick={loadMore}>
           {busy ? '불러오는 중…' : '더 보기'}</Button>}
       </div></Card>}
-    {selected && <Modal onClose={() => { setSelected(undefined); setPresenting(false) }} label={`${selected.displayName} ${selected.weekStart} 주간보고`} className="wide"><header><div><StatusBadge status={selected.status}/> <SourceBadge source={selected.sourceType}/><h2>{selected.displayName} · {selected.weekStart}</h2></div><button onClick={() => setSelected(undefined)}>×</button></header><p>{selected.summary}</p><div className="detail-items">{selected.items.map(item => <section key={item.id}><h3>{item.title} <small>{item.progress}%</small></h3><div><b>금주 실적</b><p>{item.currentResult || '-'}</p><b>차주 계획</b><p>{item.nextPlan || '-'}</p><b>이슈</b><p>{item.issue || '-'}</p></div></section>)}</div><ReportComments reportId={selected.id} comments={selected.comments} notify={notify}
+    {selected && <Modal onClose={() => { setSelected(undefined); setPresenting(false) }} label={`${selected.displayName} ${selected.weekStart} 주간보고`} className="wide"><header><div><StatusBadge status={selected.status}/> <SourceBadge source={selected.sourceType}/><h2>{selected.displayName} · {selected.weekStart}</h2></div><button onClick={() => setSelected(undefined)}>×</button></header><p>{selected.summary}</p><div className="detail-items">{selected.items.map(item => <section key={item.id}><h3>{item.title} <small>{item.progress}%</small></h3><div><b>금주 실적</b><p>{item.currentResult || '-'}</p><b>차주 계획</b><p>{item.nextPlan || '-'}</p><b>이슈</b><p>{item.issue || '-'}</p></div></section>)}</div><IncludedReportMaterials materials={selected.includedMaterials ?? []}/><ReportComments reportId={selected.id} comments={selected.comments} notify={notify}
         onPosted={async () => { const fresh = await api<Report>(`/api/v1/reports/${selected.id}`); setSelected(fresh) }}
         placeholder="반려하지 않고 물어볼 수 있습니다. 보고서 상태는 바뀌지 않습니다." /><footer><Button variant="secondary" onClick={() => setPresenting(true)}>▶ 발표 모드</Button><Button variant="secondary" onClick={() => saveExport(selected.id)}>PPTX 다운로드</Button>{workflowEnabled && selected.status === 'SUBMITTED' && selected.userId !== currentUserId && <><Button variant="danger" onClick={() => review('reject')}>반려</Button><Button onClick={() => review('approve')}>승인</Button></>}</footer></Modal>}
     {presenting && selected && <ReportPresentation label={`${selected.displayName} · ${selected.weekStart}`}

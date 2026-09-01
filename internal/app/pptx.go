@@ -329,6 +329,11 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "REPORT_NOT_FOUND", "보고서를 찾을 수 없습니다.")
 		return
 	}
+	// Team material is a live, read-only composition. Flatten it only for the
+	// renderer, with owner-labelled categories; never insert these ephemeral
+	// rows into report_items where rollups would count the work twice.
+	outputReport := *report
+	outputReport.Items = reportItemsWithIncludedMaterials(report)
 	// The author's organisation decides the format, not the person exporting:
 	// a report belongs to the team that wrote it however it is being read.
 	authorOrg := a.userOrganizationID(r.Context(), report.UserID)
@@ -361,13 +366,13 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		"{{WEEK_SCHEDULE}}": fmt.Sprintf("%s ~ %s", weekStart.Format("2006.01.02"), weekEnd.Format("01.08")),
 		"{{AUTHOR}}":        report.DisplayName,
 		"{{TEAM}}":          team,
-		"{{THIS_WEEK}}":     reportItemLines(report.Items, "current"),
-		"{{NEXT_WEEK}}":     reportItemLines(report.Items, "next"),
-		"{{ISSUES}}":        reportItemLines(report.Items, "issue"),
+		"{{THIS_WEEK}}":     reportItemLines(outputReport.Items, "current"),
+		"{{NEXT_WEEK}}":     reportItemLines(outputReport.Items, "next"),
+		"{{ISSUES}}":        reportItemLines(outputReport.Items, "issue"),
 	}
 	var result []byte
 	if !customTemplate && len(a.defaultPPTX) > 0 {
-		result, err = renderReferencePPTX(template, report, team, weekStart)
+		result, err = renderReferencePPTX(template, &outputReport, team, weekStart)
 	} else {
 		result, err = renderPPTX(template, values)
 	}
@@ -382,7 +387,7 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 	// {{ISSUES}} has already placed them itself.
 	if !customTemplate && len(a.defaultPPTX) > 0 {
 		width, height := presentationSlideSize(result)
-		if slide, has := issueSlide(report.Items, width, height); has {
+		if slide, has := issueSlide(outputReport.Items, width, height); has {
 			if withIssues, appendErr := appendSlidesToPPTX(result, nil, []builtSlide{slide}); appendErr != nil {
 				// A deck without the issue page is still the report, so a
 				// failure here never blocks the download.

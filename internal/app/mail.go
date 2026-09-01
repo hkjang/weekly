@@ -324,6 +324,33 @@ func reportMailBody(report *reportView, statusLabel string) string {
 		writeMailField(&out, "이슈", item.Issue)
 		writeMailField(&out, "요청 사항", item.ManagementAsk)
 	}
+	if len(report.IncludedMaterials) > 0 {
+		out.WriteString("\n[선택 팀원 포함 자료]\n")
+		for _, material := range report.IncludedMaterials {
+			owner := material.DisplayName
+			if strings.TrimSpace(material.Username) != "" {
+				owner += " (" + material.Username + ")"
+			}
+			if material.OrganizationName != "" {
+				owner += " · " + material.OrganizationName
+			}
+			if material.ReportID == nil {
+				fmt.Fprintf(&out, "\n- %s · 해당 주차 보고서 미작성\n", owner)
+				continue
+			}
+			fmt.Fprintf(&out, "\n- %s · %s\n", owner, reportStatusLabel(material.Status))
+			if summary := strings.TrimSpace(material.Summary); summary != "" {
+				fmt.Fprintf(&out, "  요약: %s\n", strings.ReplaceAll(summary, "\n", "\n        "))
+			}
+			for index, item := range material.Items {
+				fmt.Fprintf(&out, "  %d. [%s] %s (%d%%)\n", index+1, item.Category, item.Title, item.Progress)
+				writeMailField(&out, "금주 실적", item.CurrentResult)
+				writeMailField(&out, "차주 계획", item.NextPlan)
+				writeMailField(&out, "이슈", item.Issue)
+				writeMailField(&out, "요청 사항", item.ManagementAsk)
+			}
+		}
+	}
 	out.WriteString("\n--\n이 메일은 주간보고를 제출할 때 자동으로 발송됩니다.\n")
 	out.WriteString("받지 않으려면 개인 설정에서 발송을 끄십시오.\n")
 	return out.String()

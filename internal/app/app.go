@@ -181,6 +181,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/me", a.requireAuth(http.HandlerFunc(a.me)))
 
 	a.mux.Handle("GET /api/v1/reports/current", a.requireAuth(http.HandlerFunc(a.currentReport)))
+	a.mux.Handle("GET /api/v1/reports/current/included-materials", a.requireAuth(http.HandlerFunc(a.currentIncludedMaterials)))
 	a.mux.Handle("GET /api/v1/reports", a.requireAuth(http.HandlerFunc(a.listReports)))
 	a.mux.Handle("GET /api/v1/reports/previous", a.requireAuth(http.HandlerFunc(a.previousWeekPlan)))
 	a.mux.Handle("POST /api/v1/reports/quality", a.requireAuth(a.csrf(http.HandlerFunc(a.reportQuality))))
@@ -240,6 +241,8 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/me/mail", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyMailSettings))))
 	a.mux.Handle("GET /api/v1/me/preferences", a.requireAuth(http.HandlerFunc(a.myWeeklyPreferences)))
 	a.mux.Handle("PUT /api/v1/me/preferences", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyWeeklyPreferences))))
+	a.mux.Handle("GET /api/v1/me/report-inclusions", a.requireAuth(http.HandlerFunc(a.myReportInclusions)))
+	a.mux.Handle("PUT /api/v1/me/report-inclusions", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyReportInclusions))))
 
 	a.mux.Handle("GET /api/v1/admin/settings", a.requireRole("ADMIN")(http.HandlerFunc(a.adminSettings)))
 	a.mux.Handle("GET /api/v1/admin/encryption", a.requireRole("ADMIN")(http.HandlerFunc(a.adminEncryption)))

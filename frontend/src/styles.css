@@ -231,3 +231,49 @@
 .automation-options small{margin-top:4px;color:var(--muted);line-height:1.5}
 .automation-save{display:flex;justify-content:flex-end;margin-top:16px}
 @media(max-width:600px){.automation-options .toggle-row,.automation-options .setting-row{grid-template-columns:1fr}.automation-options .toggle-row input{justify-self:start}}
+
+/* Choosing people is a set, not a row of on/off service switches. Square
+   checkboxes and the selected count make that distinction visible. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.inclusion-toolbar{display:flex;align-items:end;justify-content:space-between;gap:14px;margin:18px 0 10px}
+.inclusion-toolbar>label{display:flex;flex:1;max-width:440px;flex-direction:column;gap:6px;color:#475569;font-size:12px;font-weight:700}
+.inclusion-toolbar input{height:38px;padding:0 10px}
+.inclusion-toolbar>div{display:flex;gap:6px}
+.inclusion-limit{margin:-2px 0 9px;color:var(--muted);font-size:11px}
+.inclusion-member-list{max-height:380px;overflow:auto;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
+.inclusion-member{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line);background:#fff;cursor:pointer}
+.inclusion-member:last-child{border-bottom:0}
+.inclusion-member:hover{background:#f8fafc}
+.inclusion-member input{width:18px;height:18px;flex:none;accent-color:var(--blue)}
+.inclusion-member span{display:flex;min-width:0;flex-direction:column;gap:3px}
+.inclusion-member strong{font-size:13px;color:#1e293b}
+.inclusion-member small{color:var(--muted);font-size:11px}
+.inclusion-actions{display:flex;justify-content:flex-end;margin-top:14px}
+
+/* Included reports stay visually and structurally outside the owner's editable
+   item list. The author header repeats on every block so attribution survives
+   scrolling, a modal, and a narrow screen. */
+.included-materials{margin:0 24px 20px;padding:16px;border:1px solid #bfdbfe;border-radius:12px;background:#f8fbff}
+.card-body>.included-materials{margin:0;padding:0;border:0;background:transparent}
+.included-materials-head{display:flex;align-items:start;justify-content:space-between;gap:14px;margin-bottom:8px}
+.included-materials-head h3{margin:0;color:#1e3a5f;font-size:15px}
+.included-materials-head p{margin:4px 0 0;color:var(--muted);font-size:12px}
+.included-materials-note{margin:0 0 12px;color:var(--muted);font-size:12px;line-height:1.55}
+.included-material-list{display:flex;flex-direction:column;gap:12px}
+.included-material{overflow:hidden;border:1px solid var(--line);border-radius:11px;background:#fff}
+.included-material>header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-bottom:1px solid var(--line);background:#f8fafc}
+.included-material>header>div{display:flex;min-width:0;flex-direction:column;gap:3px}
+.included-material>header strong{font-size:14px;color:#172033}
+.included-material>header small{color:var(--muted);font-size:11px}
+.included-material-summary{margin:0;padding:13px 14px;border-bottom:1px solid #edf2f7;color:#334155;font-size:13px;line-height:1.6;white-space:pre-wrap}
+.included-material-items{display:flex;flex-direction:column}
+.included-material-items>section{padding:13px 14px;border-bottom:1px solid #edf2f7}
+.included-material-items>section:last-child{border-bottom:0}
+.included-material-items h4{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 9px;color:#1e293b;font-size:13px}
+.included-material-items h4 small{color:var(--blue);font-size:11px;font-weight:700}
+.included-material-items dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:7px 12px;margin:0;font-size:12px}
+.included-material-items dt{color:#64748b;font-weight:700}
+.included-material-items dd{margin:0;color:#334155;line-height:1.55;white-space:pre-wrap}
+.included-material-empty{margin:0;padding:16px 14px;color:#94a3b8;font-size:12px}
+.included-material.missing{border-style:dashed}
+@media(max-width:600px){.inclusion-toolbar{align-items:stretch;flex-direction:column}.inclusion-toolbar>label{max-width:none}.inclusion-toolbar>div{justify-content:flex-end}.included-materials{margin-inline:14px;padding:12px}.card-body>.included-materials{margin:0;padding:0}.included-material-items h4{align-items:flex-start;flex-direction:column;gap:3px}.included-material-items dl{grid-template-columns:1fr;gap:3px}.included-material-items dd{margin-bottom:7px}}

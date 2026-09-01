@@ -83,12 +83,16 @@ function captureSlides(reportId: number, attachments: ReportAttachment[], placem
 
 export function reportSlides(report: Report, attachments: ReportAttachment[] = []): PresentSlide[] {
   const usable = attachments.filter(item => item.available !== false).length
+  // A missing report is itself material: the person was explicitly selected,
+  // and silently dropping them would make a leader read "nothing selected"
+  // where the actual state is "selected, not written yet".
+  const included = report.includedMaterials ?? []
   const slides: PresentSlide[] = [{
     kind: 'cover',
     eyebrow: '주간 업무보고',
     title: `${report.weekStart} 주차`,
     subtitle: `${report.displayName} · ${reportStatusLabel[report.status] ?? report.status}`,
-    meta: [`업무 ${report.items.length}건`, usable ? `캡처 ${usable}장` : ''].filter(Boolean),
+    meta: [`업무 ${report.items.length}건`, included.length ? `팀원 자료 ${included.length}명` : '', usable ? `캡처 ${usable}장` : ''].filter(Boolean),
     body: clamp(report.summary, SLIDE_TEXT_LIMIT),
     presenterText: presenterText(['주간 요약', report.summary]),
   }]
@@ -113,12 +117,48 @@ export function reportSlides(report: Report, attachments: ReportAttachment[] = [
     })
   })
 
+  if (included.length > 0) {
+    slides.push({
+      kind: 'section', eyebrow: `${included.length}명`, title: '팀원 주간보고 자료',
+      subtitle: '개인 설정에서 선택한 팀원의 같은 주차 보고입니다.',
+    })
+    included.forEach((material, memberIndex) => {
+      slides.push({
+        kind: 'section',
+        eyebrow: `팀원 ${memberIndex + 1}/${included.length} · ${material.reportId
+          ? (material.status ? (reportStatusLabel[material.status] ?? material.status) : '상태 미확인')
+          : '미작성'}`,
+        title: material.displayName,
+        subtitle: [material.organizationName, material.username ? `@${material.username}` : ''].filter(Boolean).join(' · ') || undefined,
+        body: material.reportId ? clamp(material.summary, SLIDE_TEXT_LIMIT) : '해당 주차 보고서 미작성',
+        presenterText: material.reportId ? presenterText(['주간 요약', material.summary]) : '해당 주차 보고서 미작성',
+      })
+      material.items.forEach((item, itemIndex) => slides.push({
+        kind: 'entry',
+        eyebrow: `${material.displayName} · 업무 ${itemIndex + 1}/${material.items.length}${item.category ? ` · ${item.category}` : ''}`,
+        title: item.title || `업무 ${itemIndex + 1}`,
+        meta: [`작성자 ${material.displayName}`, `진척 ${item.progress}%`],
+        blocks: [
+          ...block('금주 실적', item.currentResult),
+          ...block('차주 계획', item.nextPlan, 'plan'),
+          ...block('이슈', item.issue, 'issue'),
+          ...block('상위 조직 요청', item.managementAsk ?? '', 'ask'),
+        ],
+        presenterText: presenterText(
+          ['금주 실적', item.currentResult], ['차주 계획', item.nextPlan],
+          ['이슈', item.issue], ['상위 조직 요청', item.managementAsk ?? '']),
+      }))
+    })
+  }
+
   slides.push(...captureSlides(report.id, attachments, 'AFTER'))
 
+  const hasManagementAsk = report.items.some(item => (item.managementAsk ?? '').trim())
+    || included.some(material => material.items.some(item => (item.managementAsk ?? '').trim()))
   slides.push({
     kind: 'end',
     title: '보고 종료',
-    subtitle: report.items.some(item => (item.managementAsk ?? '').trim())
+    subtitle: hasManagementAsk
       ? '상위 조직 요청 사항의 결정을 확인해 주세요.'
       : '질의 사항을 확인해 주세요.',
   })

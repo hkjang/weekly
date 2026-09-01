@@ -15,11 +15,21 @@ export interface EvidenceUseView { kind: string; reference: string; title?: stri
 /** What happened to last week's issue, answered once when this week's is blank. */
 export type IssueOutcome = 'RESOLVED'
 export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number; sources?: ItemSource[]; issueOutcome?: IssueOutcome }
+export interface IncludedReportMaterial {
+  userId: number; username?: string; displayName: string; organizationName: string
+  reportId?: number; status?: ReportStatus; summary: string; version?: number; updatedAt?: string
+  items: ReportItem[]
+}
+export interface IncludedReportMaterialsView { weekStart: string; materials: IncludedReportMaterial[] }
+export interface ReportInclusionMember { id: number; username?: string; displayName: string; organizationName: string }
+export interface ReportInclusionPreference {
+  available: boolean; maxMembers: number; selectedMemberIds: number[]; members: ReportInclusionMember[]
+}
 export interface PreviousPlanItem { workItemId?: number; category: string; title: string; matchKey: string; nextPlan: string; issue: string; progress: number; carryOver: boolean }
 export interface PreviousPlan { reportId: number; weekStart: string; status: ReportStatus; items: PreviousPlanItem[] }
 export interface ReportComment { id: number; userId: number; displayName: string; content: string; createdAt: string }
 export type ReportSource = 'MANUAL' | 'AI_TEXT' | 'PPTX_IMPORT' | 'CONFLUENCE_AI' | 'CLONED' | 'API' | 'JIRA'
-export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; reviewedBy?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[] }
+export interface Report { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; reviewedAt?: string; reviewedBy?: string; createdAt: string; updatedAt: string; items: ReportItem[]; comments: ReportComment[]; includedMaterials: IncludedReportMaterial[] }
 export interface ReportListItem { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; updatedAt: string }
 export interface AnalyticsOverview { weekStart: string; totalUsers: number; submittedUsers: number; submissionRate: number; statusCounts: Record<string, number>; openIssues: number; averageProgress: number }
 export interface KeyView { id: number; name: string; prefix: string; keyVersion: number; scopes: string[]; lastUsedAt?: string; expiresAt?: string; createdAt: string }

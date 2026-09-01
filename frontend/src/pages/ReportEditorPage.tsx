@@ -6,8 +6,9 @@ import { errorText, api, del, patch, post, put , download} from '../api'
 import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } from '../components'
 import AttachmentPanel from '../AttachmentPanel'
 import ReportPresentation from '../ReportPresentation'
+import IncludedReportMaterials from '../IncludedReportMaterials'
 import { registerUnsavedGuard } from '../unsavedGuard'
-import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, OpenFollowUp, PreviousPlan, PreviousPlanItem, QualityReport, Report, ReportItem } from '../types'
+import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, IncludedReportMaterial, IncludedReportMaterialsView, OpenFollowUp, PreviousPlan, PreviousPlanItem, QualityReport, Report, ReportItem } from '../types'
 
 const blankItem = (): ReportItem => ({ category: '', title: '', currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: 0, sortOrder: 0 })
 
@@ -32,6 +33,8 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
   // record stops at the meeting: next Monday they open a blank editor with no
   // sign that a decision put anything on their plate.
   const [followUps, setFollowUps] = useState<OpenFollowUp[]>([])
+  const [includedMaterials, setIncludedMaterials] = useState<IncludedReportMaterial[]>()
+  const [includedMaterialsFailed, setIncludedMaterialsFailed] = useState(false)
   const [quality, setQuality] = useState<QualityReport>()
   const [pendingCandidateIDs, setPendingCandidateIDs] = useState<number[]>([])
   const [captureCount, setCaptureCount] = useState(0)
@@ -66,12 +69,15 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
     : Promise.resolve()
   const loadPrevious = () => api<PreviousPlan | null>('/api/v1/reports/previous').then(value => { setPrevious(value); setPreviousFailed(false) }).catch(() => { setPrevious(null); setPreviousFailed(true) })
   const loadFollowUps = () => api<OpenFollowUp[]>('/api/v1/decisions/open').then(value => { setFollowUps(value); setFollowUpsFailed(false) }).catch(() => { setFollowUps([]); setFollowUpsFailed(true) })
+  const loadIncludedMaterials = () => api<IncludedReportMaterialsView>('/api/v1/reports/current/included-materials')
+    .then(value => { setIncludedMaterials(value.materials); setIncludedMaterialsFailed(false) })
+    .catch(() => { setIncludedMaterialsFailed(true) })
   const load = async () => { try { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value); if (value) { setSummary(value.summary); setItems(value.items.length ? value.items : [blankItem()]); setAIApplied(value.sourceType === 'AI_TEXT') } savedSnapshot.current = snapshotOf(value?.summary ?? '', value?.items ?? []); setLoadFailed(false) } catch { setLoadFailed(true) } }
   // Used when a save fails: the version and status have to catch up, but the
   // content on screen must not be replaced by the server's copy. Overwriting it
   // here would destroy exactly the work the failed save was trying to keep.
   const refreshMeta = async () => { const value = await api<Report | null>('/api/v1/reports/current'); setReport(value) }
-  useEffect(() => { void Promise.all([load(), loadCandidates(), loadPrevious(), loadFollowUps()]) }, [])
+  useEffect(() => { void Promise.all([load(), loadCandidates(), loadPrevious(), loadFollowUps(), loadIncludedMaterials()]) }, [])
   // The screen people open every week put the caret nowhere, so writing began
   // with a hunt for a field. Scrolling is suppressed: moving the page under
   // someone who came back to a finished report would be worse than no focus.
@@ -113,6 +119,10 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
   if (loadFailed) return <Empty>이번 주 보고서를 불러오지 못했습니다. 작성한 내용이 사라진 것은 아니며, 화면을 다시 열어 보십시오.</Empty>
   if (report === undefined) return <Spinner />
   const editable = true
+  // The dedicated endpoint is needed before the owner has created a report.
+  // Once a report exists its response carries the same material, so keep that
+  // useful fallback if only the supplementary request failed.
+  const effectiveMaterials = includedMaterials ?? report?.includedMaterials ?? []
   const changeItem = (index: number, patch: Partial<ReportItem>) => setItems(items.map((item, i) => i === index ? { ...item, ...patch } : item))
   const validItems = () => items.filter(item => item.title.trim())
   // Pairing is by work item first and by normalized title second: a saved item
@@ -135,7 +145,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
       nextPlan: entry.followUp, issue: '', managementAsk: '', progress: 0, sortOrder: kept.length }])
   }
   const carryForward = (plan: PreviousPlanItem) => { const kept = validItems(); setItems([...kept, { category: plan.category, title: plan.title, currentResult: '', nextPlan: '', issue: '', managementAsk: '', progress: plan.progress, sortOrder: kept.length }]) }
-  const save = async () => { const preparedItems = validItems(); if (!preparedItems.length) { notify('업무 항목을 하나 이상 입력하세요.', 'error'); return false } const acceptedCandidateIDs = Array.from(new Set(preparedItems.flatMap(item => item.candidateId ? [item.candidateId] : []))); setBusy(true); try { const payload = { summary, sourceType: acceptedCandidateIDs.length ? 'CONFLUENCE_AI' : aiApplied ? 'AI_TEXT' : 'MANUAL', items: preparedItems.map(item => ({ id: item.id, category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: item.managementAsk ?? '', progress: item.progress, sortOrder: item.sortOrder, issueOutcome: item.issueOutcome })) }; const saved = report ? await put<{ id: number }>(`/api/v1/reports/${report.id}`, { ...payload, version: report.version }) : await post<{ id: number }>('/api/v1/reports', payload); if (acceptedCandidateIDs.length) await post('/api/v1/report-candidates/accept', { ids: acceptedCandidateIDs, reportId: saved.id }); setPendingCandidateIDs([]); await Promise.all([load(), loadCandidates()]); notify('보고서를 저장했습니다.'); return true } catch (error) { await refreshMeta().catch(() => undefined); notify(errorText(error, '저장할 수 없습니다. 작성 중인 내용은 그대로 남아 있습니다.'), 'error'); return false } finally { setBusy(false) } }
+  const save = async () => { const preparedItems = validItems(); if (!preparedItems.length) { notify('업무 항목을 하나 이상 입력하세요.', 'error'); return false } const acceptedCandidateIDs = Array.from(new Set(preparedItems.flatMap(item => item.candidateId ? [item.candidateId] : []))); setBusy(true); try { const payload = { summary, sourceType: acceptedCandidateIDs.length ? 'CONFLUENCE_AI' : aiApplied ? 'AI_TEXT' : 'MANUAL', items: preparedItems.map(item => ({ id: item.id, category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: item.managementAsk ?? '', progress: item.progress, sortOrder: item.sortOrder, issueOutcome: item.issueOutcome })) }; const saved = report ? await put<{ id: number }>(`/api/v1/reports/${report.id}`, { ...payload, version: report.version }) : await post<{ id: number }>('/api/v1/reports', payload); if (acceptedCandidateIDs.length) await post('/api/v1/report-candidates/accept', { ids: acceptedCandidateIDs, reportId: saved.id }); setPendingCandidateIDs([]); await Promise.all([load(), loadCandidates(), loadIncludedMaterials()]); notify('보고서를 저장했습니다.'); return true } catch (error) { await refreshMeta().catch(() => undefined); notify(errorText(error, '저장할 수 없습니다. 작성 중인 내용은 그대로 남아 있습니다.'), 'error'); return false } finally { setBusy(false) } }
   const analyzeAI = async () => { if (!aiText.trim()) { notify('AI가 분석할 주간업무 내용을 입력하세요.', 'error'); return } setAIBusy(true); try { const result = await post<AIWeeklyResult>('/api/v1/ai/reports/parse-text', { text: aiText }); setAIResult(result); notify(`${result.reportItems.length}개 업무 항목을 구조화했습니다.`) } catch (error) { notify(errorText(error, 'AI 분석을 완료할 수 없습니다.'), 'error') } finally { setAIBusy(false) } }
   const changeAIItem = (index: number, patch: Partial<AIWeeklyResult['reportItems'][number]>) => setAIResult(aiResult ? { ...aiResult, reportItems: aiResult.reportItems.map((item, i) => i === index ? { ...item, ...patch } : item) } : undefined)
   const applyAI = (mode: 'merge' | 'replace') => { if (!aiResult) return; const incoming = aiResult.reportItems.filter(item => item.title.trim()).map((item, index) => ({ category: item.category, title: item.title, currentResult: item.currentResult, nextPlan: item.nextPlan, issue: item.issue, managementAsk: '', progress: item.progress, sortOrder: index })); if (!incoming.length) { notify('적용할 AI 업무 항목이 없습니다.', 'error'); return } setItems(mode === 'replace' ? incoming : mergeReportItems(validItems(), incoming)); if (aiResult.summary && (mode === 'replace' || !summary.trim())) setSummary(aiResult.summary); setAIApplied(true); setAIResult(undefined); notify(mode === 'merge' ? 'AI 결과를 기존 보고서와 병합했습니다. 저장 전 내용을 확인하세요.' : 'AI 결과로 업무 항목을 교체했습니다. 저장 전 내용을 확인하세요.') }
@@ -196,7 +206,11 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
     </Card>}
     {report && (report.status === 'SUBMITTED' || report.status === 'APPROVED' || report.status === 'CLOSED') && <div className="edit-notice">{report.status === 'CLOSED' ? '확정된 보고서를 수정하면 작성 중 상태로 돌아갑니다. 다시 제출해야 확정됩니다.' : '제출·승인된 보고서를 수정하면 기존 검토 결과가 해제되고 작성 중 상태로 돌아갑니다.'}</div>}
     {(previousFailed || followUpsFailed) && <p className="capture-warning">{previousFailed && followUpsFailed ? '지난주 계획과 후속 조치를' : previousFailed ? '지난주 계획을' : '결정에 딸린 후속 조치를'} 불러오지 못했습니다. 이어받을 것이 없다는 뜻은 아니므로, 화면을 다시 열어 확인해 주십시오.</p>}
+    {includedMaterialsFailed && <p className="capture-warning">팀원 주간보고 자료를 불러오지 못했습니다. 선택한 팀원이 없다는 뜻은 아닙니다. <button className="link-button" onClick={() => { void loadIncludedMaterials() }}>다시 시도</button></p>}
     <Card title="주간 요약"><textarea className="summary-input" aria-label="주간 요약" placeholder="한 주의 핵심 성과와 맥락을 짧게 요약하세요." value={summary} onChange={e => setSummary(e.target.value)} disabled={!editable} maxLength={10000}/></Card>
+    {effectiveMaterials.length > 0 && <Card title="팀원 주간보고 자료" action={<span className="muted-chip">{effectiveMaterials.length}명 선택</span>}>
+      <IncludedReportMaterials materials={effectiveMaterials} heading={false}/>
+    </Card>}
     {/* A clean report used to render nothing at all, so a writer with nothing
         wrong could not tell a check that passed from a check that never ran.
         The card is the only place that says the rules were applied, and it
@@ -273,7 +287,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
     {/* Presents what is on screen, including unsaved edits: a report is often
         walked through immediately after being written. */}
     {presenting && report && <ReportPresentation label={`${report.weekStart} 주간보고`}
-      report={{ ...report, summary, items: validItems() }}
+      report={{ ...report, summary, items: validItems(), includedMaterials: effectiveMaterials }}
       onClose={() => setPresenting(false)} />}
     {editable && !aiEnabled && <p className="muted page-footnote">AI 초안 기능은 관리자가 AI Gateway를 설정하면 이 화면에 나타납니다.</p>}
   </>

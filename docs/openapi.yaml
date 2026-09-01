@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.277.0
+  version: 0.278.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -118,11 +118,90 @@ paths:
         보이지 않는다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /me/report-inclusions:
+    get:
+      summary: 본인 보고서에 함께 표시할 팀원 설정 조회
+      description: |
+        `TEAM_LEADER`와 `ORG_MANAGER`는 본인 조직과 전체 하위 조직의 활성 사용자,
+        `ADMIN`은 전체 활성 사용자를 선택할 수 있다. 본인은 제외한다. 일반 사용자는
+        403이 아니라 `available: false`와 빈 목록을 받는다.
+
+        응답은 현재 역할·조직·활성 상태로 다시 거른 `members`와 `selectedMemberIds`를
+        반환한다. 저장된 관계 자체가 조회 권한은 아니며, 강등·조직 이동·비활성화로
+        범위를 벗어난 선택은 응답에서 가려진다. `maxMembers`는 클라이언트가 적용할
+        선택 상한이며 현재 500이다.
+      responses:
+        "200":
+          description: 현재 권한 범위의 선택 가능 팀원과 저장된 선택
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportInclusionPreferenceResponse" }
+        "500":
+          description: "`QUERY_FAILED` — 설정 또는 선택 가능 팀원을 조회하지 못함"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+    put:
+      summary: 본인 보고서에 함께 표시할 팀원 설정 교체
+      description: |
+        보낸 `memberIds` 전체로 기존 선택을 교체한다. 중복 ID는 서버가 하나로
+        정규화한다. 빈 배열은 역할과 관계없이 본인의 선택을 모두 지운다.
+
+        비어 있지 않은 선택은 팀장 이상만 저장할 수 있다. 본인, 비활성 사용자,
+        존재하지 않는 ID와 현재 조직 범위 밖 ID는 계정 존재 여부를 드러내지 않도록
+        모두 같은 403 `REPORT_INCLUSION_MEMBER_FORBIDDEN`으로 거부한다.
+
+        - 400 `INVALID_REPORT_INCLUSIONS`: `memberIds` 누락, 양수가 아닌 ID 또는 상한 초과
+        - 400 `INVALID_REQUEST`: 잘못된 JSON 또는 정의되지 않은 필드
+        - 403 `REPORT_INCLUSION_ROLE_REQUIRED`: 일반 사용자의 비어 있지 않은 선택
+        - 403 `REPORT_INCLUSION_MEMBER_FORBIDDEN`: 본인·비활성·없음·범위 밖 대상
+        - 500 `DATABASE_ERROR`/`QUERY_FAILED`: 저장 또는 저장 결과 재조회 실패
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportInclusionWrite" }
+      responses:
+        "200":
+          description: 저장 후 현재 권한으로 다시 계산한 설정
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportInclusionPreferenceResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
   /reports/current:
     get:
       summary: 현재 주차 본인 보고서
       responses:
-        "200": { $ref: "#/components/responses/Success" }
+        "200":
+          description: 현재 주차 보고서. 아직 없으면 `data`가 `null`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NullableReportResponse" }
+  /reports/current/included-materials:
+    get:
+      summary: 본인 현재 주차의 선택 팀원 보고 자료
+      description: |
+        본인 보고서가 아직 만들어지지 않았어도 개인 설정의 현재 선택을 현재 주차에
+        적용해 반환한다. 각 선택 팀원의 정확히 같은 `weekStart` 보고서를 원본 상태와
+        함께 읽으며 `DRAFT`, 제출·반려·승인·확정을 모두 포함한다.
+
+        보고서가 없는 선택 팀원도 숨기지 않는다. 이때 식별 정보와 빈 `summary`, 빈
+        `items`를 반환하고 `reportId`, `status`, `version`, `updatedAt`은 생략한다.
+        자료는 읽기 전용이며 원본 보고 항목에 복제되지 않고, 선택 팀원의 포함 자료를
+        다시 따라가지 않는 1단계 조합이다.
+      responses:
+        "200":
+          description: 현재 주차와 선택 팀원별 작성 자료 또는 미작성 표시
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IncludedReportMaterialsResponse" }
+        "500":
+          description: "`QUERY_FAILED` — 현재 주차의 포함 자료를 조회하지 못함"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
   /reports/previous:
     get:
       summary: 직전 보고서의 차주 계획
@@ -379,7 +458,11 @@ paths:
         말한다. 이전에는 후자가 없었다 — Confluence 후보의 페이지도 PPTX 항목의 슬라이드
         번호도 항목이 만들어지는 순간 버려졌다.
       responses:
-        "200": { $ref: "#/components/responses/Success" }
+        "200":
+          description: 보고서와 조회 시점에 조합한 읽기 전용 선택 팀원 자료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportResponse" }
     put:
       summary: 본인 보고서 낙관적 잠금 수정
       requestBody:
@@ -2076,6 +2159,52 @@ components:
         relayReady:
           type: boolean
           description: 관리자가 권고 메일에 사용할 수 있는 SMTP 설정을 저장했는지
+    ReportInclusionMember:
+      type: object
+      required: [id, username, displayName, organizationName]
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string }
+        displayName: { type: string }
+        organizationName:
+          type: string
+          description: 소속 조직이 없으면 빈 문자열
+    ReportInclusionPreference:
+      type: object
+      required: [available, maxMembers, selectedMemberIds, members]
+      properties:
+        available:
+          type: boolean
+          description: 현재 역할로 비어 있지 않은 포함 설정을 저장할 수 있는지
+        maxMembers:
+          type: integer
+          const: 500
+          description: 한 사용자가 선택할 수 있는 팀원 수 상한
+        selectedMemberIds:
+          type: array
+          description: 현재 역할·조직·활성 범위에서도 유효한 저장 대상 ID
+          items: { type: integer, format: int64 }
+        members:
+          type: array
+          description: 현재 선택할 수 있는 활성 사용자. 본인은 포함하지 않음
+          items: { $ref: "#/components/schemas/ReportInclusionMember" }
+    ReportInclusionWrite:
+      type: object
+      additionalProperties: false
+      required: [memberIds]
+      properties:
+        memberIds:
+          type: array
+          maxItems: 500
+          description: 전체 교체할 대상 ID. 중복은 정상 입력으로 받아 서버가 제거함
+          items: { type: integer, format: int64, minimum: 1 }
+    ReportInclusionPreferenceResponse:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/ReportInclusionPreference" }
     ReportStatus:
       type: string
       enum: [DRAFT, SUBMITTED, REVISION_REQUESTED, APPROVED, CLOSED]
@@ -2089,6 +2218,117 @@ components:
         nextPlan: { type: string }
         issue: { type: string }
         progress: { type: integer, minimum: 0, maximum: 100 }
+    IncludedReportMaterial:
+      type: object
+      required: [userId, username, displayName, organizationName, summary, items]
+      description: |
+        선택 팀원의 원본 보고서를 같은 주차에 읽어 조합한 자료다. 보고서가 없으면
+        선택 속성인 `reportId`, `status`, `version`, `updatedAt`을 모두 생략하고
+        `summary`와 `items`는 각각 빈 문자열과 빈 배열로 반환한다. 어떤 경우에도
+        필드를 본인 보고서의 `report_items`로 복제하지 않는다.
+      properties:
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        displayName: { type: string }
+        organizationName:
+          type: string
+          description: 소속 조직이 없으면 빈 문자열
+        reportId: { type: integer, format: int64 }
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+          description: 원본 보고 상태. 미작성 대상에는 필드 자체가 없음
+        summary: { type: string }
+        version: { type: integer, minimum: 1 }
+        updatedAt: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ReportItem" }
+    IncludedReportMaterials:
+      type: object
+      required: [weekStart, materials]
+      properties:
+        weekStart: { type: string, format: date }
+        materials:
+          type: array
+          description: 선택 순환을 따라가지 않은 직접 선택 대상만 포함
+          items: { $ref: "#/components/schemas/IncludedReportMaterial" }
+    IncludedReportMaterialsResponse:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/IncludedReportMaterials" }
+    Report:
+      type: object
+      required:
+        - id
+        - userId
+        - username
+        - displayName
+        - weekStart
+        - status
+        - sourceType
+        - summary
+        - version
+        - submittedAt
+        - reviewedAt
+        - createdAt
+        - updatedAt
+        - items
+        - comments
+        - includedMaterials
+      properties:
+        id: { type: integer, format: int64 }
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        displayName: { type: string }
+        weekStart: { type: string, format: date }
+        status: { $ref: "#/components/schemas/ReportStatus" }
+        sourceType:
+          type: string
+          enum: [MANUAL, AI_TEXT, PPTX_IMPORT, CONFLUENCE_AI, CLONED, API, JIRA]
+        summary: { type: string }
+        version: { type: integer, minimum: 1 }
+        submittedAt: { type: [string, "null"], format: date-time }
+        reviewedAt: { type: [string, "null"], format: date-time }
+        reviewedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ReportItem" }
+        comments:
+          type: array
+          items: { type: object }
+        includedMaterials:
+          type: array
+          description: |
+            보고서 소유자의 현재 선택을 이 보고서의 정확한 주차에 적용한 읽기 전용 자료.
+            모든 보고 상태와 미작성 대상을 포함하고 한 단계만 조합한다. 항상 존재하는
+            비-null 배열이며 선택이 없거나 현재 권한 범위에 남은 대상이 없으면 빈 배열이다.
+            다른 사용자가 보고서를 조회하면 그 조회자의 현재 조직 범위와도 교차해
+            바깥 보고서에 부여된 권한보다 넓은 팀원 자료를 노출하지 않는다.
+            설정·역할·조직·활성 상태 변경은 이후 과거 보고 조회에도 즉시 반영되지만
+            보고서 상태·버전·항목과 기간·조직 분석 집계에는 영향을 주지 않는다.
+          items: { $ref: "#/components/schemas/IncludedReportMaterial" }
+    ReportResponse:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/Report" }
+    NullableReportResponse:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [data]
+          properties:
+            data:
+              oneOf:
+                - { $ref: "#/components/schemas/Report" }
+                - { type: "null" }
     AIReportItem:
       allOf:
         - { $ref: "#/components/schemas/ReportItem" }

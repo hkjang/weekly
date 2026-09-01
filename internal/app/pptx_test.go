@@ -162,6 +162,76 @@ func TestGeneratedReferenceStylePPTX(t *testing.T) {
 	}
 }
 
+// Included reports are flattened only for rendering. The projection names the
+// source writer and preserves the source category, while throwing away row and
+// work-item ids so nobody can mistake it for a copied database record.
+//
+// guards: reportItemsWithIncludedMaterials, renderReferencePPTX
+func TestPPTXProjectionAttributesIncludedTeamMaterialWithoutCopyingIdentity(t *testing.T) {
+	sourceReportID := int64(71)
+	sourceItemID := int64(72)
+	sourceWorkID := int64(73)
+	report := &reportView{
+		Items: []reportItem{{ID: 11, Category: "관리", Title: "본인 업무", CurrentResult: "본인 실적"}},
+		IncludedMaterials: []includedReportMaterial{
+			{UserID: 2, Username: "member", DisplayName: "팀원", ReportID: &sourceReportID,
+				Status: "DRAFT", Summary: "선택 팀원 요약", Items: []reportItem{{ID: sourceItemID, WorkItemID: &sourceWorkID,
+					Category: "플랫폼", Title: "선택 팀원 원본 업무", CurrentResult: "선택 팀원 실적", NextPlan: "선택 팀원 계획"}}},
+			{UserID: 3, Username: "missing", DisplayName: "미작성 팀원", Items: []reportItem{}},
+		},
+	}
+	items := reportItemsWithIncludedMaterials(report)
+	if len(items) != 4 {
+		t.Fatalf("projection has %d items, want own + summary + source + missing = 4: %+v", len(items), items)
+	}
+	if items[0].ID != 11 || report.Items[0].ID != 11 {
+		t.Fatal("projection changed the author's own item")
+	}
+	if items[1].Title != "주간 요약" || !strings.Contains(items[1].CurrentResult, "보고 상태: 작성 중") {
+		t.Errorf("projected summary lost the source report status: %+v", items[1])
+	}
+	source := items[2]
+	for _, fragment := range []string{"선택 팀원", "팀원 (member)", "플랫폼"} {
+		if !strings.Contains(source.Category, fragment) {
+			t.Errorf("projected category %q lost %q", source.Category, fragment)
+		}
+	}
+	if source.ID != 0 || source.WorkItemID != nil {
+		t.Errorf("projected source kept database identity: %+v", source)
+	}
+	if items[3].Title != "주간보고 미작성" || !strings.Contains(items[3].Category, "미작성 팀원 (missing)") {
+		t.Errorf("missing selected writer is not explicit: %+v", items[3])
+	}
+
+	template, err := referenceStylePPTX()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := *report
+	projected.Items = items
+	result, err := renderReferencePPTX(template, &projected, "플랫폼 조직", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := pptxXMLText(t, result)
+	for _, expected := range []string{"본인 실적", "보고 상태: 작성 중", "선택 팀원 요약", "선택 팀원 실적", "선택 팀원 계획", "해당 주차 주간보고가 없습니다"} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("rendered PPTX is missing %q", expected)
+		}
+	}
+}
+
+func TestPPTXProjectionShowsAReportStatusEvenWithoutASummary(t *testing.T) {
+	reportID := int64(81)
+	items := reportItemsWithIncludedMaterials(&reportView{IncludedMaterials: []includedReportMaterial{{
+		UserID: 2, Username: "member", DisplayName: "팀원", ReportID: &reportID,
+		Status: "APPROVED", Summary: "", Items: []reportItem{},
+	}}})
+	if len(items) != 1 || items[0].Title != "주간 요약" || items[0].CurrentResult != "보고 상태: 승인" {
+		t.Fatalf("empty summary lost its report status: %+v", items)
+	}
+}
+
 func TestReportItemLinesPreserveReadableListStructure(t *testing.T) {
 	items := []reportItem{{Category: "플랫폼", Title: "인증", CurrentResult: "• OIDC 연동\n• 권한 검증"}}
 	got := reportItemLines(items, "current")

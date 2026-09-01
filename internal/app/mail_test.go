@@ -299,6 +299,40 @@ func TestTheMailLeavesOutWhatWasNotWritten(t *testing.T) {
 	}
 }
 
+// Included team reports are composition, not the author's own tasks. A mailed
+// report therefore keeps the author's item count and writes the selected
+// material under its own heading, including the useful fact that somebody has
+// not written the selected week yet.
+//
+// guards: reportMailBody
+func TestReportMailKeepsIncludedTeamMaterialInItsOwnSection(t *testing.T) {
+	reportID := int64(91)
+	report := &reportView{
+		WeekStart: "2026-09-01", DisplayName: "팀장", Username: "lead", Status: "CLOSED",
+		Items: []reportItem{{Category: "관리", Title: "팀장 본인 업무", CurrentResult: "본인 실적", Progress: 40}},
+		IncludedMaterials: []includedReportMaterial{
+			{UserID: 2, Username: "member1", DisplayName: "팀원 1", OrganizationName: "플랫폼팀",
+				ReportID: &reportID, Status: "DRAFT", Summary: "팀원 요약",
+				Items: []reportItem{{Category: "개발", Title: "팀원 원본 업무", CurrentResult: "팀원 실적",
+					NextPlan: "팀원 계획", Issue: "팀원 이슈", ManagementAsk: "팀원 요청", Progress: 70}}},
+			{UserID: 3, Username: "member2", DisplayName: "팀원 2", OrganizationName: "플랫폼팀", Items: []reportItem{}},
+		},
+	}
+	body := reportMailBody(report, reportStatusLabel(report.Status))
+	for _, expected := range []string{
+		"업무 1건", "[선택 팀원 포함 자료]", "팀원 1 (member1) · 플랫폼팀 · 작성 중",
+		"요약: 팀원 요약", "[개발] 팀원 원본 업무 (70%)", "팀원 실적", "팀원 계획", "팀원 이슈", "팀원 요청",
+		"팀원 2 (member2) · 플랫폼팀 · 해당 주차 보고서 미작성",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("included report mail is missing %q:\n%s", expected, body)
+		}
+	}
+	if strings.Contains(body, "업무 3건") {
+		t.Errorf("included material was counted as the author's own work:\n%s", body)
+	}
+}
+
 // The subject carries a report title and a person's name, and the sender name
 // carries what an administrator typed into a settings box. A newline in any of
 // them would end the header and let that text add its own — a Bcc, a second

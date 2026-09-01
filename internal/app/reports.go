@@ -73,6 +73,10 @@ type reportView struct {
 	UpdatedAt  time.Time       `json:"updatedAt"`
 	Items      []reportItem    `json:"items"`
 	Comments   []reportComment `json:"comments"`
+	// IncludedMaterials are the selected team members' reports for this exact
+	// week. They are read-only composition, never rows owned by this report, so
+	// saving the report cannot copy or delete somebody else's work.
+	IncludedMaterials []includedReportMaterial `json:"includedMaterials"`
 }
 
 type reportListItem struct {
@@ -141,7 +145,7 @@ func (a *App) writeReport(w http.ResponseWriter, r *http.Request, id int64) {
 }
 
 func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
-	result := &reportView{Items: []reportItem{}, Comments: []reportComment{}}
+	result := &reportView{Items: []reportItem{}, Comments: []reportComment{}, IncludedMaterials: []includedReportMaterial{}}
 	var week time.Time
 	err := a.db.QueryRow(ctx, `SELECT r.id,r.user_id,u.username,u.display_name,r.week_start,r.status,r.source_type,r.summary,r.version,
 			r.submitted_at,r.reviewed_at,coalesce(rev.display_name,''),r.created_at,r.updated_at
@@ -159,25 +163,39 @@ func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var item reportItem
 		if err := rows.Scan(&item.ID, &item.WorkItemID, &item.Category, &item.Title, &item.CurrentResult, &item.NextPlan, &item.Issue, &item.ManagementAsk, &item.Progress, &item.SortOrder); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		result.Items = append(result.Items, item)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
 	commentRows, err := a.db.Query(ctx, `SELECT c.id,c.user_id,u.display_name,c.content,c.created_at FROM report_comments c JOIN users u ON u.id=c.user_id WHERE c.report_id=$1 ORDER BY c.created_at`, id)
 	if err != nil {
 		return nil, err
 	}
-	defer commentRows.Close()
 	for commentRows.Next() {
 		var comment reportComment
 		if err := commentRows.Scan(&comment.ID, &comment.UserID, &comment.DisplayName, &comment.Content, &comment.CreatedAt); err != nil {
+			commentRows.Close()
 			return nil, err
 		}
 		result.Comments = append(result.Comments, comment)
+	}
+	if err := commentRows.Err(); err != nil {
+		commentRows.Close()
+		return nil, err
+	}
+	commentRows.Close()
+	result.IncludedMaterials, err = a.includedMaterialsFor(ctx, result.UserID, result.WeekStart, currentPrincipal(ctx))
+	if err != nil {
+		return nil, err
 	}
 	return result, nil
 }

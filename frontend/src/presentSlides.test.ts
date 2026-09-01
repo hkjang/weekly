@@ -98,4 +98,40 @@ describe('reportSlides', () => {
     expect(slides[0].kind).toBe('cover')
     expect(slides[1].kind).toBe('image')
   })
+
+  it('선택한 팀원 자료를 작성자 구획과 함께 싣고 미작성 상태도 남긴다', () => {
+    const slides = reportSlides(report({
+      includedMaterials: [
+        {
+          userId: 2, username: 'member', displayName: '팀원', organizationName: '플랫폼팀',
+          reportId: 20, status: 'SUBMITTED', summary: '팀원 요약', items: [item({ title: '팀원 업무' })],
+        },
+        {
+          userId: 3, username: 'missing', displayName: '미작성자', organizationName: '플랫폼팀',
+          summary: '', items: [],
+        },
+      ],
+    }))
+    const teamSection = slides.find(slide => slide.title === '팀원 주간보고 자료')
+    expect(teamSection?.eyebrow).toBe('2명')
+    const memberSection = slides.find(slide => slide.title === '팀원')
+    expect(memberSection?.subtitle).toContain('플랫폼팀')
+    const memberItem = slides.find(slide => slide.title === '팀원 업무')
+    expect(memberItem?.eyebrow).toContain('팀원')
+    expect(memberItem?.meta).toContain('작성자 팀원')
+    const missing = slides.find(slide => slide.title === '미작성자')
+    expect(missing?.eyebrow).toContain('미작성')
+    expect(missing?.body).toContain('해당 주차 보고서 미작성')
+  })
+
+  it('팀원 자료의 상위 조직 요청도 종료 화면에서 결정을 요구한다', () => {
+    const slides = reportSlides(report({
+      items: [item({ managementAsk: '' })],
+      includedMaterials: [{
+        userId: 2, displayName: '팀원', organizationName: '플랫폼팀', reportId: 20,
+        status: 'CLOSED', summary: '', items: [item({ managementAsk: '인력 승인 필요' })],
+      }],
+    }))
+    expect(slides[slides.length - 1].subtitle).toContain('결정')
+  })
 })

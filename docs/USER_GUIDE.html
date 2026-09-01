@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="USER_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.277.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.278.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
 <h2>1. 개요</h2>
 <p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
 <h3>1.1 Keycloak 기존 세션으로 로그인</h3>
@@ -111,6 +111,16 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>관리자가 SMTP를 아직 설정하지 않았다면 화면에 그 사실이 표시됩니다. 현재 주 안에 메일 설정이 정상화되면 선택한 요일이 지난 경우에도 뒤늦게 발송을 시작합니다.</li>
 <li>메일을 보내기 전에 보고서가 제출되거나 권고자의 역할·조직·설정이 바뀌면 예약된 권고는 취소됩니다.</li>
 </ul>
+<h3>2.6 선택 팀원 주간보고 자료</h3>
+<p>팀장·조직장·관리자는 <code>개인 설정 → 팀원 주간보고 자료</code>에서 본인 보고와 함께 표시할 팀원을 고를 수 있습니다. 처음에는 아무도 선택되지 않습니다.</p>
+<ul>
+<li>이름·아이디·조직으로 검색하고 체크박스로 팀원을 고릅니다. 화면의 <code>선택 수/500명 선택</code> 배지와 <code>최대 500명까지 선택</code> 안내로 상한을 확인할 수 있습니다. <code>전체 선택</code>은 선택 가능 목록의 앞 500명까지만 고르며 <code>전체 해제</code>로 모두 풀 수 있습니다.</li>
+<li><code>포함 설정 저장</code>을 누릅니다. 팀장과 조직장은 본인 조직과 전체 하위 조직의 활성 사용자, 관리자는 전체 활성 사용자를 선택할 수 있으며 본인은 목록에서 제외됩니다.</li>
+<li>보고서를 열면 선택한 팀원의 정확히 같은 주차 보고서가 <code>팀원 주간보고 자료</code>에 읽기 전용으로 표시됩니다. 초안·제출·승인·반려·확정 등 모든 상태가 대상이고 원래 상태가 함께 보입니다. 보고서가 없는 팀원도 <code>이번 주 보고서가 아직 없습니다.</code>로 표시됩니다.</li>
+<li>보고서 화면뿐 아니라 발표 모드, PPTX와 제출 메일에서도 본인 내용 뒤의 별도 <code>선택 팀원 포함 자료</code> 구획으로 표시됩니다.</li>
+</ul>
+<p>이 설정은 팀원의 보고서를 내 보고서로 복사하지 않습니다. 내 업무 항목·상태·버전과 팀원 원본은 그대로이며, 선택한 팀원이 다시 포함한 사람의 자료까지 이어 붙이지도 않습니다. 기간 보고·팀 종합·업무 추적·관리자 분석에도 내 업무로 중복 집계되지 않습니다.</p>
+<p>포함 자료는 보고서를 열거나 출력을 새로 만들 때 현재 선택과 현재 권한으로 계산합니다. 따라서 선택을 바꾸면 과거 보고 상세도 그 과거 보고서와 정확히 같은 주차 자료를 새 선택으로 보여 줍니다. 역할 강등, 조직 이동 또는 팀원 비활성화로 접근 범위가 바뀌면 해당 자료는 즉시 숨겨지며, 이미 발송하거나 다운로드한 파일 자체는 바뀌지 않습니다.</p>
 <hr>
 <h2>3. 팀장 승인 및 검토 매뉴얼 (Team Leader Workflow)</h2>
 <p>관리자 설정에서 <code>workflow.enabled = true</code> 상태일 때 검토 및 승인 절차가 활성화됩니다.</p>
@@ -130,6 +140,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>시스템이 관리자에 의해 등록된 원본 PPTX 템플릿의 슬라이드 마스터, 레이아웃, 도형, 폰트를 그대로 유지한 채 <code>{{THIS_WEEK}}</code>, <code>{{NEXT_WEEK}}</code>, <code>{{ISSUES}}</code> 토큰 위치에 실시간 치환 결과를 파일로 다운로드합니다.</li>
 </ul>
 <p>기본 4장 표 형식은 작성 순서를 바꾸지 않고 실적·계획 중 더 긴 내용과 예상 줄바꿈 수를 기준으로 업무를 균형 배치합니다. 하나의 업무 구분이 여러 장에 걸리면 각 장에 구분 제목이 다시 표시되며, 모든 업무 항목은 정확히 한 번 출력됩니다.</p>
+<p>선택 팀원 포함 설정이 있으면 PPTX를 만드는 순간 같은 주차 자료를 임시 업무 항목으로 조합해 본인 항목 뒤에 이어서 출력합니다. 각 업무 분류 앞에는 <code>선택 팀원 · 이름 (아이디)</code>가 붙어 작성자와 원래 분류를 함께 구분하며, 보고서가 없는 팀원도 미작성으로 명시합니다. 기본·관리자 템플릿의 <code>{{THIS_WEEK}}</code>·<code>{{NEXT_WEEK}}</code>·<code>{{ISSUES}}</code>에는 이 순서로 내용이 들어가고, 내용량에 따라 기존 배치 규칙으로 페이지가 나뉩니다. 임시 항목은 내 보고서에 저장되거나 집계되지 않습니다.</p>
 <hr>
 <h2>5. API / MCP Key 발급 및 AI 에이전트 연동</h2>
 <ul>
