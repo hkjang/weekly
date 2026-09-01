@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="USER_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.279.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.280.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
 <h2>1. 개요</h2>
 <p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
 <h3>1.1 Keycloak 기존 세션으로 로그인</h3>
@@ -82,6 +82,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <h3>2.3 내 보고서 수정·삭제</h3>
 <ul>
 <li>현재 보고서와 <code>과거 보고</code> 상세 화면에서 본인 보고서를 수정하거나 삭제할 수 있습니다.</li>
+<li>주간 요약·금주 실적·차주 계획·이슈·상위 조직 요청 입력창은 내용의 줄 수와 화면 폭에 맞춰 자동으로 늘어납니다. 내용을 지우거나 화면이 넓어지면 다시 줄어들며, 입력창 안을 따로 스크롤하지 않고 페이지를 스크롤해 전체 내용을 확인할 수 있습니다.</li>
 <li>동시 변경을 덮어쓰지 않도록 버전을 확인합니다. 충돌하면 <strong>새로고침하지 말고 저장을 한 번 더</strong> 누르십시오 — 화면에 쓴 내용은 그대로 남아 있고, 새로고침은 그것을 지웁니다. 안내 문구도 그렇게 말합니다.</li>
 <li>제출·승인·확정된 보고서를 수정하면 기존 검토 결과가 해제되고 <code>DRAFT</code>로 돌아갑니다. 수정 후 다시 제출해야 합니다.</li>
 <li>검토 절차를 쓰지 않는 배포(<code>workflow.enabled = false</code>)에서는 제출이 곧 확정(<code>CLOSED</code>)이며, 확정본을 고쳐도 같은 규칙이 적용됩니다. 내용이 바뀐 보고서는 더 이상 확정된 그 보고서가 아니기 때문입니다.</li>

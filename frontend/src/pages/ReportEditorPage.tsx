@@ -7,6 +7,7 @@ import { Button, Card, Empty, PageHeader, SourceBadge, Spinner, StatusBadge } fr
 import AttachmentPanel from '../AttachmentPanel'
 import ReportPresentation from '../ReportPresentation'
 import IncludedReportMaterials from '../IncludedReportMaterials'
+import AutoResizeTextarea from '../AutoResizeTextarea'
 import { registerUnsavedGuard } from '../unsavedGuard'
 import type { AIWeeklyResult, ConfluenceCandidate, ConfluenceCandidateResponse, IncludedReportMaterial, IncludedReportMaterialsView, OpenFollowUp, PreviousPlan, PreviousPlanItem, QualityReport, Report, ReportItem } from '../types'
 
@@ -207,7 +208,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
     {report && (report.status === 'SUBMITTED' || report.status === 'APPROVED' || report.status === 'CLOSED') && <div className="edit-notice">{report.status === 'CLOSED' ? '확정된 보고서를 수정하면 작성 중 상태로 돌아갑니다. 다시 제출해야 확정됩니다.' : '제출·승인된 보고서를 수정하면 기존 검토 결과가 해제되고 작성 중 상태로 돌아갑니다.'}</div>}
     {(previousFailed || followUpsFailed) && <p className="capture-warning">{previousFailed && followUpsFailed ? '지난주 계획과 후속 조치를' : previousFailed ? '지난주 계획을' : '결정에 딸린 후속 조치를'} 불러오지 못했습니다. 이어받을 것이 없다는 뜻은 아니므로, 화면을 다시 열어 확인해 주십시오.</p>}
     {includedMaterialsFailed && <p className="capture-warning">팀원 주간보고 자료를 불러오지 못했습니다. 선택한 팀원이 없다는 뜻은 아닙니다. <button className="link-button" onClick={() => { void loadIncludedMaterials() }}>다시 시도</button></p>}
-    <Card title="주간 요약"><textarea className="summary-input" aria-label="주간 요약" placeholder="한 주의 핵심 성과와 맥락을 짧게 요약하세요." value={summary} onChange={e => setSummary(e.target.value)} disabled={!editable} maxLength={10000}/></Card>
+    <Card title="주간 요약"><AutoResizeTextarea className="summary-input" aria-label="주간 요약" placeholder="한 주의 핵심 성과와 맥락을 짧게 요약하세요." value={summary} onChange={e => setSummary(e.target.value)} disabled={!editable} maxLength={10000}/></Card>
     {effectiveMaterials.length > 0 && <Card title="팀원 주간보고 자료" action={<span className="muted-chip">{effectiveMaterials.length}명 선택</span>}>
       <IncludedReportMaterials materials={effectiveMaterials} heading={false}/>
     </Card>}
@@ -273,7 +274,7 @@ export default function ReportEditorPage({ workflowEnabled, aiEnabled, confluenc
           written here. So the declaration comes to the sentence. */}
       {editable && item.workItemId && item.issue.trim() && <IssueDependency
         workItemId={item.workItemId} notify={notify} />}
-      <div className="form-grid content-grid"><label>이번 주 — 한 일<textarea value={item.currentResult} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { currentResult: e.target.value })} placeholder="완료한 일과 결과를 적으세요."/></label><label>다음 주 — 할 일<textarea value={item.nextPlan} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { nextPlan: e.target.value })} placeholder="다음 주 계획을 적으세요."/></label><label>이슈 / 지원 요청<textarea value={item.issue} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { issue: e.target.value })} placeholder="이슈가 없다면 비워 두세요."/></label><label>상위 조직 요청<textarea value={item.managementAsk ?? ''} disabled={!editable} maxLength={5000} onChange={e => changeItem(index, { managementAsk: e.target.value })} placeholder="상위 조직의 결정이나 지원이 필요한 내용만 적으세요."/></label></div>
+      <div className="form-grid content-grid"><label>이번 주 — 한 일<AutoResizeTextarea value={item.currentResult} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { currentResult: e.target.value })} placeholder="완료한 일과 결과를 적으세요."/></label><label>다음 주 — 할 일<AutoResizeTextarea value={item.nextPlan} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { nextPlan: e.target.value })} placeholder="다음 주 계획을 적으세요."/></label><label>이슈 / 지원 요청<AutoResizeTextarea value={item.issue} disabled={!editable} maxLength={20000} onChange={e => changeItem(index, { issue: e.target.value })} placeholder="이슈가 없다면 비워 두세요."/></label><label>상위 조직 요청<AutoResizeTextarea value={item.managementAsk ?? ''} disabled={!editable} maxLength={5000} onChange={e => changeItem(index, { managementAsk: e.target.value })} placeholder="상위 조직의 결정이나 지원이 필요한 내용만 적으세요."/></label></div>
     </Card> }) : <Empty>업무 항목을 추가해 주세요.</Empty>}
     {report && <AttachmentPanel reportId={report.id} editable notify={notify} onCountChange={setCaptureCount} />}
     {/* Shown once there is something to discuss: a draft nobody has looked at

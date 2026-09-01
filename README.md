@@ -19,7 +19,7 @@
 - `WorkItem → ReportItem` 데이터 모델: 주차를 넘어 이어지는 업무 위에 금주 실적, 차주 계획, 이슈, 상위 조직 요청, 진척도를 주차 스냅샷으로 기록
 - 업무별 경과 주차, 보고 누락, 진척 정체, 이슈 이력과 지속, 계획 반복을 추적하는 업무 추적 화면
 - 일요일부터 토요일까지 선택 가능한 주차 시작 요일과 7일 단위 보고 기간
-- 현재·과거 본인 보고서 수정 및 낙관적 잠금이 적용된 확인형 삭제
+- 현재·과거 본인 보고서 수정, 내용의 줄 수와 화면 폭에 맞춰 늘고 줄어드는 편집 입력창, 낙관적 잠금이 적용된 확인형 삭제
 - 개인 화면과 관리자 관리 화면의 명확한 분리
 - 관리자 설정에 따라 켜지는 팀장 검토·승인·반려 흐름
 - Keycloak 호환 OIDC Discovery, Authorization Code + PKCE, nonce 검증과 기존 Keycloak 세션의 `prompt=none` 자동 로그인
@@ -74,9 +74,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.279.0.tar.gz
-gzip -dc weekly-v0.279.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.279.0.tar.gz | docker load
+sha256sum weekly-v0.280.0.tar.gz
+gzip -dc weekly-v0.280.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.280.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 첫 기동에 필요한 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d

@@ -297,3 +297,7 @@
 .included-material-empty{margin:0;padding:16px 14px;color:#94a3b8;font-size:12px}
 .included-material.missing{border-style:dashed}
 @media(max-width:600px){.inclusion-toolbar{align-items:stretch;flex-direction:column}.inclusion-toolbar>label{max-width:none}.inclusion-toolbar>div{justify-content:flex-end}.included-materials{margin-inline:14px;padding:12px}.card-body>.included-materials{margin:0;padding:0}.included-material-items h4{align-items:flex-start;flex-direction:column;gap:3px}.included-material-items dl{grid-template-columns:1fr;gap:3px}.included-material-items dd{margin-bottom:7px}}
+
+/* Report fields grow with wrapped and explicit lines, so their content scrolls
+   with the page instead of inside each individual input. */
+textarea.auto-resize-textarea{width:100%;min-width:0;max-width:100%;overflow-y:hidden;resize:none}
