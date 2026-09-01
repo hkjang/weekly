@@ -70,6 +70,57 @@ func TestWeeklyAutomationRoleAndScheduleRules(t *testing.T) {
 	}
 }
 
+// The scheduler reads a due-leader snapshot before it opens the queue
+// transaction. A preference update may commit between those two operations;
+// the old weekday must not recreate an AUTO row that the update just removed.
+//
+// guards: queueTeamReminderForLeader, queueTeamReminders, updateMyWeeklyPreferences
+func TestAutomaticTeamReminderRejectsAStaleScheduledWeekday(t *testing.T) {
+	server := newTestServer(t)
+	organization := server.createOrganization("자동 권고 요일 재검증 조직", "AUTOWEEKDAY")
+	leader := createAutomationTestAccount(t, server, "auto_weekday_leader", "TEAM_LEADER", &organization)
+	recipient := createAutomationTestAccount(t, server, "auto_weekday_recipient", "USER", &organization)
+	setAutomationTestEmail(t, server, recipient, "auto-weekday@internal.test")
+	oldPreference := saveAutomationPreference(server, leader, false, true, "THURSDAY")
+	if oldPreference.Code != http.StatusOK {
+		t.Fatalf("save old automatic weekday: %d %s", oldPreference.Code, oldPreference.Body.String())
+	}
+
+	location := server.app.serviceLocation(server.ctx())
+	// Use next week so the real background worker awakened by the preference
+	// handler cannot independently create the row under test, regardless of the
+	// wall-clock weekday on which this suite runs.
+	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY")).AddDate(0, 0, 7)
+	staleSnapshot := reminderLeader{ID: leader.id, Role: "TEAM_LEADER", OrganizationID: &organization, Weekday: "THURSDAY"}
+	newPreference := saveAutomationPreference(server, leader, false, true, "FRIDAY")
+	if newPreference.Code != http.StatusOK {
+		t.Fatalf("change automatic weekday: %d %s", newPreference.Code, newPreference.Body.String())
+	}
+	if err := server.app.queueTeamReminderForLeader(server.ctx(), staleSnapshot, week); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries
+		WHERE requested_by=$1 AND week_start=$2`, leader.id, week).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("stale weekday left %d AUTO delivery rows", rows)
+	}
+
+	staleSnapshot.Weekday = "FRIDAY"
+	if err := server.app.queueTeamReminderForLeader(server.ctx(), staleSnapshot, week); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries
+		WHERE requested_by=$1 AND week_start=$2 AND recipient_user_id=$3 AND origin='AUTO'`, leader.id, week, recipient.id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("current weekday left %d AUTO delivery rows, want 1", rows)
+	}
+}
+
 func TestWeeklyPreferencesKeepReminderAuthorityAndStoredChoiceApart(t *testing.T) {
 	server := newTestServer(t)
 	organization := server.createOrganization("자동화 설정 조직", "AUTOPREF")
@@ -403,7 +454,7 @@ func TestWeeklyQueuedReminderIsDeliveredAndCannotBeQueuedAgainThatWeek(t *testin
 		t.Fatalf("relay received %d reminder messages, want 1", len(messages))
 	}
 	body := decodedBody(t, messages[0])
-	for _, fragment := range []string{week.Format("2006-01-02"), recipient.username, leader.username, "제출해 주세요"} {
+	for _, fragment := range []string{week.Format("2006-01-02"), recipient.username, leader.username, "제출해 주세요", "선택한 요일에 자동으로 발송했습니다"} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("reminder body does not contain %q:\n%s", fragment, body)
 		}
@@ -492,5 +543,406 @@ func TestWeeklyReminderClaimLeaseKeepsAnotherWorkerFromSendingTheSameRow(t *test
 	}
 	if recovered.id != first.id || recovered.attempts != 2 {
 		t.Errorf("recovered claim=%+v, want id=%d attempts=2", recovered, first.id)
+	}
+}
+
+// A manual command uses the same durable queue as the schedule, but neither a
+// saved weekday nor an enabled automatic preference. This drives the public
+// route through the real worker and SMTP protocol so a row that is merely
+// inserted and then discarded by the pre-send check cannot pass.
+//
+// guards: sendMyTeamReminders, queueTeamReminders, reminderStillWanted
+func TestManualTeamReminderQueuesTheCurrentScopedTeamAndSendsWithoutAnAutomaticPreference(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	server.configureRelay(relay)
+	root := server.createOrganization("수동 권고 본부", "MANUALREMROOT")
+	child := server.createChildOrganization("수동 권고 하위팀", "MANUALREMCHILD", &root)
+	other := server.createOrganization("수동 권고 외부팀", "MANUALREMOTHER")
+
+	leader := createAutomationTestAccount(t, server, "manual_reminder_leader", "TEAM_LEADER", &root)
+	sameTeam := createAutomationTestAccount(t, server, "manual_reminder_same", "USER", &root)
+	childTeam := createAutomationTestAccount(t, server, "manual_reminder_child", "USER", &child)
+	draftMember := createAutomationTestAccount(t, server, "manual_reminder_draft", "USER", &root)
+	submittedMember := createAutomationTestAccount(t, server, "manual_reminder_submitted", "USER", &root)
+	outside := createAutomationTestAccount(t, server, "manual_reminder_outside", "USER", &other)
+	inactive := createAutomationTestAccount(t, server, "manual_reminder_inactive", "USER", &root)
+	noAddress := createAutomationTestAccount(t, server, "manual_reminder_no_address", "USER", &root)
+	invalidPreferred := createAutomationTestAccount(t, server, "manual_reminder_invalid_preferred", "USER", &root)
+	ordinary := createAutomationTestAccount(t, server, "manual_reminder_ordinary", "USER", &other)
+
+	setAutomationTestEmail(t, server, sameTeam, "manual-same@internal.test")
+	setAutomationTestEmail(t, server, childTeam, "manual-child@internal.test")
+	setAutomationTestEmail(t, server, draftMember, "manual-draft@internal.test")
+	setAutomationTestEmail(t, server, submittedMember, "manual-submitted@internal.test")
+	setAutomationTestEmail(t, server, outside, "manual-outside@internal.test")
+	setAutomationTestEmail(t, server, inactive, "manual-inactive@internal.test")
+	setAutomationTestEmail(t, server, invalidPreferred, "valid-account-fallback@internal.test")
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_mail_settings(user_id,address,on_submit)
+		VALUES($1,'invalid preferred address',false)`, invalidPreferred.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.app.db.Exec(server.ctx(), `UPDATE users SET active=false WHERE id=$1`, inactive.id); err != nil {
+		t.Fatal(err)
+	}
+	_ = noAddress
+
+	location := server.app.serviceLocation(server.ctx())
+	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
+	server.draft(draftMember.cookie, week.Format("2006-01-02"), "수동 권고 시점 작성 중")
+	server.submitted(submittedMember.cookie, week.Format("2006-01-02"), "이미 제출")
+
+	unknown := server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{"unexpected": true}, leader.cookie)
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown manual-reminder field: %d %s", unknown.Code, unknown.Body.String())
+	}
+	nullBody := server.requestRaw(http.MethodPost, "/api/v1/me/team-reminders", "null", leader.cookie)
+	if nullBody.Code != http.StatusBadRequest || errorCode(nullBody) != "INVALID_REQUEST" {
+		t.Fatalf("null manual-reminder body: %d %s", nullBody.Code, nullBody.Body.String())
+	}
+	refused := server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{}, ordinary.cookie)
+	if refused.Code != http.StatusForbidden || errorCode(refused) != "REMINDER_ROLE_REQUIRED" {
+		t.Fatalf("ordinary user sent team reminders: %d %s", refused.Code, refused.Body.String())
+	}
+
+	response := server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{}, leader.cookie)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("manual reminder: %d %s", response.Code, response.Body.String())
+	}
+	data := decodeData(t, response)
+	if data["weekStart"] != week.Format("2006-01-02") || int(data["eligible"].(float64)) != 5 ||
+		int(data["queued"].(float64)) != 3 || int(data["alreadyQueued"].(float64)) != 0 ||
+		int(data["skippedNoAddress"].(float64)) != 2 {
+		t.Fatalf("manual reminder counts: %#v", data)
+	}
+	var preferences int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM user_weekly_preferences WHERE user_id=$1`, leader.id).Scan(&preferences); err != nil {
+		t.Fatal(err)
+	}
+	if preferences != 0 {
+		t.Errorf("manual sending created or required %d automatic preference row(s)", preferences)
+	}
+
+	messages := relay.awaitRelay(t, 3)
+	if len(messages) != 3 {
+		t.Fatalf("relay received %d manual reminders, want 3", len(messages))
+	}
+	for index, message := range messages {
+		body := decodedBody(t, message)
+		for _, fragment := range []string{week.Format("2006-01-02"), leader.username, "개인 설정에서 직접 발송했습니다"} {
+			if !strings.Contains(body, fragment) {
+				t.Errorf("manual reminder %d lost %q:\n%s", index, fragment, body)
+			}
+		}
+	}
+	var manualRows int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries
+		WHERE requested_by=$1 AND week_start=$2 AND origin='MANUAL'`, leader.id, week).Scan(&manualRows); err != nil {
+		t.Fatal(err)
+	}
+	if manualRows != 3 {
+		t.Errorf("manual queue stored %d rows, want 3", manualRows)
+	}
+
+	again := decodeData(t, server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{}, leader.cookie))
+	if int(again["eligible"].(float64)) != 5 || int(again["queued"].(float64)) != 0 ||
+		int(again["alreadyQueued"].(float64)) != 3 || int(again["skippedNoAddress"].(float64)) != 2 {
+		t.Fatalf("repeated manual reminder counts: %#v", again)
+	}
+	var audits int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM audit_logs
+		WHERE actor_id=$1 AND action='mail.team_reminders_manual'`, leader.id).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits != 2 {
+		t.Errorf("manual reminder clicks wrote %d audit rows, want 2", audits)
+	}
+	_ = outside
+}
+
+func TestManualTeamReminderRefusesAnUnreadyRelayWithoutLeavingAQueue(t *testing.T) {
+	server := newTestServer(t)
+	organization := server.createOrganization("수동 권고 릴레이 조직", "MANUALRELAY")
+	leader := createAutomationTestAccount(t, server, "manual_relay_leader", "TEAM_LEADER", &organization)
+	recipient := createAutomationTestAccount(t, server, "manual_relay_recipient", "USER", &organization)
+	setAutomationTestEmail(t, server, recipient, "manual-relay@internal.test")
+
+	response := server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{}, leader.cookie)
+	if response.Code != http.StatusConflict || errorCode(response) != "MAIL_RELAY_NOT_READY" {
+		t.Fatalf("unready relay answered %d/%s: %s", response.Code, errorCode(response), response.Body.String())
+	}
+	var rows int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("unready relay left %d queued reminder(s)", rows)
+	}
+}
+
+// guards: queueManualTeamReminderRecipient, queueTeamReminders
+func TestManualTeamReminderRestartsFailedRowsButKeepsSentRowsDeduplicated(t *testing.T) {
+	server := newTestServer(t)
+	organization := server.createOrganization("수동 권고 재시도 조직", "MANUALRETRY")
+	leader := createAutomationTestAccount(t, server, "manual_retry_leader", "TEAM_LEADER", &organization)
+	failed := createAutomationTestAccount(t, server, "manual_retry_failed", "USER", &organization)
+	sent := createAutomationTestAccount(t, server, "manual_retry_sent", "USER", &organization)
+	failedNoAddress := createAutomationTestAccount(t, server, "manual_retry_no_address", "USER", &organization)
+	setAutomationTestEmail(t, server, failed, "manual-retry-new@internal.test")
+	location := server.app.serviceLocation(server.ctx())
+	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO team_reminder_deliveries
+		(requested_by,recipient_user_id,week_start,address,origin,status,attempts,error_message,next_attempt_at,sent_at)
+		VALUES
+		($1,$2,$5,'old-failed@internal.test','AUTO','FAILED',5,'relay refused',now()+interval '2 hours',now()),
+		($1,$3,$5,'manual-sent@internal.test','AUTO','SENT',1,'',now(),now()),
+		($1,$4,$5,'old-no-address@internal.test','AUTO','FAILED',4,'still failed',now()+interval '2 hours',NULL)`,
+		leader.id, failed.id, sent.id, failedNoAddress.id, week); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := server.app.queueTeamReminders(server.ctx(), leader.id, week, teamReminderOriginManual, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Eligible != 3 || result.Queued != 1 || result.AlreadyQueued != 1 || result.SkippedNoAddress != 1 {
+		t.Fatalf("failed/sent manual queue counts: %+v", result)
+	}
+	var requester int64
+	var address, origin, status, failure string
+	var attempts int
+	var nextAttempt time.Time
+	var sentAt *time.Time
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT requested_by,address,origin,status,attempts,error_message,next_attempt_at,sent_at
+		FROM team_reminder_deliveries WHERE recipient_user_id=$1 AND week_start=$2`, failed.id, week).
+		Scan(&requester, &address, &origin, &status, &attempts, &failure, &nextAttempt, &sentAt); err != nil {
+		t.Fatal(err)
+	}
+	if requester != leader.id || address != "manual-retry-new@internal.test" || origin != teamReminderOriginManual ||
+		status != "QUEUED" || attempts != 0 || failure != "" || sentAt != nil || nextAttempt.After(time.Now().Add(time.Minute)) {
+		t.Errorf("failed reminder was not reset for a manual retry: requester=%d address=%s origin=%s status=%s attempts=%d error=%q next=%s sent=%v",
+			requester, address, origin, status, attempts, failure, nextAttempt, sentAt)
+	}
+	var sentOrigin, sentStatus string
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT origin,status FROM team_reminder_deliveries
+		WHERE recipient_user_id=$1 AND week_start=$2`, sent.id, week).Scan(&sentOrigin, &sentStatus); err != nil {
+		t.Fatal(err)
+	}
+	if sentOrigin != teamReminderOriginAuto || sentStatus != "SENT" {
+		t.Errorf("sent reminder changed to %s/%s", sentOrigin, sentStatus)
+	}
+	var invalidOrigin, invalidStatus, invalidAddress, invalidError string
+	var invalidAttempts int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT origin,status,address,attempts,error_message
+		FROM team_reminder_deliveries WHERE recipient_user_id=$1 AND week_start=$2`, failedNoAddress.id, week).
+		Scan(&invalidOrigin, &invalidStatus, &invalidAddress, &invalidAttempts, &invalidError); err != nil {
+		t.Fatal(err)
+	}
+	if invalidOrigin != teamReminderOriginAuto || invalidStatus != "FAILED" || invalidAddress != "old-no-address@internal.test" ||
+		invalidAttempts != 4 || invalidError != "still failed" {
+		t.Errorf("failed row without a current address was changed: %s/%s address=%s attempts=%d error=%q",
+			invalidOrigin, invalidStatus, invalidAddress, invalidAttempts, invalidError)
+	}
+}
+
+// A manual click on an already queued automatic delivery is still a duplicate
+// for the counter, but it must detach that row from the automatic setting. The
+// lease and retry history belong to the in-flight worker and must not move.
+//
+// guards: sendMyTeamReminders, queueManualTeamReminderRecipient, updateMyWeeklyPreferences
+func TestManualTeamReminderPromotesAQueuedAutomaticRowBeforeAutomationIsDisabled(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	server.configureRelay(relay)
+	organization := server.createOrganization("수동 권고 승격 조직", "MANUALPROMOTE")
+	leader := createAutomationTestAccount(t, server, "manual_promote_leader", "TEAM_LEADER", &organization)
+	recipient := createAutomationTestAccount(t, server, "manual_promote_recipient", "USER", &organization)
+	invalidAddress := createAutomationTestAccount(t, server, "manual_promote_no_address", "USER", &organization)
+	setAutomationTestEmail(t, server, recipient, "manual-promoted@internal.test")
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_weekly_preferences
+		(user_id,auto_clone_previous,team_reminder_enabled,team_reminder_weekday)
+		VALUES($1,false,true,'FRIDAY')`, leader.id); err != nil {
+		t.Fatal(err)
+	}
+	location := server.app.serviceLocation(server.ctx())
+	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
+	nextAttempt := time.Now().Add(time.Hour)
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO team_reminder_deliveries
+		(requested_by,recipient_user_id,week_start,address,origin,status,attempts,error_message,next_attempt_at)
+		VALUES
+		($1,$2,$4,'old-auto@internal.test','AUTO','QUEUED',2,'temporary relay error',$5),
+		($1,$3,$4,'keep-queued@internal.test','AUTO','QUEUED',1,'',$5)`,
+		leader.id, recipient.id, invalidAddress.id, week, nextAttempt); err != nil {
+		t.Fatal(err)
+	}
+
+	response := server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{}, leader.cookie)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("promote automatic reminder: %d %s", response.Code, response.Body.String())
+	}
+	data := decodeData(t, response)
+	if int(data["eligible"].(float64)) != 2 || int(data["queued"].(float64)) != 0 || int(data["alreadyQueued"].(float64)) != 2 ||
+		int(data["skippedNoAddress"].(float64)) != 0 {
+		t.Fatalf("promoted reminder counts: %#v", data)
+	}
+	var requester int64
+	var address, origin, status, failure string
+	var attempts int
+	var storedNext time.Time
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT requested_by,address,origin,status,attempts,error_message,next_attempt_at
+		FROM team_reminder_deliveries WHERE recipient_user_id=$1 AND week_start=$2`, recipient.id, week).
+		Scan(&requester, &address, &origin, &status, &attempts, &failure, &storedNext); err != nil {
+		t.Fatal(err)
+	}
+	if requester != leader.id || address != "manual-promoted@internal.test" || origin != teamReminderOriginManual ||
+		status != "QUEUED" || attempts != 2 || failure != "temporary relay error" || storedNext.Before(time.Now().Add(50*time.Minute)) {
+		t.Errorf("automatic queue promotion changed its lease/history or lost manual ownership: requester=%d address=%s origin=%s status=%s attempts=%d error=%q next=%s",
+			requester, address, origin, status, attempts, failure, storedNext)
+	}
+	var preservedAddress, preservedOrigin string
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT address,origin FROM team_reminder_deliveries
+		WHERE recipient_user_id=$1 AND week_start=$2`, invalidAddress.id, week).Scan(&preservedAddress, &preservedOrigin); err != nil {
+		t.Fatal(err)
+	}
+	if preservedAddress != "keep-queued@internal.test" || preservedOrigin != teamReminderOriginManual {
+		t.Errorf("queued row with no current address was not safely promoted: address=%s origin=%s", preservedAddress, preservedOrigin)
+	}
+
+	disabled := saveAutomationPreference(server, leader, false, false, "FRIDAY")
+	if disabled.Code != http.StatusOK {
+		t.Fatalf("disable automatic reminder: %d %s", disabled.Code, disabled.Body.String())
+	}
+	var retained int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries
+		WHERE requested_by=$1 AND week_start=$2 AND origin='MANUAL' AND status='QUEUED'`, leader.id, week).Scan(&retained); err != nil {
+		t.Fatal(err)
+	}
+	if retained != 2 {
+		t.Errorf("turning automatic reminders off left %d/2 promoted manual queues", retained)
+	}
+}
+
+// The uniqueness key is recipient/week, so two overlapping managers can click
+// the manual action for the same person. The second click is a duplicate, not a
+// transfer of the first manager's durable request. Otherwise a later demotion
+// of the second manager would make the worker discard a reminder that the first
+// manager was still authorised to send.
+//
+// guards: sendMyTeamReminders, queueManualTeamReminderRecipient, reminderStillWanted
+func TestManualTeamReminderDuplicateKeepsTheFirstManualRequester(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	server.configureRelay(relay)
+	organization := server.createOrganization("수동 권고 소유권 조직", "MANUALOWNER")
+	first := createAutomationTestAccount(t, server, "manual_owner_first", "TEAM_LEADER", &organization)
+	duplicate := createAutomationTestAccount(t, server, "manual_owner_duplicate", "TEAM_LEADER", &organization)
+	recipient := createAutomationTestAccount(t, server, "manual_owner_recipient", "USER", &organization)
+	setAutomationTestEmail(t, server, recipient, "new-profile-address@internal.test")
+
+	location := server.app.serviceLocation(server.ctx())
+	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
+	nextAttempt := time.Now().Add(time.Hour)
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO team_reminder_deliveries
+		(requested_by,recipient_user_id,week_start,address,origin,status,attempts,error_message,next_attempt_at)
+		VALUES($1,$2,$3,'first-durable-address@internal.test','MANUAL','QUEUED',2,'temporary relay error',$4)`,
+		first.id, recipient.id, week, nextAttempt); err != nil {
+		t.Fatal(err)
+	}
+
+	response := server.request(http.MethodPost, "/api/v1/me/team-reminders", map[string]any{}, duplicate.cookie)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("duplicate manual reminder: %d %s", response.Code, response.Body.String())
+	}
+	data := decodeData(t, response)
+	if int(data["eligible"].(float64)) != 2 || int(data["queued"].(float64)) != 0 ||
+		int(data["alreadyQueued"].(float64)) != 1 || int(data["skippedNoAddress"].(float64)) != 1 {
+		t.Fatalf("duplicate manual reminder counts: %#v", data)
+	}
+
+	var requester int64
+	var address, origin, status, failure string
+	var attempts int
+	var storedNext time.Time
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT requested_by,address,origin,status,attempts,error_message,next_attempt_at
+		FROM team_reminder_deliveries WHERE recipient_user_id=$1 AND week_start=$2`, recipient.id, week).
+		Scan(&requester, &address, &origin, &status, &attempts, &failure, &storedNext); err != nil {
+		t.Fatal(err)
+	}
+	if requester != first.id || address != "first-durable-address@internal.test" || origin != teamReminderOriginManual ||
+		status != "QUEUED" || attempts != 2 || failure != "temporary relay error" || storedNext.Before(time.Now().Add(50*time.Minute)) {
+		t.Fatalf("duplicate click transferred or rewrote the first manual request: requester=%d address=%s origin=%s status=%s attempts=%d error=%q next=%s",
+			requester, address, origin, status, attempts, failure, storedNext)
+	}
+
+	if _, err := server.app.db.Exec(server.ctx(), `UPDATE users SET role='USER' WHERE id=$1`, duplicate.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.app.db.Exec(server.ctx(), `UPDATE team_reminder_deliveries SET next_attempt_at=now()
+		WHERE recipient_user_id=$1 AND week_start=$2`, recipient.id, week); err != nil {
+		t.Fatal(err)
+	}
+	// Either this wake or the explicit worker wake from the POST may win the
+	// claim; the observable contract is the one SMTP delivery, not which test
+	// goroutine acquired the row.
+	server.app.wakeMailWorker()
+	messages := relay.awaitRelay(t, 1)
+	if len(messages) != 1 {
+		t.Fatalf("relay received %d messages, want 1", len(messages))
+	}
+	body := decodedBody(t, messages[0])
+	if !strings.Contains(body, first.username) || strings.Contains(body, duplicate.username) {
+		t.Errorf("manual reminder attribution changed after a duplicate click:\n%s", body)
+	}
+	if envelope := strings.Join(relay.envelopeLines(), " "); !strings.Contains(envelope, "first-durable-address@internal.test") {
+		t.Errorf("duplicate click changed the durable delivery address: %s", envelope)
+	}
+}
+
+// guards: reminderStillWanted, sendNextQueuedReminder
+func TestManualQueuedReminderRevalidatesCurrentAuthorityScopeAndSubmission(t *testing.T) {
+	for _, scenario := range []string{"demoted requester", "moved recipient", "submitted recipient", "inactive recipient"} {
+		t.Run(scenario, func(t *testing.T) {
+			server := newTestServer(t)
+			relay := startFakeRelay(t)
+			server.configureRelay(relay)
+			organization := server.createOrganization("수동 권고 재검증 조직", "MANUALRECHECK")
+			outside := server.createOrganization("수동 권고 재검증 외부", "MANUALRECHECKOUT")
+			leader := createAutomationTestAccount(t, server, "manual_recheck_leader", "TEAM_LEADER", &organization)
+			recipient := createAutomationTestAccount(t, server, "manual_recheck_recipient", "USER", &organization)
+			setAutomationTestEmail(t, server, recipient, "manual-recheck@internal.test")
+			location := server.app.serviceLocation(server.ctx())
+			week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
+			result, err := server.app.queueTeamReminders(server.ctx(), leader.id, week, teamReminderOriginManual, "")
+			if err != nil || result.Queued != 1 {
+				t.Fatalf("queue manual reminder: %+v, %v", result, err)
+			}
+
+			switch scenario {
+			case "demoted requester":
+				_, err = server.app.db.Exec(server.ctx(), `UPDATE users SET role='USER' WHERE id=$1`, leader.id)
+			case "moved recipient":
+				_, err = server.app.db.Exec(server.ctx(), `UPDATE users SET organization_id=$2 WHERE id=$1`, recipient.id, outside)
+			case "submitted recipient":
+				server.submitted(recipient.cookie, week.Format("2006-01-02"), "권고 뒤 제출")
+			case "inactive recipient":
+				_, err = server.app.db.Exec(server.ctx(), `UPDATE users SET active=false WHERE id=$1`, recipient.id)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if more := server.app.sendNextQueuedReminder(server.ctx()); !more {
+				t.Fatal("obsolete manual reminder was not consumed")
+			}
+			if messages := relay.awaitRelay(t, 0); len(messages) != 0 {
+				t.Errorf("obsolete manual reminder sent %d message(s)", len(messages))
+			}
+			var remaining int
+			if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries`).Scan(&remaining); err != nil {
+				t.Fatal(err)
+			}
+			if remaining != 0 {
+				t.Errorf("obsolete manual reminder left %d queue row(s)", remaining)
+			}
+		})
 	}
 }

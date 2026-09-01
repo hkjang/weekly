@@ -232,6 +232,26 @@
 .automation-save{display:flex;justify-content:flex-end;margin-top:16px}
 @media(max-width:600px){.automation-options .toggle-row,.automation-options .setting-row{grid-template-columns:1fr}.automation-options .toggle-row input{justify-self:start}}
 
+/* The containing Card separates this immediate command from saved automatic
+   preferences; this section names and describes only the manual operation. */
+.manual-reminder{margin:0}
+.manual-reminder-head h3{margin:0;color:#1e293b;font-size:14px}
+.manual-reminder-head p{margin:5px 0 0;color:#64748b;font-size:12px;line-height:1.6}
+.manual-reminder .edit-notice{margin:12px 0 0}
+.manual-reminder-actions{display:flex;justify-content:flex-end;margin-top:13px}
+.manual-reminder-error{margin:12px 0 0;padding:10px 12px;border:1px solid #fecaca;border-radius:9px;background:#fef2f2;color:#b91c1c;font-size:12px;line-height:1.55}
+.manual-reminder-result{margin-top:13px;padding:12px 13px;border:1px solid #bfdbfe;border-radius:9px;background:#fff}
+.manual-reminder-result>strong{display:block;color:#1e3a5f;font-size:13px}
+.manual-reminder-result dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0 0}
+.manual-reminder-result dl>div{min-width:0;padding:9px 10px;border-radius:8px;background:#f1f5f9}
+.manual-reminder-result dl>div.warning{background:#fff7ed}
+.manual-reminder-result dt{color:#64748b;font-size:10px;font-weight:800}
+.manual-reminder-result dd{display:flex;flex-direction:column;gap:2px;margin:3px 0 0;color:#1e293b;font-size:16px;font-weight:800}
+.manual-reminder-result dd small{color:#64748b;font-size:9px;font-weight:700}
+.manual-reminder-result .warning dd{color:#c2410c}
+.manual-reminder-result>p{margin:10px 0 0;color:#475569;font-size:11px;line-height:1.55}
+@media(max-width:700px){.manual-reminder-result dl{grid-template-columns:repeat(2,minmax(0,1fr))}.manual-reminder-actions{justify-content:stretch}.manual-reminder-actions .button{width:100%}}
+
 /* Choosing people is a set, not a row of on/off service switches. Square
    checkboxes and the selected count make that distinction visible. */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

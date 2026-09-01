@@ -369,6 +369,9 @@ export interface WeeklyPreference {
   autoClonePrevious: boolean; reminderAvailable: boolean; reminderEnabled: boolean
   reminderWeekday: WeekdayName; reminderHour: number; timezone: string; relayReady: boolean
 }
+export interface TeamReminderQueueResult {
+  weekStart: string; eligible: number; queued: number; alreadyQueued: number; skippedNoAddress: number
+}
 
 /**
  * What has actually happened to the mail, for the operator who owns the relay.

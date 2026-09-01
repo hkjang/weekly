@@ -17,6 +17,13 @@ import (
 // the common, visible delivery time and is stated on the profile screen.
 const weeklyReminderHour = 9
 
+const (
+	teamReminderOriginAuto   = "AUTO"
+	teamReminderOriginManual = "MANUAL"
+)
+
+var errTeamReminderRoleRequired = errors.New("team reminder role required")
+
 var weeklyWeekdays = map[string]time.Weekday{
 	"SUNDAY": time.Sunday, "MONDAY": time.Monday, "TUESDAY": time.Tuesday,
 	"WEDNESDAY": time.Wednesday, "THURSDAY": time.Thursday,
@@ -31,6 +38,14 @@ type weeklyPreferenceView struct {
 	ReminderHour      int    `json:"reminderHour"`
 	Timezone          string `json:"timezone"`
 	RelayReady        bool   `json:"relayReady"`
+}
+
+type teamReminderQueueResult struct {
+	WeekStart        string `json:"weekStart"`
+	Eligible         int    `json:"eligible"`
+	Queued           int    `json:"queued"`
+	AlreadyQueued    int    `json:"alreadyQueued"`
+	SkippedNoAddress int    `json:"skippedNoAddress"`
 }
 
 func canScheduleTeamReminder(role string) bool {
@@ -147,7 +162,7 @@ func (a *App) updateMyWeeklyPreferences(w http.ResponseWriter, r *http.Request) 
 	// hours later. A different eligible leader may enqueue the shared reminder.
 	if oldEnabled != input.ReminderEnabled || oldWeekday != input.ReminderWeekday {
 		if _, err = tx.Exec(r.Context(), `DELETE FROM team_reminder_deliveries
-			WHERE requested_by=$1 AND status='QUEUED'`, p.ID); err != nil {
+			WHERE requested_by=$1 AND status='QUEUED' AND origin='AUTO'`, p.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "주간보고 자동화 설정을 저장할 수 없습니다.")
 			return
 		}
@@ -397,23 +412,81 @@ func (a *App) queueDueTeamReminders(ctx context.Context, now, week time.Time) er
 }
 
 func (a *App) queueTeamReminderForLeader(ctx context.Context, leader reminderLeader, week time.Time) error {
-	if leader.Role != "ADMIN" && leader.OrganizationID == nil {
+	result, err := a.queueTeamReminders(ctx, leader.ID, week, teamReminderOriginAuto, leader.Weekday)
+	if errors.Is(err, errTeamReminderRoleRequired) {
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	if result.Queued > 0 {
+		a.auditSystem(ctx, "mail.team_reminders_queued", "user", strconv.FormatInt(leader.ID, 10), map[string]any{
+			"weekStart": result.WeekStart, "queued": result.Queued,
+		})
+		a.wakeMailWorker()
+	}
+	return nil
+}
+
+// queueTeamReminders is the one durable claim shared by the schedule and the
+// explicit profile action. The transaction makes a manual response truthful:
+// it never reports half a team queued after a later recipient insert failed.
+func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week time.Time, origin, scheduledWeekday string) (teamReminderQueueResult, error) {
+	result := teamReminderQueueResult{WeekStart: week.Format("2006-01-02")}
+	if origin != teamReminderOriginAuto && origin != teamReminderOriginManual {
+		return result, fmt.Errorf("unknown team reminder origin %q", origin)
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx)
+
+	var role string
+	var organizationID *int64
+	var active bool
+	err = tx.QueryRow(ctx, `SELECT role,organization_id,active FROM users WHERE id=$1 FOR SHARE`, requesterID).
+		Scan(&role, &organizationID, &active)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!active || !canScheduleTeamReminder(role))) {
+		return result, errTeamReminderRoleRequired
+	}
+	if err != nil {
+		return result, err
+	}
+	if origin == teamReminderOriginAuto {
+		var enabled bool
+		var currentWeekday string
+		err = tx.QueryRow(ctx, `SELECT team_reminder_enabled,team_reminder_weekday FROM user_weekly_preferences
+			WHERE user_id=$1 FOR SHARE`, requesterID).Scan(&enabled, &currentWeekday)
+		// queueDueTeamReminders took an earlier schedule snapshot. Re-check both
+		// fields while holding the preference row so a concurrent weekday change
+		// cannot delete an old AUTO queue and then have that old schedule recreate
+		// it after the preference transaction commits.
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!enabled || currentWeekday != scheduledWeekday)) {
+			return result, nil
+		}
+		if err != nil {
+			return result, err
+		}
+	}
+	if role != "ADMIN" && organizationID == nil {
+		return result, nil
+	}
+
 	query := `SELECT u.id,u.display_name,
 		COALESCE(NULLIF(btrim(mail.address),''),btrim(coalesce(u.email,'')))
 		FROM users u LEFT JOIN user_mail_settings mail ON mail.user_id=u.id
 		LEFT JOIN weekly_reports report ON report.user_id=u.id AND report.week_start=$2
 		WHERE u.active=true AND u.id<>$1 AND (report.id IS NULL OR report.status='DRAFT')`
-	args := []any{leader.ID, week}
-	if leader.Role != "ADMIN" {
-		args = append(args, *leader.OrganizationID)
+	args := []any{requesterID, week}
+	if role != "ADMIN" {
+		args = append(args, *organizationID)
 		query += ` AND u.organization_id IN ` + orgSubtree(len(args))
 	}
 	query += ` ORDER BY u.id`
-	rows, err := a.db.Query(ctx, query, args...)
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
-		return err
+		return result, err
 	}
 	type recipient struct {
 		id      int64
@@ -425,48 +498,194 @@ func (a *App) queueTeamReminderForLeader(ctx context.Context, leader reminderLea
 		var item recipient
 		if err := rows.Scan(&item.id, &item.name, &item.address); err != nil {
 			rows.Close()
-			return err
+			return result, err
 		}
 		recipients = append(recipients, item)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return err
+		return result, err
 	}
-	queued, invalid := int64(0), 0
+	result.Eligible = len(recipients)
 	for _, recipient := range recipients {
-		if !validMailAddress(recipient.address) {
-			invalid++
-			continue
+		if origin == teamReminderOriginManual {
+			var outcome manualTeamReminderOutcome
+			outcome, err = queueManualTeamReminderRecipient(ctx, tx, requesterID, recipient.id, week, recipient.address)
+			if err != nil {
+				return result, err
+			}
+			switch outcome {
+			case manualTeamReminderQueued:
+				result.Queued++
+			case manualTeamReminderAlreadyQueued:
+				result.AlreadyQueued++
+			case manualTeamReminderSkippedNoAddress:
+				result.SkippedNoAddress++
+			}
+		} else {
+			if !validMailAddress(recipient.address) {
+				result.SkippedNoAddress++
+				continue
+			}
+			command, execErr := tx.Exec(ctx, `INSERT INTO team_reminder_deliveries
+				(requested_by,recipient_user_id,week_start,address,origin)
+				VALUES($1,$2,$3,$4,'AUTO') ON CONFLICT (recipient_user_id,week_start) DO NOTHING`,
+				requesterID, recipient.id, week, recipient.address)
+			if execErr != nil {
+				return result, execErr
+			}
+			if command.RowsAffected() > 0 {
+				result.Queued++
+			} else {
+				result.AlreadyQueued++
+			}
 		}
-		command, err := a.db.Exec(ctx, `INSERT INTO team_reminder_deliveries
-			(requested_by,recipient_user_id,week_start,address)
-			VALUES($1,$2,$3,$4) ON CONFLICT (recipient_user_id,week_start) DO NOTHING`,
-			leader.ID, recipient.id, week, recipient.address)
-		if err != nil {
-			return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	if result.SkippedNoAddress > 0 {
+		a.logger.Warn("team reminder recipients have no valid address", "leaderId", requesterID,
+			"origin", origin, "count", result.SkippedNoAddress)
+	}
+	return result, nil
+}
+
+type manualTeamReminderOutcome int
+
+const (
+	manualTeamReminderQueued manualTeamReminderOutcome = iota
+	manualTeamReminderAlreadyQueued
+	manualTeamReminderSkippedNoAddress
+)
+
+// queueManualTeamReminderRecipient serialises a manual click with every other
+// requester for this recipient/week. A queued automatic row is promoted to a
+// manual one without moving its lease: waking a second worker while the first
+// is using SMTP would send the same message twice. A failed row, by contrast,
+// starts a fresh explicit attempt budget.
+func queueManualTeamReminderRecipient(ctx context.Context, tx pgx.Tx, requesterID, recipientID int64, week time.Time, address string) (manualTeamReminderOutcome, error) {
+	var status, origin string
+	err := tx.QueryRow(ctx, `SELECT status,origin FROM team_reminder_deliveries
+		WHERE recipient_user_id=$1 AND week_start=$2 FOR UPDATE`, recipientID, week).Scan(&status, &origin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if !validMailAddress(address) {
+			return manualTeamReminderSkippedNoAddress, nil
 		}
-		queued += command.RowsAffected()
+		command, insertErr := tx.Exec(ctx, `INSERT INTO team_reminder_deliveries
+			(requested_by,recipient_user_id,week_start,address,origin)
+			VALUES($1,$2,$3,$4,'MANUAL') ON CONFLICT (recipient_user_id,week_start) DO NOTHING`,
+			requesterID, recipientID, week, address)
+		if insertErr != nil {
+			return manualTeamReminderQueued, insertErr
+		}
+		if command.RowsAffected() > 0 {
+			return manualTeamReminderQueued, nil
+		}
+		// Another transaction inserted after the first statement's snapshot.
+		// Its commit made ON CONFLICT do nothing; lock and classify that row now.
+		err = tx.QueryRow(ctx, `SELECT status,origin FROM team_reminder_deliveries
+			WHERE recipient_user_id=$1 AND week_start=$2 FOR UPDATE`, recipientID, week).Scan(&status, &origin)
 	}
-	if invalid > 0 {
-		a.logger.Warn("team reminder recipients have no valid address", "leaderId", leader.ID, "count", invalid)
+	if err != nil {
+		return manualTeamReminderQueued, err
 	}
-	if queued > 0 {
-		a.auditSystem(ctx, "mail.team_reminders_queued", "user", strconv.FormatInt(leader.ID, 10), map[string]any{
-			"weekStart": week.Format("2006-01-02"), "queued": queued,
-		})
+	switch status {
+	case "FAILED":
+		if !validMailAddress(address) {
+			return manualTeamReminderSkippedNoAddress, nil
+		}
+		_, err = tx.Exec(ctx, `UPDATE team_reminder_deliveries SET
+			requested_by=$3,address=$4,origin='MANUAL',status='QUEUED',attempts=0,
+			error_message='',next_attempt_at=now(),sent_at=NULL
+			WHERE recipient_user_id=$1 AND week_start=$2`, recipientID, week, requesterID, address)
+		return manualTeamReminderQueued, err
+	case "QUEUED":
+		// A previous explicit request already has a durable owner. A second
+		// manager's duplicate click must not steal that ownership: if the second
+		// manager later loses scope, pre-send revalidation would otherwise cancel
+		// the first manager's still-authorised request and misattribute the mail.
+		if origin == teamReminderOriginManual {
+			return manualTeamReminderAlreadyQueued, nil
+		}
+		// This may already be claimed. Preserve attempts and next_attempt_at, but
+		// detach it from the automatic preference so turning automation off cannot
+		// cancel the explicit request. If the current profile address was removed,
+		// keep the valid address already carried by this durable queue row.
+		_, err = tx.Exec(ctx, `UPDATE team_reminder_deliveries
+			SET requested_by=$3,address=CASE WHEN $5 THEN $4 ELSE address END,origin='MANUAL'
+			WHERE recipient_user_id=$1 AND week_start=$2`, recipientID, week, requesterID, address, validMailAddress(address))
+		return manualTeamReminderAlreadyQueued, err
+	case "SENT":
+		return manualTeamReminderAlreadyQueued, nil
+	default:
+		return manualTeamReminderQueued, fmt.Errorf("unknown team reminder status %q", status)
+	}
+}
+
+func writeTeamReminderRoleRequired(w http.ResponseWriter) {
+	writeError(w, http.StatusForbidden, "REMINDER_ROLE_REQUIRED", "팀원 권고 메일은 팀장 이상만 발송할 수 있습니다.")
+}
+
+func (a *App) sendMyTeamReminders(w http.ResponseWriter, r *http.Request) {
+	var input *struct{}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "요청 형식이 올바르지 않습니다.")
+		return
+	}
+	p := currentPrincipal(r.Context())
+	if p == nil || !canScheduleTeamReminder(p.Role) {
+		writeTeamReminderRoleRequired(w)
+		return
+	}
+	settings, err := a.loadMailSettings(r.Context())
+	if err != nil {
+		a.logger.Error("read mail settings for manual team reminder", "error", err,
+			"trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 설정을 확인할 수 없습니다.")
+		return
+	}
+	if settings.unusable() != "" {
+		writeError(w, http.StatusConflict, "MAIL_RELAY_NOT_READY", "메일 릴레이가 준비되지 않았습니다. 관리자에게 SMTP 설정 확인을 요청하십시오.")
+		return
+	}
+	location := a.serviceLocation(r.Context())
+	week := currentWeekStart(time.Now().In(location), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
+	result, err := a.queueTeamReminders(r.Context(), p.ID, week, teamReminderOriginManual, "")
+	if errors.Is(err, errTeamReminderRoleRequired) {
+		writeTeamReminderRoleRequired(w)
+		return
+	}
+	if err != nil {
+		a.logger.Error("queue manual team reminders", "error", err, "userId", p.ID,
+			"trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "팀원 주간보고 작성 권고 메일을 예약할 수 없습니다.")
+		return
+	}
+	a.audit(r, p, "mail.team_reminders_manual", "user", strconv.FormatInt(p.ID, 10), map[string]any{
+		"weekStart": result.WeekStart, "eligible": result.Eligible, "queued": result.Queued,
+		"alreadyQueued": result.AlreadyQueued, "skippedNoAddress": result.SkippedNoAddress,
+	})
+	if result.Queued > 0 || result.AlreadyQueued > 0 {
 		a.wakeMailWorker()
 	}
-	return nil
+	writeData(w, http.StatusAccepted, result)
 }
 
 func teamReminderSubject(serviceName, week string) string {
 	return fmt.Sprintf("[%s] %s 주간보고 작성을 부탁드립니다", serviceName, week)
 }
 
-func teamReminderBody(week, recipientName, requesterName string) string {
-	return fmt.Sprintf("%s님, 안녕하세요.\n\n%s 주간보고가 아직 제출되지 않았습니다.\n이번 주 업무와 다음 주 계획을 작성한 뒤 제출해 주세요.\n\n권고한 사람: %s\n\n--\n이 메일은 권고자가 개인 설정에서 선택한 요일에 자동으로 발송했습니다.\n", recipientName, week, requesterName)
+func teamReminderBody(week, recipientName, requesterName, origin string) string {
+	deliveryNote := "이 메일은 권고자가 개인 설정에서 선택한 요일에 자동으로 발송했습니다."
+	if origin == teamReminderOriginManual {
+		deliveryNote = "이 메일은 권고자가 개인 설정에서 직접 발송했습니다."
+	}
+	return fmt.Sprintf("%s님, 안녕하세요.\n\n%s 주간보고가 아직 제출되지 않았습니다.\n이번 주 업무와 다음 주 계획을 작성한 뒤 제출해 주세요.\n\n권고한 사람: %s\n\n--\n%s\n", recipientName, week, requesterName, deliveryNote)
 }
 
 // A claim must remain invisible to the other service replicas for longer than
@@ -486,6 +705,7 @@ type queuedTeamReminder struct {
 	recipientID int64
 	week        time.Time
 	address     string
+	origin      string
 	attempts    int
 }
 
@@ -496,16 +716,19 @@ func (a *App) claimNextQueuedReminder(ctx context.Context, lease time.Duration) 
 		WHERE id=(SELECT id FROM team_reminder_deliveries
 			WHERE status='QUEUED' AND next_attempt_at<=now()
 			ORDER BY next_attempt_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
-		RETURNING id,requested_by,recipient_user_id,week_start,address,attempts`, lease.String()).
+		RETURNING id,requested_by,recipient_user_id,week_start,address,origin,attempts`, lease.String()).
 		Scan(&delivery.id, &delivery.requesterID, &delivery.recipientID,
-			&delivery.week, &delivery.address, &delivery.attempts)
+			&delivery.week, &delivery.address, &delivery.origin, &delivery.attempts)
 	return delivery, err
 }
 
 // reminderStillWanted is checked after claiming a row. A recipient may submit,
 // a leader may be demoted, or an organisation may move while SMTP is retrying;
 // none of those old snapshots authorises a late reminder.
-func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID int64, week time.Time) (string, string, bool) {
+func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID int64, week time.Time, origin string) (string, string, bool) {
+	if origin != teamReminderOriginAuto && origin != teamReminderOriginManual {
+		return "", "", false
+	}
 	location := a.serviceLocation(ctx)
 	configuredStart := a.setting(ctx, "workflow.week_start", "MONDAY")
 	if currentWeekStart(time.Now().In(location), configuredStart).Format("2006-01-02") != week.Format("2006-01-02") {
@@ -515,13 +738,15 @@ func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID 
 	var requesterOrg, recipientOrg *int64
 	var requesterActive, recipientActive, enabled bool
 	err := a.db.QueryRow(ctx, `SELECT leader.display_name,recipient.display_name,leader.role,
-		leader.organization_id,recipient.organization_id,leader.active,recipient.active,preference.team_reminder_enabled
+		leader.organization_id,recipient.organization_id,leader.active,recipient.active,
+		coalesce(preference.team_reminder_enabled,false)
 		FROM users leader JOIN users recipient ON recipient.id=$2
-		JOIN user_weekly_preferences preference ON preference.user_id=leader.id
+		LEFT JOIN user_weekly_preferences preference ON preference.user_id=leader.id
 		WHERE leader.id=$1`, requesterID, recipientID).
 		Scan(&requesterName, &recipientName, &role, &requesterOrg, &recipientOrg,
 			&requesterActive, &recipientActive, &enabled)
-	if err != nil || !requesterActive || !recipientActive || !enabled || !canScheduleTeamReminder(role) || requesterID == recipientID {
+	if err != nil || !requesterActive || !recipientActive ||
+		(origin == teamReminderOriginAuto && !enabled) || !canScheduleTeamReminder(role) || requesterID == recipientID {
 		return "", "", false
 	}
 	if role != "ADMIN" {
@@ -558,15 +783,19 @@ func (a *App) sendNextQueuedReminder(ctx context.Context) bool {
 		a.logger.Error("claim queued team reminder", "error", err)
 		return false
 	}
-	requesterName, recipientName, wanted := a.reminderStillWanted(ctx, delivery.requesterID, delivery.recipientID, delivery.week)
+	requesterName, recipientName, wanted := a.reminderStillWanted(ctx, delivery.requesterID, delivery.recipientID, delivery.week, delivery.origin)
 	if !wanted || !validMailAddress(delivery.address) {
-		if _, err := a.db.Exec(ctx, `DELETE FROM team_reminder_deliveries WHERE id=$1`, delivery.id); err != nil {
+		// A manual click may promote an AUTO row after this worker claimed its old
+		// snapshot. Delete only that snapshot; if the row changed origin/requester,
+		// leave the explicit request for the next pass instead of cancelling it.
+		if _, err := a.db.Exec(ctx, `DELETE FROM team_reminder_deliveries
+			WHERE id=$1 AND requested_by=$2 AND origin=$3`, delivery.id, delivery.requesterID, delivery.origin); err != nil {
 			a.logger.Error("discard obsolete team reminder", "delivery", delivery.id, "error", err)
 		}
 		return true
 	}
 	subject := teamReminderSubject(a.setting(ctx, "service.name", "Weekly"), delivery.week.Format("2006-01-02"))
-	body := teamReminderBody(delivery.week.Format("2006-01-02"), recipientName, requesterName)
+	body := teamReminderBody(delivery.week.Format("2006-01-02"), recipientName, requesterName, delivery.origin)
 	if err := a.sendMail(ctx, settings, delivery.address, subject, body); err != nil {
 		if delivery.attempts >= settings.MaxAttempts {
 			a.logger.Error("team reminder mail gave up", "delivery", delivery.id, "attempts", delivery.attempts, "error", err)

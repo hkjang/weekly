@@ -241,6 +241,7 @@ func (a *App) routes() {
 	a.mux.Handle("PUT /api/v1/me/mail", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyMailSettings))))
 	a.mux.Handle("GET /api/v1/me/preferences", a.requireAuth(http.HandlerFunc(a.myWeeklyPreferences)))
 	a.mux.Handle("PUT /api/v1/me/preferences", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyWeeklyPreferences))))
+	a.mux.Handle("POST /api/v1/me/team-reminders", a.requireAuth(a.csrf(http.HandlerFunc(a.sendMyTeamReminders))))
 	a.mux.Handle("GET /api/v1/me/report-inclusions", a.requireAuth(http.HandlerFunc(a.myReportInclusions)))
 	a.mux.Handle("PUT /api/v1/me/report-inclusions", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyReportInclusions))))
 

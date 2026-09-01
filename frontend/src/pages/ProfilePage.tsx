@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { errorText, api, del, post, put } from '../api'
 import { Button, Card, Empty, PageHeader, formatDate } from '../components'
 import ReportInclusionSettings from '../ReportInclusionSettings'
+import ManualTeamReminder from '../ManualTeamReminder'
 import type { KeyView, MailPreference, SessionInfo, WeeklyPreference, WeekdayName } from '../types'
 
 const weekdays: { value: WeekdayName; label: string }[] = [
@@ -75,6 +76,9 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
       </div>
       <div className="automation-save"><Button onClick={saveWeekly}>자동화 설정 저장</Button></div>
     </Card>
+    {weekly?.reminderAvailable && <Card title="팀원 작성 권고 메일">
+      <ManualTeamReminder available relayReady={weekly.relayReady} notify={notify}/>
+    </Card>}
     <ReportInclusionSettings session={session} notify={notify}/>
     <Card title="주간보고 메일 발송" action={mail && <span className="muted-chip">{mail.onSubmit ? '켜짐' : '꺼짐'}</span>}>
       <p className="muted">주간보고를 <strong>제출할 때</strong> 아래 주소로 내용을 보냅니다. 계정 이메일과 달라도 됩니다.</p>

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.278.0
+  version: 0.279.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1293,6 +1293,43 @@ paths:
                     $ref: "#/components/schemas/WeeklyPreference"
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /me/team-reminders:
+    post:
+      summary: 이번 주 팀원 작성 권고 메일 수동 발송 요청
+      description: |
+        `TEAM_LEADER`, `ORG_MANAGER`, `ADMIN`이 개인 설정의 버튼으로 호출한다. 자동 발송의
+        사용 여부와 선택 요일에 관계없이 현재 서비스 주차에서 권고자의 최신 역할·조직 범위에
+        속한 활성 사용자 중 보고서가 없거나 `DRAFT`인 사람을 다시 계산해 발송 대기열에 넣는다.
+        권고자 본인은 제외한다.
+
+        받는 사람별 주차당 한 번만 발송한다. 같은 주에 이미 `QUEUED` 또는 `SENT`인 행은
+        `alreadyQueued`로 집계하며, 최종 `FAILED` 행은 현재 주소로 다시 `QUEUED` 처리해
+        `queued`에 포함한다. 개인 메일 설정 주소가 비어 있을 때만 계정 이메일로 대체하며,
+        그렇게 선택한 주소가 유효하지 않으면 `skippedNoAddress`로 집계한다. 응답은 큐 등록
+        결과이고 실제 SMTP 발송은 Worker가 비동기로 수행한다.
+
+        - 400 `INVALID_REQUEST`: 빈 JSON 객체가 아니거나 요청 본문이 없음
+        - 403 `REMINDER_ROLE_REQUIRED`: 현재 활성 역할이 팀장·조직장·관리자가 아님
+        - 409 `MAIL_RELAY_NOT_READY`: 사용할 수 있는 SMTP 설정이 없어 아무 행도 만들지 않음
+        - 500 `DATABASE_ERROR`/`QUERY_FAILED`: 대상 계산 또는 큐 저장 실패
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      responses:
+        "202":
+          description: 이번 주 대상 계산 및 큐 등록 결과
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamReminderQueueResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
   /me/mail:
     get:
       summary: 주간보고 메일 발송 설정과 최근 발송 결과
@@ -2159,6 +2196,37 @@ components:
         relayReady:
           type: boolean
           description: 관리자가 권고 메일에 사용할 수 있는 SMTP 설정을 저장했는지
+    TeamReminderQueueResult:
+      type: object
+      required: [weekStart, eligible, queued, alreadyQueued, skippedNoAddress]
+      properties:
+        weekStart:
+          type: string
+          format: date
+          description: 서비스 시간대와 설정된 주차 시작일로 계산한 이번 주
+        eligible:
+          type: integer
+          minimum: 0
+          description: 이번 요청에서 확인한 미제출 활성 사용자 수. queued + alreadyQueued + skippedNoAddress와 같음
+        queued:
+          type: integer
+          minimum: 0
+          description: 새로 만들었거나 최종 실패 상태에서 다시 연 발송 대기 건수
+        alreadyQueued:
+          type: integer
+          minimum: 0
+          description: 이번 주에 이미 발송했거나 발송 대기 중이라 중복으로 넣지 않은 수
+        skippedNoAddress:
+          type: integer
+          minimum: 0
+          description: 개인 설정 주소, 또는 그 값이 비었을 때 선택한 계정 이메일이 유효하지 않아 건너뛴 수
+    TeamReminderQueueResponse:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/TeamReminderQueueResult" }
     ReportInclusionMember:
       type: object
       required: [id, username, displayName, organizationName]
