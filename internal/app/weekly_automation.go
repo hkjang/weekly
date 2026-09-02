@@ -473,11 +473,15 @@ func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week ti
 		return result, nil
 	}
 
+	// A member is owed a recommendation unless they have already filed for these
+	// days. Asked as an overlap rather than as an exact week_start: see
+	// weekCoveringDays.
 	query := `SELECT u.id,u.display_name,
 		COALESCE(NULLIF(btrim(mail.address),''),btrim(coalesce(u.email,'')))
 		FROM users u LEFT JOIN user_mail_settings mail ON mail.user_id=u.id
-		LEFT JOIN weekly_reports report ON report.user_id=u.id AND report.week_start=$2
-		WHERE u.active=true AND u.id<>$1 AND (report.id IS NULL OR report.status='DRAFT')`
+		WHERE u.active=true AND u.id<>$1
+		  AND NOT EXISTS(SELECT 1 FROM weekly_reports report
+		    WHERE report.user_id=u.id AND report.status<>'DRAFT' AND ` + weekCoveringDays("report", 2) + `)`
 	args := []any{requesterID, week}
 	if role != "ADMIN" {
 		args = append(args, *organizationID)
@@ -759,9 +763,11 @@ func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID 
 			return "", "", false
 		}
 	}
+	// The same question the queue asks, asked again at the moment of sending.
 	var submitted bool
-	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM weekly_reports
-		WHERE user_id=$1 AND week_start=$2 AND status<>'DRAFT')`, recipientID, week).Scan(&submitted); err != nil || submitted {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM weekly_reports report
+		WHERE report.user_id=$1 AND report.status<>'DRAFT' AND `+weekCoveringDays("report", 2)+`)`,
+		recipientID, week).Scan(&submitted); err != nil || submitted {
 		return "", "", false
 	}
 	return requesterName, recipientName, true

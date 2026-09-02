@@ -425,6 +425,68 @@ func TestWeeklyTeamReminderTargetsOnlyUnsubmittedActiveTeamMembersOnce(t *testin
 	}
 }
 
+// Moving the week start weekday moves the grid, not the reports already on it.
+// For the one transition week the report an author handed in still covers these
+// days under a different date, and weekIsFree refuses to let them file a second
+// one — so a recommendation asking them for it asks for something the product
+// will not accept. A draft is not a submission and is still owed one.
+//
+// guards: queueTeamReminders, weekCoveringDays
+func TestWeeklyTeamReminderSkipsAReportHandedInOnThePreviousWeekGrid(t *testing.T) {
+	server := newTestServer(t)
+	organization := server.createOrganization("격자 이동 조직", "GRIDMOVED")
+	leader := createAutomationTestAccount(t, server, "grid_leader", "TEAM_LEADER", &organization)
+	handedIn := createAutomationTestAccount(t, server, "grid_handed_in", "USER", &organization)
+	drafting := createAutomationTestAccount(t, server, "grid_drafting", "USER", &organization)
+	owing := createAutomationTestAccount(t, server, "grid_owing", "USER", &organization)
+	setAutomationTestEmail(t, server, handedIn, "grid-handed-in@internal.test")
+	setAutomationTestEmail(t, server, drafting, "grid-drafting@internal.test")
+	setAutomationTestEmail(t, server, owing, "grid-owing@internal.test")
+
+	location := server.app.serviceLocation(server.ctx())
+	// The administrator has just moved Monday to Wednesday: the week the
+	// recommendation addresses begins two days after the grid these two wrote on.
+	week := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	previousGrid := week.AddDate(0, 0, -2).Format("2006-01-02")
+	server.submitted(handedIn.cookie, previousGrid, "옛 격자에서 제출")
+	server.draft(drafting.cookie, previousGrid, "옛 격자에서 작성 중")
+
+	result, err := server.app.queueTeamReminders(server.ctx(), leader.id, week, teamReminderOriginManual, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Queued != 2 {
+		t.Errorf("queued %d recommendation(s), want the drafting and the owing member", result.Queued)
+	}
+	rows, err := server.app.db.Query(server.ctx(), `SELECT recipient_user_id
+		FROM team_reminder_deliveries WHERE week_start=$1 ORDER BY recipient_user_id`, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := map[int64]bool{}
+	for rows.Next() {
+		var recipient int64
+		if err := rows.Scan(&recipient); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		queued[recipient] = true
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued[handedIn.id] {
+		t.Error("a member who handed in a report covering these days was asked for another one")
+	}
+	for _, owed := range []automationTestAccount{drafting, owing} {
+		if !queued[owed.id] {
+			t.Errorf("%s still owes a report and was not asked for one", owed.username)
+		}
+	}
+}
+
 func TestWeeklyQueuedReminderIsDeliveredAndCannotBeQueuedAgainThatWeek(t *testing.T) {
 	server := newTestServer(t)
 	relay := startFakeRelay(t)
@@ -900,7 +962,8 @@ func TestManualTeamReminderDuplicateKeepsTheFirstManualRequester(t *testing.T) {
 
 // guards: reminderStillWanted, sendNextQueuedReminder
 func TestManualQueuedReminderRevalidatesCurrentAuthorityScopeAndSubmission(t *testing.T) {
-	for _, scenario := range []string{"demoted requester", "moved recipient", "submitted recipient", "inactive recipient"} {
+	for _, scenario := range []string{"demoted requester", "moved recipient", "submitted recipient",
+		"recipient submitted on another week grid", "inactive recipient"} {
 		t.Run(scenario, func(t *testing.T) {
 			server := newTestServer(t)
 			relay := startFakeRelay(t)
@@ -924,6 +987,11 @@ func TestManualQueuedReminderRevalidatesCurrentAuthorityScopeAndSubmission(t *te
 				_, err = server.app.db.Exec(server.ctx(), `UPDATE users SET organization_id=$2 WHERE id=$1`, recipient.id, outside)
 			case "submitted recipient":
 				server.submitted(recipient.cookie, week.Format("2006-01-02"), "권고 뒤 제출")
+			case "recipient submitted on another week grid":
+				// Filed under the grid this installation used before the week start
+				// weekday moved. It covers the same days, so it answers the queued
+				// recommendation even though its week_start is a different date.
+				server.submitted(recipient.cookie, week.AddDate(0, 0, 2).Format("2006-01-02"), "옛 격자로 제출")
 			case "inactive recipient":
 				_, err = server.app.db.Exec(server.ctx(), `UPDATE users SET active=false WHERE id=$1`, recipient.id)
 			}
