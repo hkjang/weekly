@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -66,5 +67,67 @@ func TestCurrentReportOpensTheReportCoveringTheseDaysAfterTheGridMoves(t *testin
 		map[string]any{"weekStart": moved.Format("2006-01-02"), "summary": "새 격자에서 다시 작성"}, author)
 	if created.Code != http.StatusConflict || errorCode(created) != "REPORT_PERIOD_OVERLAPS" {
 		t.Errorf("filing a second report for the same days answered %d %s", created.Code, created.Body.String())
+	}
+}
+
+// The same transition week seen from the leader's deck, where being told wrong
+// is louder: a selected member's material was looked up by exact date, so for
+// that one week the member who had written — and whom the product would not let
+// write again on the new date — came back with no report at all. The PPTX turns
+// that into "주간보고 미작성" beside their name in front of management.
+//
+// guards: includedMaterialsFor, weekCoveringDays
+func TestIncludedMaterialsFindTheMemberReportCoveringTheseDaysAfterTheGridMoves(t *testing.T) {
+	server := newTestServer(t)
+	org := server.createOrganization("격자 자료 본부", "GRIDMATERIAL")
+	leader := server.createUser("gridmaterial_leader", "ORG_MANAGER", &org)
+	member := server.createUser("gridmaterial_member", "USER", &org)
+	memberID := server.userIDOf(server.lastCreatedUsername("gridmaterial_member"))
+
+	location := server.app.serviceLocation(server.ctx())
+	moved := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	previousGrid := moved.AddDate(0, 0, -2).Format("2006-01-02")
+
+	memberReport, memberVersion := server.draft(member, previousGrid, "팀원 옛 격자 요약")
+	fillInclusionTestReport(t, server, member, memberReport, memberVersion, "팀원 옛 격자 요약", "팀원 옛 격자 업무")
+	selected := server.request(http.MethodPut, "/api/v1/me/report-inclusions",
+		map[string]any{"memberIds": []int64{memberID}}, leader)
+	if selected.Code != http.StatusOK {
+		t.Fatalf("select the member: %d %s", selected.Code, selected.Body.String())
+	}
+
+	server.setWeekStart("WEDNESDAY")
+
+	current := server.request(http.MethodGet, "/api/v1/reports/current/included-materials", nil, leader)
+	if current.Code != http.StatusOK {
+		t.Fatalf("current materials: %d %s", current.Code, current.Body.String())
+	}
+	materials := materialRows(t, decodeData(t, current), "materials")
+	written := rowByUserID(materials, memberID)
+	if written == nil {
+		t.Fatalf("the selected member left the leader's materials entirely: %s", current.Body.String())
+	}
+	if written["reportId"] == nil {
+		t.Fatalf("the member's report covering these days was reported as unwritten: %#v", written)
+	}
+	if int64(written["reportId"].(float64)) != memberReport || written["summary"] != "팀원 옛 격자 요약" {
+		t.Fatalf("wrong member report attached: %#v", written)
+	}
+	if len(materialRows(t, written, "items")) != 1 {
+		t.Errorf("the member's work did not come with the material: %#v", written["items"])
+	}
+
+	// A week the member genuinely did not write is still empty; the fix widens
+	// the question to the seven days, not to "their latest report".
+	nextWeek := moved.AddDate(0, 0, 7).Format("2006-01-02")
+	leaderNext, _ := server.draft(leader, nextWeek, "팀장 다음 주 요약")
+	detail := server.request(http.MethodGet, fmt.Sprintf("/api/v1/reports/%d", leaderNext), nil, leader)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("next week report: %d %s", detail.Code, detail.Body.String())
+	}
+	nextMaterials := materialRows(t, decodeData(t, detail), "includedMaterials")
+	unwritten := rowByUserID(nextMaterials, memberID)
+	if unwritten == nil || unwritten["reportId"] != nil {
+		t.Errorf("a week the member did not report was filled from another week: %#v", unwritten)
 	}
 }

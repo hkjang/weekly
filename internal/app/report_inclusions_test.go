@@ -222,8 +222,8 @@ func TestIncludedMaterialsUseTheExactWeekWithoutCopyingReportItems(t *testing.T)
 
 	memberReport, memberVersion := server.draft(member, weekText, "팀원 이번 주 요약")
 	fillInclusionTestReport(t, server, member, memberReport, memberVersion, "팀원 이번 주 요약", "팀원 원본 업무")
-	// The selected but missing member does have another week. Exact week_start,
-	// not "latest report", decides whether material exists.
+	// The selected but missing member does have another week. The seven days
+	// this week covers, not "latest report", decides whether material exists.
 	oldMissingReport, oldMissingVersion := server.draft(missing, previousText, "지난주만 작성")
 	fillInclusionTestReport(t, server, missing, oldMissingReport, oldMissingVersion, "지난주만 작성", "지난주 업무")
 	nestedReport, nestedVersion := server.draft(nested, weekText, "재귀되면 안 되는 요약")
