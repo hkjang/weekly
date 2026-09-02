@@ -131,3 +131,71 @@ func TestIncludedMaterialsFindTheMemberReportCoveringTheseDaysAfterTheGridMoves(
 		t.Errorf("a week the member did not report was filled from another week: %#v", unwritten)
 	}
 }
+
+// The same transition seen one week later, by the author who asked never to
+// have to start from a blank page.
+//
+// The automatic clone already refuses to overwrite a report covering the target
+// week, so on the transition week itself it correctly stands aside and lets the
+// author carry on in the report they have. The week after that it went looking
+// for the source by exact date, found nothing where the moved grid says last
+// week began, marked the week processed and produced no copy — the one thing
+// the preference exists to do, skipped once, silently, for the author least
+// likely to be watching for it.
+//
+// guards: runAutomaticCloneForUser, weekCoveringDays
+func TestAutomaticCloneCopiesTheReportCoveringLastWeekAfterTheGridMoves(t *testing.T) {
+	server := newTestServer(t)
+	author := createAutomationTestAccount(t, server, "gridclone_author", "USER", nil)
+
+	location := server.app.serviceLocation(server.ctx())
+	moved := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	previousGrid := moved.AddDate(0, 0, -2)
+
+	sourceID, version := server.draft(author.cookie, previousGrid.Format("2006-01-02"), "옛 격자 요약")
+	fillInclusionTestReport(t, server, author.cookie, sourceID, version, "옛 격자 요약", "옛 격자 업무")
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_weekly_preferences
+		(user_id,auto_clone_previous,team_reminder_enabled,team_reminder_weekday)
+		VALUES($1,true,false,'FRIDAY')`, author.id); err != nil {
+		t.Fatal(err)
+	}
+
+	server.setWeekStart("WEDNESDAY")
+
+	// The transition week: the author's existing report covers these days, so
+	// there is nothing to clone into and the run stands aside.
+	if err := server.app.runAutomaticClones(server.ctx(), moved); err != nil {
+		t.Fatal(err)
+	}
+	var duplicates int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM weekly_reports
+		WHERE user_id=$1 AND week_start=$2`, author.id, moved).Scan(&duplicates); err != nil {
+		t.Fatal(err)
+	}
+	if duplicates != 0 {
+		t.Fatalf("the clone filed a second report for days the author had already covered")
+	}
+
+	// The week after, whose source is that same report sitting two days off the
+	// date the arithmetic produces.
+	target := moved.AddDate(0, 0, 7)
+	if err := server.app.runAutomaticClones(server.ctx(), target); err != nil {
+		t.Fatal(err)
+	}
+	var clonedID int64
+	var summary, sourceRef string
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT id,summary,source_ref FROM weekly_reports
+		WHERE user_id=$1 AND week_start=$2`, author.id, target).Scan(&clonedID, &summary, &sourceRef); err != nil {
+		t.Fatalf("the automatic copy of last week's report was skipped: %v", err)
+	}
+	if summary != "옛 격자 요약" || sourceRef != fmt.Sprintf("report:%d", sourceID) {
+		t.Errorf("cloned from summary=%q source=%s, want the report covering last week (%d)", summary, sourceRef, sourceID)
+	}
+	var carried int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM report_items WHERE report_id=$1`, clonedID).Scan(&carried); err != nil {
+		t.Fatal(err)
+	}
+	if carried != 1 {
+		t.Errorf("the copy carried %d items, want the one the source had", carried)
+	}
+}

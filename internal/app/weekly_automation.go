@@ -310,12 +310,21 @@ func (a *App) runAutomaticCloneForUser(ctx context.Context, userID int64, week t
 		return 0, 0, err
 	}
 
+	// The source is asked for the same way the conflict above is: which report
+	// covers last week's seven days, not which one carries that date. The
+	// conflict check already tolerates the moved grid, so an exact match here
+	// only made the two halves disagree — the week after the grid moves, the
+	// report the author carried on writing sits two days off the date this
+	// arithmetic produces, and the copy the author asked to be made every week
+	// was skipped once without a word. The latest overlapping report is the one
+	// they were last writing in, which is what "last week's" means to them.
 	previousWeek := week.AddDate(0, 0, -7)
 	var sourceID int64
 	var summary string
 	err = tx.QueryRow(ctx, `SELECT r.id,r.summary FROM weekly_reports r
-		WHERE r.user_id=$1 AND r.week_start=$2
+		WHERE r.user_id=$1 AND `+weekCoveringDays("r", 2)+`
 		  AND EXISTS(SELECT 1 FROM report_items i WHERE i.report_id=r.id)
+		ORDER BY r.week_start DESC LIMIT 1
 		FOR SHARE`, userID, previousWeek).Scan(&sourceID, &summary)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err = markProcessed(); err == nil {
