@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ADMIN_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 관리자 가이드 (Admin &amp; Operational Guide)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.282.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.283.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
 <h2>1. 시스템 부트스트랩 (Bootstrap Environment Variables)</h2>
 <p>Weekly 컨테이너 프로세스는 <strong><code>WEEKLY_POSTGRES_DSN</code> 하나</strong>로 부팅합니다. 관리자 계정이 하나도 없는 데이터베이스, 즉 <strong>첫 기동에만</strong> 부트스트랩 관리자 2개 변수를 추가로 요구합니다. 업그레이드 후에도 암호화 설정을 복구하기 위해 <code>WEEKLY_ENCRYPTION_KEY</code>를 운영 필수 수준으로 권장합니다.</p>
 <div class="phase-box"># deploy/.env 파일 설정 예시
@@ -131,7 +131,7 @@ WEEKLY_ENCRYPTION_KEY=&lt;openssl rand -base64 32 결과&gt;</div>
 <li><code>ADMIN</code>: 조직과 관계없이 전체 활성 사용자.</li>
 <li>공통: 본인은 제외합니다. 강등·조직 이동·비활성화 때 <code>user_report_inclusions</code> 행을 자동 삭제하지 않고 조회에서 가립니다. 다시 같은 권한 범위에 들어오면 기존 선택이 다시 유효해집니다.</li>
 </ul>
-<p>보고 상세 응답의 <code>includedMaterials</code>는 보고서 소유자의 <strong>현재 선택</strong>과 그 보고서의 정확한 <code>weekStart</code>를 결합한 읽기 모델입니다. 본인의 이번 주 보고서가 아직 없을 때는 <code>GET /api/v1/reports/current/included-materials</code>로 같은 자료를 조회합니다. 선택 팀원의 보고 상태는 필터링하지 않고 원래 상태를 표시하며, 보고서가 없는 팀원도 빈 업무 목록과 미작성 표시로 응답합니다.</p>
+<p>보고 상세 응답의 <code>includedMaterials</code>는 보고서 소유자의 <strong>현재 선택</strong>과 그 보고서가 덮는 7일을 결합한 읽기 모델입니다. 본인의 이번 주 보고서가 아직 없을 때는 <code>GET /api/v1/reports/current/included-materials</code>로 같은 자료를 조회합니다. 선택 팀원의 보고 상태는 필터링하지 않고 원래 상태를 표시하며, 보고서가 없는 팀원도 빈 업무 목록과 미작성 표시로 응답합니다. 주차 시작 요일을 바꾼 전환 주에는 팀원이 옛 격자로 써 둔 보고서가 다른 <code>week_start</code>로 같은 7일을 덮으므로, 날짜가 아니라 기간이 겹치는 보고서를 붙입니다(v0.283.0부터. 그 이전에는 그 한 주 동안 이미 쓴 팀원이 미작성으로 표시되었습니다).</p>
 <p>다른 사용자가 보고 상세를 조회할 때는 바깥 보고서 조회 권한에 더해 조회자 본인의 현재 조직 범위와 포함 대상의 교집합만 반환합니다. 관리자 보고서에 전사 선택이 있더라도 그 보고서를 보는 팀장에게 자기 조직 밖 팀원 자료가 새로 노출되지는 않습니다.</p>
 <p>화면·발표·제출 메일은 본인 내용 뒤에 별도 <code>선택 팀원 포함 자료</code> 구획을 만들고, PPTX는 출력 직전에 같은 자료를 임시 항목으로 평탄화해 본인 항목 뒤에 이어 붙입니다. PPTX의 임시 항목 분류는 <code>선택 팀원 · 이름 (아이디) · 원래 분류</code>로 작성자와 출처 분류를 보존합니다. 포함은 한 단계만 허용하므로 선택 팀원의 <code>includedMaterials</code>를 재귀적으로 따라가지 않습니다. 이미 보낸 메일과 내려받은 파일은 바뀌지 않지만, 이후 과거 보고서를 조회하거나 새 출력을 만들면 현재 선택·현재 권한으로 해당 과거 주차 자료를 다시 계산합니다.</p>
 <p>마이그레이션 <code>027_report_inclusions.sql</code>은 대상 관계만 <code>user_report_inclusions</code>에 저장합니다. 팀원 <code>weekly_reports</code>·<code>report_items</code>를 소유자 보고서로 복제하지 않으며 소유자 보고서의 상태·버전·검토 이력을 바꾸지 않습니다. 기간 보고, 팀 종합, 제출률, 업무 추적과 관리자 분석은 기존 원본만 집계하므로 포함 자료를 두 번 세지 않습니다. 설정 변경은 <code>weekly.report_inclusions</code> 감사 이벤트로 기록됩니다.</p>
