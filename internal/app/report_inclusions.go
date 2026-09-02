@@ -276,8 +276,8 @@ func (a *App) updateMyReportInclusions(w http.ResponseWriter, r *http.Request) {
 }
 
 // includedMaterialsFor resolves one owner's currently valid selection against
-// one exact report week. It never calls loadReport, so a selected leader's own
-// selections cannot recurse or form cycles.
+// the seven days one report week covers. It never calls loadReport, so a
+// selected leader's own selections cannot recurse or form cycles.
 func (a *App) includedMaterialsFor(ctx context.Context, ownerID int64, weekStart string, viewer *principal) ([]includedReportMaterial, error) {
 	materials := []includedReportMaterial{}
 	var ownerRole string
@@ -298,6 +298,16 @@ func (a *App) includedMaterialsFor(ctx context.Context, ownerID int64, weekStart
 		return materials, nil
 	}
 
+	// A lateral join on the days covered rather than on the date, because this
+	// answers "did this person report for this week" and the deck says out loud
+	// what it is told. After the administrator moves the week start, the report
+	// a member filed on the old grid covers these same days under a different
+	// date — and weekIsFree will not let them file a second one on the new date.
+	// An exact match called that member unwritten, so the PPTX put "해당 주차
+	// 주간보고가 없습니다" next to their name in a meeting about a report they
+	// had written. At most one report covers any seven days, so the ordering
+	// only decides between rows written before weekIsFree did; the latest is the
+	// one still being written in, the same choice currentReport makes.
 	args := []any{ownerID, weekStart, ownerID}
 	query := `SELECT u.id,u.username,u.display_name,coalesce(o.name,''),
 			report.id,coalesce(report.status,''),coalesce(report.summary,''),
@@ -305,7 +315,10 @@ func (a *App) includedMaterialsFor(ctx context.Context, ownerID int64, weekStart
 		FROM user_report_inclusions selection
 		JOIN users u ON u.id=selection.member_user_id
 		LEFT JOIN organizations o ON o.id=u.organization_id
-		LEFT JOIN weekly_reports report ON report.user_id=u.id AND report.week_start=$2::date
+		LEFT JOIN LATERAL (SELECT report.id,report.status,report.summary,report.version,report.updated_at
+			FROM weekly_reports report
+			WHERE report.user_id=u.id AND ` + weekCoveringDays("report", 2) + `
+			ORDER BY report.week_start DESC LIMIT 1) report ON true
 		WHERE selection.owner_user_id=$1 AND u.active=true AND u.id<>$3`
 	if ownerRole != "ADMIN" {
 		args = append(args, *ownerOrganizationID)
