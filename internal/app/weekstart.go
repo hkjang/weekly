@@ -22,6 +22,21 @@ import (
 // Wednesdays has to be able to say so — so the change is allowed once the
 // administrator has been told what it will do.
 
+// weekCoveringDays is "does this report cover the seven days beginning on that
+// date", as SQL over a weekly_reports alias and one date placeholder.
+//
+// The unique key is (user, week_start), so an exact date match answers the
+// question only while the grid has never moved. After it moves, the report an
+// author filed on the old grid covers the same days under a different date —
+// which is why weekIsFree refuses to let them file a second one. Anything that
+// asks "has this person reported for this week" and answers with an exact match
+// disagrees with that refusal for one transition week: the team recommendation
+// mail asked a whole team for a report the product would not let them write.
+func weekCoveringDays(alias string, placeholder int) string {
+	day := "$" + strconv.Itoa(placeholder) + "::date"
+	return alias + ".week_start <= " + day + " + 6 AND " + alias + ".week_start + 6 >= " + day
+}
+
 // weekdayNumbers maps the setting's names to PostgreSQL's day-of-week numbering.
 var weekdayNumbers = map[string]int{
 	"SUNDAY": 0, "MONDAY": 1, "TUESDAY": 2, "WEDNESDAY": 3,
