@@ -93,11 +93,27 @@ type reportListItem struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
+// currentReport is the report the writing screen opens on.
+//
+// It asks which report covers these days rather than which one carries this
+// date, because weekIsFree answers the writing screen's other question — "may I
+// start one" — the same way. Asking it with an exact date was the half of the
+// week start change that was never fixed: for the one transition week the
+// author's report vanished from the screen, and the blank editor it left behind
+// answered their save with 409 REPORT_PERIOD_OVERLAPS. The warning the
+// administrator confirms says they must open the existing report and carry on
+// in it; this is what gives them it.
+//
+// weekIsFree leaves at most one report covering any seven days, so the ordering
+// only decides what to open for rows written before it existed. The latest is
+// the one an author would still be writing in.
 func (a *App) currentReport(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
 	var id int64
-	err := a.db.QueryRow(r.Context(), `SELECT id FROM weekly_reports WHERE user_id=$1 AND week_start=$2`, p.ID, week).Scan(&id)
+	err := a.db.QueryRow(r.Context(), `SELECT report.id FROM weekly_reports report
+		WHERE report.user_id=$1 AND `+weekCoveringDays("report", 2)+`
+		ORDER BY report.week_start DESC LIMIT 1`, p.ID, week).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeData(w, http.StatusOK, nil)
 		return
