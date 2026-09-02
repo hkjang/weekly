@@ -960,6 +960,24 @@ func TestManualTeamReminderDuplicateKeepsTheFirstManualRequester(t *testing.T) {
 	}
 }
 
+// awaitReminderQueueEmpty waits for the reminder queue to drain and returns
+// what is left. Whoever consumes an obsolete row deletes it, so this reads the
+// same result whether the worker or the test made the call.
+func (s *testServer) awaitReminderQueueEmpty() (remaining int) {
+	s.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if err := s.app.db.QueryRow(s.ctx(),
+			`SELECT count(*) FROM team_reminder_deliveries`).Scan(&remaining); err != nil {
+			s.t.Fatal(err)
+		}
+		if remaining == 0 || time.Now().After(deadline) {
+			return remaining
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // guards: reminderStillWanted, sendNextQueuedReminder
 func TestManualQueuedReminderRevalidatesCurrentAuthorityScopeAndSubmission(t *testing.T) {
 	for _, scenario := range []string{"demoted requester", "moved recipient", "submitted recipient",
@@ -998,18 +1016,18 @@ func TestManualQueuedReminderRevalidatesCurrentAuthorityScopeAndSubmission(t *te
 			if err != nil {
 				t.Fatal(err)
 			}
-			if more := server.app.sendNextQueuedReminder(server.ctx()); !more {
-				t.Fatal("obsolete manual reminder was not consumed")
+			// The two submission scenarios go through the endpoint, which wakes
+			// the mail worker, and it may claim and discard the row before this
+			// call reaches it — then the call answers "nothing queued" and the
+			// failure reads as the discard never happening. What is being
+			// guarded is that the row is gone and no mail went out, not which
+			// goroutine consumed it; see awaitDelivery.
+			server.app.sendNextQueuedReminder(server.ctx())
+			if remaining := server.awaitReminderQueueEmpty(); remaining != 0 {
+				t.Errorf("obsolete manual reminder left %d queue row(s)", remaining)
 			}
 			if messages := relay.awaitRelay(t, 0); len(messages) != 0 {
 				t.Errorf("obsolete manual reminder sent %d message(s)", len(messages))
-			}
-			var remaining int
-			if err := server.app.db.QueryRow(server.ctx(), `SELECT count(*) FROM team_reminder_deliveries`).Scan(&remaining); err != nil {
-				t.Fatal(err)
-			}
-			if remaining != 0 {
-				t.Errorf("obsolete manual reminder left %d queue row(s)", remaining)
 			}
 		})
 	}
