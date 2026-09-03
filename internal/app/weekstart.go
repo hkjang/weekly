@@ -37,6 +37,19 @@ func weekCoveringDays(alias string, placeholder int) string {
 	return alias + ".week_start <= " + day + " + 6 AND " + alias + ".week_start + 6 >= " + day
 }
 
+// weekEndedBefore is "did this report's seven days finish before the seven days
+// beginning on that date", as SQL over a weekly_reports alias and one date
+// placeholder.
+//
+// It is the other half of weekCoveringDays, and exists for the same reason:
+// "earlier than this week" asked as week_start < day is only the same question
+// while the grid has never moved. After it moves, the report covering these days
+// carries an earlier date, so a strictly-earlier date match hands the author the
+// report they are writing right now back as last week's plan.
+func weekEndedBefore(alias string, placeholder int) string {
+	return alias + ".week_start + 6 < $" + strconv.Itoa(placeholder) + "::date"
+}
+
 // weekdayNumbers maps the setting's names to PostgreSQL's day-of-week numbering.
 var weekdayNumbers = map[string]int{
 	"SUNDAY": 0, "MONDAY": 1, "TUESDAY": 2, "WEDNESDAY": 3,

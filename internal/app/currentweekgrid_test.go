@@ -132,6 +132,60 @@ func TestIncludedMaterialsFindTheMemberReportCoveringTheseDaysAfterTheGridMoves(
 	}
 }
 
+// The transition week seen from the panel beside the editor, which exists to
+// stop the author retyping what they promised.
+//
+// currentReport now opens the report covering these days even though it carries
+// an earlier date — and "last week's plan" asked for the most recent report with
+// an earlier date, so it answered with that same open report. The author was
+// shown the work in front of them as last week's promises, every item paired
+// with itself and everything they had already reported at 100% offered back as
+// still owed. The plans they actually made a week ago, the only thing the panel
+// is for, were one row further down and never reached.
+//
+// guards: previousWeekPlan, weekEndedBefore
+func TestPreviousPlanSkipsTheOpenReportCoveringTheseDaysAfterTheGridMoves(t *testing.T) {
+	server := newTestServer(t)
+	author := server.createUser("gridprevious_author", "USER", nil)
+
+	location := server.app.serviceLocation(server.ctx())
+	moved := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	previousGrid := moved.AddDate(0, 0, -2)
+	// The week whose plans the author actually wants back.
+	earlier := previousGrid.AddDate(0, 0, -7)
+
+	earlierID, earlierVersion := server.draft(author, earlier.Format("2006-01-02"), "지난주 요약")
+	fillInclusionTestReport(t, server, author, earlierID, earlierVersion, "지난주 요약", "지난주 약속한 업무")
+	openID, openVersion := server.draft(author, previousGrid.Format("2006-01-02"), "이번 주 요약")
+	fillInclusionTestReport(t, server, author, openID, openVersion, "이번 주 요약", "이번 주 쓰고 있는 업무")
+
+	server.setWeekStart("WEDNESDAY")
+
+	w := server.request(http.MethodGet, "/api/v1/reports/previous", nil, author)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read last week's plans: %d %s", w.Code, w.Body.String())
+	}
+	previous := decodeData(t, w)
+	if previous == nil {
+		t.Fatalf("last week's plans went missing: %s", w.Body.String())
+	}
+	if id, _ := previous["reportId"].(float64); int64(id) == openID {
+		t.Fatalf("the report the author is writing came back as last week's plan: %#v", previous)
+	} else if int64(id) != earlierID {
+		t.Fatalf("reportId %v, want the week before this one (%d)", previous["reportId"], earlierID)
+	}
+	if previous["weekStart"] != earlier.Format("2006-01-02") {
+		t.Errorf("weekStart %v, want %s", previous["weekStart"], earlier.Format("2006-01-02"))
+	}
+	items := materialRows(t, previous, "items")
+	if len(items) != 1 || items[0]["title"] != "지난주 약속한 업무" {
+		t.Fatalf("wrong plans offered back: %#v", items)
+	}
+	if items[0]["carryOver"] != true {
+		t.Errorf("the unfinished plan was not offered as still owed: %#v", items[0])
+	}
+}
+
 // The same transition seen one week later, by the author who asked never to
 // have to start from a blank page.
 //

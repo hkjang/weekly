@@ -63,6 +63,13 @@ func carriesOver(nextPlan string, progress int) bool {
 // report. It is the report before the target week, not the report exactly one
 // week earlier: someone returning from leave should still see what they left
 // behind rather than an empty panel.
+//
+// "Before" is the report whose seven days finished before this week's began, not
+// the one carrying an earlier date. The two agree until the week start weekday
+// is moved; for that one transition week the report the author is carrying on in
+// carries an earlier date than the week the product now addresses, so an earlier
+// date match would hand them their own open report back as last week's plan —
+// every item paired with itself, every promise already kept.
 func (a *App) previousWeekPlan(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	location := a.serviceLocation(r.Context())
@@ -79,8 +86,9 @@ func (a *App) previousWeekPlan(w http.ResponseWriter, r *http.Request) {
 
 	view := &previousPlanView{Items: []previousPlanItem{}}
 	var week time.Time
-	err := a.db.QueryRow(r.Context(), `SELECT id, week_start, status FROM weekly_reports
-		WHERE user_id=$1 AND week_start < $2 ORDER BY week_start DESC LIMIT 1`, p.ID, target).
+	err := a.db.QueryRow(r.Context(), `SELECT report.id, report.week_start, report.status FROM weekly_reports report
+		WHERE report.user_id=$1 AND `+weekEndedBefore("report", 2)+`
+		ORDER BY report.week_start DESC LIMIT 1`, p.ID, target).
 		Scan(&view.ReportID, &week, &view.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeData(w, http.StatusOK, nil)
