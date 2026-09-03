@@ -253,3 +253,59 @@ func TestAutomaticCloneCopiesTheReportCoveringLastWeekAfterTheGridMoves(t *testi
 		t.Errorf("the copy carried %d items, want the one the source had", carried)
 	}
 }
+
+// The same transition week on the analytics screen, where reports that exist
+// read as reports nobody wrote.
+//
+// 제출률, 상태별 분포, 미해결 이슈 and 평균 진행률 were all asked by exact date,
+// so for the one week whose reports sit on the old grid the leader's dashboard
+// answered 0% with an empty breakdown — about a week in which the team had
+// reported and, because weekIsFree refuses a second report for the same days,
+// could not report again. The MCP week summary reads the same figures, where
+// there is no screen to notice they are impossible.
+//
+// guards: analyticsOverviewContext, weekCoveringDays
+func TestAnalyticsOverviewCountsTheReportsCoveringTheseDaysAfterTheGridMoves(t *testing.T) {
+	server := newTestServer(t)
+	org := server.createOrganization("격자 분석 본부", "GRIDANALYTICS")
+	leader := server.createUser("gridanalytics_leader", "ORG_MANAGER", &org)
+	member := server.createUser("gridanalytics_member", "USER", &org)
+
+	location := server.app.serviceLocation(server.ctx())
+	moved := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	previousGrid := moved.AddDate(0, 0, -2).Format("2006-01-02")
+	server.weekWithIssue(member, previousGrid, "격자 분석 과제", "장비 입고가 늦습니다", 40)
+
+	// Somebody outside this leader's organisation who reported for the same
+	// days. Widening the question from a date to a period must not also widen
+	// whose reports the leader is shown.
+	outside := server.createOrganization("격자 밖 본부", "GRIDOUTSIDE")
+	stranger := server.createUser("gridanalytics_stranger", "USER", &outside)
+	server.weekWithIssue(stranger, previousGrid, "남의 조직 과제", "남의 조직 이슈", 100)
+
+	server.setWeekStart("WEDNESDAY")
+
+	w := server.request(http.MethodGet, "/api/v1/analytics/overview", nil, leader)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read the analytics overview: %d %s", w.Code, w.Body.String())
+	}
+	overview := decodeData(t, w)
+	if overview["weekStart"] != moved.Format("2006-01-02") {
+		t.Fatalf("the overview answered for week %v, want the current week %s", overview["weekStart"], moved.Format("2006-01-02"))
+	}
+	if submitted, _ := overview["submittedUsers"].(float64); int(submitted) != 1 {
+		t.Errorf("제출 %v명, want the one member whose report covers these days — 상태별 %v",
+			overview["submittedUsers"], overview["statusCounts"])
+	}
+	if rate, _ := overview["submissionRate"].(float64); rate <= 0 {
+		t.Errorf("제출률 %v%%, want the rate for a week the team reported in", overview["submissionRate"])
+	}
+	// The other two figures on the same screen have to describe the same
+	// reports, not a different week's.
+	if issues, _ := overview["openIssues"].(float64); int(issues) != 1 {
+		t.Errorf("미해결 이슈 %v건, want the one the member wrote", overview["openIssues"])
+	}
+	if progress, _ := overview["averageProgress"].(float64); progress != 40 {
+		t.Errorf("평균 진행률 %v, want the 40 the member reported", overview["averageProgress"])
+	}
+}
