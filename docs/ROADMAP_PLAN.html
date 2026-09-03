@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.285.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.286.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4109,6 +4109,14 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><code>weekCoveringDays</code>의 나머지 반쪽인 <code>weekEndedBefore</code> 를 <code>weekstart.go</code> 에 더하고 <code>previousWeekPlan</code> 이 그것을 쓰게 했습니다. "이전"은 날짜가 이른 것이 아니라 일곱 날이 이번 주가 시작하기 전에 끝난 것입니다. 전환 주의 열려 있는 보고서는 이번 주를 덮으므로 더는 이전에 들지 않습니다. v0.281.0 이 권고 메일에서, v0.282.0 이 작성 화면에서, v0.283.0 이 팀장의 발표 자료에서, v0.284.0 이 자동 복제에서 "이번 주"를 겹침으로 묻게 한 데 이어, 그 반대편인 "이전 주"를 같은 규칙으로 맞춘 자리입니다. 정확히 한 주 전이 아니라 그 앞의 보고서를 고르는 동작은 그대로여서 휴가에서 돌아온 사람은 여전히 두고 간 계획을 보며, 요일을 바꾼 적 없는 배포에서는 두 조건이 같은 답을 냅니다.</p>
 <p><strong>검증</strong></p>
 <p>실제 PostgreSQL에서 회귀 시험 하나를 더했습니다. 전환 주에 이 끝점이 열려 있는 보고서가 아니라 그 앞 주의 계획을 돌려주고 끝내지 못한 업무를 이어지는 일로 표시하는지를 함께 잡으며, 고치기 전에는 실패합니다. 이 끝점에는 그동안 통합 시험이 하나도 없었습니다.</p>
+<p>전체 Go 테스트와 <code>go vet</code>, 가드 검사, 프런트엔드 121개 시험·린트·프로덕션 빌드, 버전·OpenAPI·모달 검사를 통과했습니다.</p>
+<p>API·데이터 모델·환경변수 변경은 없습니다.</p>
+<h3>v0.286.0 — 보내는 이름에 쉼표나 꺾쇠가 있어도 From 헤더가 깨지지 않습니다</h3>
+<p>메일의 보내는 이름은 인코딩된 낱말(encoded-word)로 감싸고 있었지만, <code>mime.BEncoding.Encode</code> 는 순수 ASCII 를 그대로 돌려줍니다. 옳은 동작이며 그래서 영문 이름은 관리자가 설정 칸에 적은 그대로 헤더에 실렸고, RFC 5322 는 거기 있는 쉼표를 한 주소의 끝으로 읽습니다. <code>Weekly, Inc.</code> 는 보낸사람이 <code>Weekly</code> 한 명인 주소 목록이 되고, 꺾쇠가 든 이름은 자기 angle-addr 를 스스로 달아 진짜 보내는 주소를 두 번째 주소로 남겼습니다. 이름을 한글로만 쓰던 배포에서는 전부 base64 안에 들어가 보이지 않던 결함입니다.</p>
+<p><strong>이름은 이름으로만 읽히게 씁니다</strong></p>
+<p><code>mailDisplayName</code> 을 더해, 인코딩이 필요한 이름은 지금처럼 인코딩된 낱말로 감싸고 그렇지 않으면 RFC 5322 가 특수문자로 세는 글자가 든 이름만 따옴표 문자열(<code>\</code>·<code>"</code> 이스케이프)로 씁니다. 글자와 숫자와 공백뿐인 이름은 그대로 적으므로 실제로 설정된 이름들은 보이는 모습이 달라지지 않고, 한글 이름은 종전과 같은 인코딩된 낱말로 나갑니다. 빈칸만 남은 설정 칸은 지운 것과 같게 다뤄 주소만 씁니다. 보고서 제출 메일, 팀원 작성 권고 메일, 관리자 시험 메일이 모두 이 한 함수를 지납니다.</p>
+<p><strong>검증</strong></p>
+<p>회귀 시험 2개를 더했습니다. 이름 8종으로 만든 메시지를 실제로 <code>net/mail</code> 로 다시 읽어 보낸사람이 한 명인지·주소가 그대로인지·이름이 그대로 도착하는지를 함께 보며, 고치기 전에는 4가지 이름에서 실패합니다.</p>
 <p>전체 Go 테스트와 <code>go vet</code>, 가드 검사, 프런트엔드 121개 시험·린트·프로덕션 빌드, 버전·OpenAPI·모달 검사를 통과했습니다.</p>
 <p>API·데이터 모델·환경변수 변경은 없습니다.</p>
 </div>

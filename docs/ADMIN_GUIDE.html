@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ADMIN_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 관리자 가이드 (Admin &amp; Operational Guide)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.285.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.286.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
 <h2>1. 시스템 부트스트랩 (Bootstrap Environment Variables)</h2>
 <p>Weekly 컨테이너 프로세스는 <strong><code>WEEKLY_POSTGRES_DSN</code> 하나</strong>로 부팅합니다. 관리자 계정이 하나도 없는 데이터베이스, 즉 <strong>첫 기동에만</strong> 부트스트랩 관리자 2개 변수를 추가로 요구합니다. 업그레이드 후에도 암호화 설정을 복구하기 위해 <code>WEEKLY_ENCRYPTION_KEY</code>를 운영 필수 수준으로 권장합니다.</p>
 <div class="phase-box"># deploy/.env 파일 설정 예시
