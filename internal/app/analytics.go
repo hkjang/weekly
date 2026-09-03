@@ -56,7 +56,23 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 	if err != nil {
 		return result, err
 	}
-	rows, err := a.db.Query(ctx, `SELECT r.status,count(*) FROM weekly_reports r JOIN users u ON u.id=r.user_id WHERE r.week_start=$1`+orgFilter+` GROUP BY r.status`, args...)
+	// The seven days the week covers, not the date the grid now names.
+	//
+	// After the administrator moves the week start, the reports the team filed
+	// on the old grid cover these same days under an earlier date, and
+	// weekIsFree will not let anyone file a second one on the new date. Asked by
+	// exact date, this screen answered the transition week with 제출률 0% and an
+	// empty status breakdown for a week in which everybody had reported — and
+	// the same figures leave the product through the MCP week summary, where
+	// there is no screen to notice they are impossible.
+	//
+	// At most one report covers any seven days, so DISTINCT ON only decides
+	// between rows written before weekIsFree did; the latest is the one still
+	// being written in, the same choice currentReport makes.
+	rows, err := a.db.Query(ctx, `SELECT status,count(*) FROM (
+		SELECT DISTINCT ON (r.user_id) r.status FROM weekly_reports r JOIN users u ON u.id=r.user_id
+		WHERE `+weekCoveringDays("r", 1)+orgFilter+`
+		ORDER BY r.user_id,r.week_start DESC) covering GROUP BY status`, args...)
 	if err != nil {
 		return result, err
 	}
@@ -102,7 +118,13 @@ func (a *App) analyticsOverviewContext(ctx context.Context, p *principal, week s
 		itemArgs = append(itemArgs, args[1])
 		itemFilter = ` AND u.organization_id IN ` + orgSubtree(len(itemArgs))
 	}
-	err = a.db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE length(trim(i.issue))>0),coalesce(avg(i.progress),0) FROM report_items i JOIN weekly_reports r ON r.id=i.report_id JOIN users u ON u.id=r.user_id WHERE r.week_start=$1`+itemFilter, itemArgs...).Scan(&result.OpenIssues, &result.AverageProgress)
+	// The same reports the breakdown above counted, so 미해결 이슈 and 평균 진행률
+	// cannot describe a different set of people than 제출률 does.
+	err = a.db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE length(trim(i.issue))>0),coalesce(avg(i.progress),0)
+		FROM report_items i WHERE i.report_id IN (
+			SELECT DISTINCT ON (r.user_id) r.id FROM weekly_reports r JOIN users u ON u.id=r.user_id
+			WHERE `+weekCoveringDays("r", 1)+itemFilter+`
+			ORDER BY r.user_id,r.week_start DESC)`, itemArgs...).Scan(&result.OpenIssues, &result.AverageProgress)
 	result.AverageProgress = round1(result.AverageProgress)
 	return result, err
 }

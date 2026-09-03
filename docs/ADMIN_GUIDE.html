@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ADMIN_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 관리자 가이드 (Admin &amp; Operational Guide)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.286.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.287.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영</div></div></div>
 <h2>1. 시스템 부트스트랩 (Bootstrap Environment Variables)</h2>
 <p>Weekly 컨테이너 프로세스는 <strong><code>WEEKLY_POSTGRES_DSN</code> 하나</strong>로 부팅합니다. 관리자 계정이 하나도 없는 데이터베이스, 즉 <strong>첫 기동에만</strong> 부트스트랩 관리자 2개 변수를 추가로 요구합니다. 업그레이드 후에도 암호화 설정을 복구하기 위해 <code>WEEKLY_ENCRYPTION_KEY</code>를 운영 필수 수준으로 권장합니다.</p>
 <div class="phase-box"># deploy/.env 파일 설정 예시
@@ -97,7 +97,7 @@ WEEKLY_ENCRYPTION_KEY=&lt;openssl rand -base64 32 결과&gt;</div>
 <hr>
 <h2>5. AI Gateway 및 Import 정책</h2>
 <p><code>서비스 설정</code>의 주차 시작 요일은 월·화·수·목·금·토·일 중 하나를 선택할 수 있습니다. 이 값은 현재 주차 조회, 팀 분석, Confluence 후보, PPTX 날짜와 Import의 단독 날짜 보정에 공통 적용됩니다.</p>
-<p>요일을 바꾸면 주 격자만 옮겨지고 이미 저장된 보고서의 <code>week_start</code>는 그대로 남습니다. 전환되는 한 주 동안 작성 화면은 이번 7일을 덮고 있는 기존 보고서를 열어 작성자가 이어 쓰게 합니다(v0.282.0부터. 그 이전에는 빈 편집기가 떴고 저장이 <code>REPORT_PERIOD_OVERLAPS</code>로 거절되었습니다). 같은 기간의 두 번째 보고서는 종전과 같이 만들 수 없습니다.</p>
+<p>요일을 바꾸면 주 격자만 옮겨지고 이미 저장된 보고서의 <code>week_start</code>는 그대로 남습니다. 전환되는 한 주 동안 작성 화면은 이번 7일을 덮고 있는 기존 보고서를 열어 작성자가 이어 쓰게 합니다(v0.282.0부터. 그 이전에는 빈 편집기가 떴고 저장이 <code>REPORT_PERIOD_OVERLAPS</code>로 거절되었습니다). 같은 기간의 두 번째 보고서는 종전과 같이 만들 수 없습니다. 분석 화면과 MCP 주간 요약의 제출률·상태별 분포·미해결 이슈·평균 진행률도 그 한 주 동안 날짜가 아니라 기간이 겹치는 보고서를 셉니다(v0.287.0부터. 그 이전에는 모두가 보고한 전환 주가 제출률 0%와 빈 상태 분포로 보였습니다).</p>
 <p><code>관리자 설정 ➔ AI · Import</code>에서 다음 연결값을 관리합니다. 배포 환경에는 연결값 대신 공통 암호화 키만 둡니다.</p>
 <table><thead><tr><th>설정</th><th>의미</th><th>기본값</th></tr></thead><tbody><tr><td>AI 사용</td><td>사용자 AI 작성·PPTX 분석 허용</td><td>꺼짐</td></tr><tr><td>Endpoint</td><td>OpenAI 호환 Chat Completions 전체 URL</td><td>없음</td></tr><tr><td>Model</td><td>Gateway가 제공하는 모델 식별자</td><td>없음</td></tr><tr><td>API Key</td><td>선택형 Bearer 토큰, 암호화 저장</td><td>없음</td></tr><tr><td>Timeout</td><td>한 번의 AI 호출 제한 시간(초)</td><td>90</td></tr><tr><td>최대 입력 문자</td><td>정규화 입력 상한</td><td>50,000</td></tr><tr><td>작업당 파일 수</td><td>다중 업로드 상한</td><td>20</td></tr><tr><td>파일당 크기</td><td>PPTX 한 개 상한(MB)</td><td>25</td></tr><tr><td>원본 보존일</td><td>확정·건너뜀·실패 원본 보존기간</td><td>365</td></tr></tbody></table>
 <p>Endpoint와 Model을 먼저 저장하고 <code>AI 연결 시험</code>으로 JSON Schema Structured Output 지원 여부를 확인한 다음 AI 사용을 켭니다. v0.7.0의 모델 계약은 실적·계획·이슈를 원자 문자열 배열로 반환하며, PPTX 분석은 각 항목에 실제 근거 슬라이드 번호와 별도 업무 구분 신뢰도를 요구합니다. 존재하지 않는 슬라이드, 근거 없는 항목 또는 잘못된 구조를 반환하는 모델은 분석 실패로 처리되므로 업그레이드 전에 운영 모델의 Structured Output 호환성을 다시 시험하십시오. API Key 입력란을 비워 저장하면 기존 비밀값이 유지됩니다. 내부 Gateway가 인증을 요구하지 않는 경우 API Key는 비워둘 수 있습니다.</p>
