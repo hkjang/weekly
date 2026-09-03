@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.284.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.285.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4101,6 +4101,14 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p>원본 조회를 <code>weekCoveringDays</code> 기준의 기간 겹침에 <code>ORDER BY week_start DESC LIMIT 1</code> 로 바꿨습니다. 겹치는 것 중 가장 늦은 하나는 작성자가 마지막으로 쓰고 있던 그 보고서이고, 이것이 그들에게 "지난주"의 뜻입니다. v0.281.0 이 권고 메일에서, v0.282.0 이 작성 화면에서, v0.283.0 이 팀장의 발표 자료에서 고친 것과 같은 불일치였고, 자동 복제는 절반만 고쳐져 있던 네 번째 자리였습니다. 전환 주 자체에는 기간이 겹치는 보고서가 이미 있으므로 종전처럼 복제하지 않으며, 요일을 바꾼 적 없는 배포에서는 정확일치와 겹침이 같은 답을 내므로 동작이 달라지지 않습니다.</p>
 <p><strong>검증</strong></p>
 <p>실제 PostgreSQL에서 회귀 시험 하나를 더했습니다. 요일을 바꾼 전환 주에는 복제가 일어나지 않는 것과 그 다음 주에는 전환 주 보고서를 원본으로 초안이 만들어지는 것을 함께 잡으며, 고치기 전에는 실패합니다.</p>
+<p>전체 Go 테스트와 <code>go vet</code>, 가드 검사, 프런트엔드 121개 시험·린트·프로덕션 빌드, 버전·OpenAPI·모달 검사를 통과했습니다.</p>
+<p>API·데이터 모델·환경변수 변경은 없습니다.</p>
+<h3>v0.285.0 — 주 격자를 옮긴 주에 지금 쓰는 보고서를 지난주 계획으로 돌려주지 않습니다</h3>
+<p>작성 화면 옆 "지난주 계획" 패널은 <code>week_start &lt; $2</code>, 즉 날짜가 더 이른 가장 최근 보고서를 물었습니다. 주차 시작 요일을 바꾼 전환 주에는 작성자가 이어 쓰고 있는 그 보고서가 옛 격자의 이른 날짜를 달고 있으므로, 패널은 눈앞의 보고서를 지난주 계획으로 되돌려 주었습니다. 업무 항목이 자기 자신과 짝지어지고, 이미 100%로 보고한 것까지 아직 남은 일로 다시 제안되었으며, 한 주 전에 세운 계획은 한 줄 아래에서 닿지 않았습니다.</p>
+<p><strong>"이전"을 끝난 7일로 묻습니다</strong></p>
+<p><code>weekCoveringDays</code>의 나머지 반쪽인 <code>weekEndedBefore</code> 를 <code>weekstart.go</code> 에 더하고 <code>previousWeekPlan</code> 이 그것을 쓰게 했습니다. "이전"은 날짜가 이른 것이 아니라 일곱 날이 이번 주가 시작하기 전에 끝난 것입니다. 전환 주의 열려 있는 보고서는 이번 주를 덮으므로 더는 이전에 들지 않습니다. v0.281.0 이 권고 메일에서, v0.282.0 이 작성 화면에서, v0.283.0 이 팀장의 발표 자료에서, v0.284.0 이 자동 복제에서 "이번 주"를 겹침으로 묻게 한 데 이어, 그 반대편인 "이전 주"를 같은 규칙으로 맞춘 자리입니다. 정확히 한 주 전이 아니라 그 앞의 보고서를 고르는 동작은 그대로여서 휴가에서 돌아온 사람은 여전히 두고 간 계획을 보며, 요일을 바꾼 적 없는 배포에서는 두 조건이 같은 답을 냅니다.</p>
+<p><strong>검증</strong></p>
+<p>실제 PostgreSQL에서 회귀 시험 하나를 더했습니다. 전환 주에 이 끝점이 열려 있는 보고서가 아니라 그 앞 주의 계획을 돌려주고 끝내지 못한 업무를 이어지는 일로 표시하는지를 함께 잡으며, 고치기 전에는 실패합니다. 이 끝점에는 그동안 통합 시험이 하나도 없었습니다.</p>
 <p>전체 Go 테스트와 <code>go vet</code>, 가드 검사, 프런트엔드 121개 시험·린트·프로덕션 빌드, 버전·OpenAPI·모달 검사를 통과했습니다.</p>
 <p>API·데이터 모델·환경변수 변경은 없습니다.</p>
 </div>
