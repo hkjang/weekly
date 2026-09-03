@@ -177,6 +177,35 @@ func mailMessageID(from string) string {
 	return fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), hex.EncodeToString(buffer), domain)
 }
 
+// mailDisplayName renders a From display name that can only be read as a name.
+//
+// The encoded-word did the whole job for as long as the name was Korean, which
+// is why it looked like it was doing the whole job. mime.BEncoding.Encode
+// returns plain ASCII unchanged — that is the documented behaviour and the right
+// one, an encoded-word around "Weekly" would only make it harder to read — so an
+// English sender name reaches the header exactly as an administrator typed it,
+// and RFC 5322 reads some of those characters as structure rather than as text.
+// "Weekly, Inc." becomes a comma-separated address list whose first entry is the
+// bare word Weekly; a name containing <> supplies its own angle-addr and the
+// real address is left over as a second one. Both are messages a reader's client
+// shows with the wrong sender, or refuses to parse at all.
+//
+// So: an encoded-word where the name needs one, and otherwise a quoted-string
+// where the name contains anything RFC 5322 counts as special. A name that is
+// only letters, digits and spaces is still written plainly, because that is
+// every name this product has actually been configured with.
+func mailDisplayName(name string) string {
+	if encoded := mime.BEncoding.Encode("UTF-8", name); encoded != name {
+		// Base64 inside the encoded-word, so whatever was special is now text.
+		return encoded
+	}
+	// RFC 5322 specials, plus the backslash that escapes them inside a quote.
+	if !strings.ContainsAny(name, `()<>[]:;@\,."`) {
+		return name
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(name) + `"`
+}
+
 // buildMailMessage returns one RFC 5322 message.
 //
 // Base64 for the body and an encoded-word for the subject, because everything
@@ -193,8 +222,11 @@ func mailMessageID(from string) string {
 // de-duplicate on.
 func buildMailMessage(from, fromName, to, subject, body string) []byte {
 	sender := from
-	if fromName != "" {
-		sender = fmt.Sprintf("%s <%s>", mime.BEncoding.Encode("UTF-8", headerSafe(fromName)), from)
+	// Trimmed, because a name that is only spaces is not a name: it would write
+	// a display name of whitespace in front of the address, which is one more
+	// way to spell a header no parser accepts.
+	if name := strings.TrimSpace(headerSafe(fromName)); name != "" {
+		sender = fmt.Sprintf("%s <%s>", mailDisplayName(name), from)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))
 	var wrapped strings.Builder
