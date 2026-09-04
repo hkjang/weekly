@@ -21,6 +21,7 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
   const [mail, setMail] = useState<MailPreference>()
   const [mailAddress, setMailAddress] = useState('')
   const [mailOn, setMailOn] = useState(false)
+  const [mailTesting, setMailTesting] = useState(false)
   const [weekly, setWeekly] = useState<WeeklyPreference>()
   const [autoClonePrevious, setAutoClonePrevious] = useState(false)
   const [reminderEnabled, setReminderEnabled] = useState(false)
@@ -34,6 +35,19 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
       await loadMail()
       notify(mailOn ? '주간보고를 제출하면 이 주소로 발송합니다.' : '메일 발송을 껐습니다.')
     } catch (error) { notify(errorText(error, '메일 발송 설정을 저장할 수 없습니다.'), 'error') }
+  }
+  // A writer who set this up wrong used to find out by not receiving anything a
+  // week later, with no way to tell that from a relay that was down. This sends
+  // the real mail — the same body, the same PPTX — to the saved address, now.
+  const testMail = async () => {
+    setMailTesting(true)
+    try {
+      const result = await post<{ to: string; weekStart: string; attachment: string }>('/api/v1/me/mail/test')
+      notify(result.attachment
+        ? `${result.to} 로 ${result.weekStart} 주간보고를 보냈습니다. 첨부: ${result.attachment}`
+        : `${result.to} 로 시험 메일을 보냈습니다. 작성한 주간보고가 없어 첨부는 없습니다.`)
+    } catch (error) { notify(errorText(error, '시험 메일을 보내지 못했습니다.'), 'error') }
+    finally { setMailTesting(false) }
   }
   const loadWeekly = () => api<WeeklyPreference>('/api/v1/me/preferences').then(value => {
     setWeekly(value); setAutoClonePrevious(value.autoClonePrevious)
@@ -81,7 +95,7 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
     </Card>}
     <ReportInclusionSettings session={session} notify={notify}/>
     <Card title="주간보고 메일 발송" action={mail && <span className="muted-chip">{mail.onSubmit ? '켜짐' : '꺼짐'}</span>}>
-      <p className="muted">주간보고를 <strong>제출할 때</strong> 아래 주소로 내용을 보냅니다. 계정 이메일과 달라도 됩니다.</p>
+      <p className="muted">주간보고를 <strong>제출할 때</strong> 아래 주소로 본문과 PPTX 파일을 함께 보냅니다. 계정 이메일과 달라도 됩니다.</p>
       {/* A writer who turns this on and receives nothing would otherwise have
           no way to tell their own mistake from an unconfigured server. */}
       {mail && !mail.relayReady && <div className="edit-notice">
@@ -93,7 +107,11 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
         <label className="toggle-row"><span>제출할 때 보내기</span>
           <input type="checkbox" checked={mailOn} onChange={e => setMailOn(e.target.checked)}/></label>
         <Button onClick={saveMail}>저장</Button>
+        <Button variant="secondary" onClick={testMail} disabled={mailTesting}>{mailTesting ? '보내는 중…' : '시험 발송'}</Button>
       </div>
+      {/* Which address it goes to is the whole question this button answers, so
+          it says so rather than leaving it to be discovered. */}
+      <p className="muted">시험 발송은 <strong>저장된 주소</strong>로 가장 최근 주간보고를 지금 한 통 보냅니다. 제출할 때 나가는 본문·첨부와 같습니다.</p>
       {mail && (mail.deliveries.length
         ? <div className="table-wrap"><table><thead><tr><th>주차</th><th>주소</th><th>상태</th><th>보낸 시각</th></tr></thead>
           <tbody>{mail.deliveries.map(delivery => <tr key={delivery.id}>

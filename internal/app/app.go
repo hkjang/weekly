@@ -56,6 +56,9 @@ type App struct {
 	mailWake        chan struct{}
 	automationWake  chan struct{}
 	confluenceWake  chan struct{}
+	// mailTests holds each writer down to one test mail at a time; see
+	// sendCooldown.
+	mailTests *sendCooldown
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
@@ -127,7 +130,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), automationWake: make(chan struct{}, 1)}
+	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), automationWake: make(chan struct{}, 1), mailTests: newSendCooldown()}
 	a.conditions = newConditionLog(logger)
 	// Required only when there is nobody to let in. A first install must say who
 	// the administrator is; a deployment that already has one can take the
@@ -239,6 +242,7 @@ func (a *App) routes() {
 	a.mux.Handle("DELETE /api/v1/keys/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.revokeKey))))
 	a.mux.Handle("GET /api/v1/me/mail", a.requireAuth(http.HandlerFunc(a.myMailSettings)))
 	a.mux.Handle("PUT /api/v1/me/mail", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyMailSettings))))
+	a.mux.Handle("POST /api/v1/me/mail/test", a.requireAuth(a.csrf(http.HandlerFunc(a.testMyReportMail))))
 	a.mux.Handle("GET /api/v1/me/preferences", a.requireAuth(http.HandlerFunc(a.myWeeklyPreferences)))
 	a.mux.Handle("PUT /api/v1/me/preferences", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyWeeklyPreferences))))
 	a.mux.Handle("POST /api/v1/me/team-reminders", a.requireAuth(a.csrf(http.HandlerFunc(a.sendMyTeamReminders))))

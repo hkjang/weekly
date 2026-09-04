@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.287.0
+  version: 0.288.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1387,6 +1387,41 @@ paths:
       responses:
         "200": { description: OK }
         "400": { $ref: "#/components/responses/Error" }
+  /me/mail/test:
+    post:
+      summary: 지금 나에게 주간보고 메일 시험 발송
+      description: |
+        저장된 수신 주소로 **가장 최근 주간보고를 지금 한 통** 보낸다. 제출할 때 나가는 것과
+        같은 제목·본문·PPTX 첨부다. 받는 사람은 언제나 요청한 본인이며 요청 본문으로 주소를
+        지정할 수 없다 — 임의의 주소로 보낼 수 있는 시험은 이 서버를 남의 메일함으로 가는
+        통로로 만든다.
+
+        주소를 저장하지 않았으면 계정 이메일로 간다. 둘 다 없으면 400이다. 작성한 보고서가
+        하나도 없으면 첨부 없이 릴레이만 확인하는 짧은 메일을 보내고 `weekStart`는 빈 값이다.
+        시험 발송은 발송 이력(`/me/mail`의 `deliveries`)에 남지 않는다. 한 사람당 30초에
+        한 번이며, 그 사이의 요청은 429다.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      ok: { type: boolean }
+                      to: { type: string, description: 실제로 보낸 주소 }
+                      weekStart:
+                        type: string
+                        description: 시험에 사용한 보고서의 주차. 보고서가 없으면 빈 문자열이다.
+                      attachment:
+                        type: string
+                        description: 첨부한 PPTX 파일명. 첨부하지 못했으면 빈 문자열이다.
+        "400": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
   /admin/mail/health:
     get:
       summary: 최근 주간보고 메일 발송 현황, 관리자 전용

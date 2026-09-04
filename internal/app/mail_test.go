@@ -199,6 +199,13 @@ func (relay *fakeRelay) envelopeLines() []string {
 // decodedBody returns the message body as the reader would eventually see it.
 func decodedBody(t *testing.T, message string) string {
 	t.Helper()
+	// A report mail carries its deck, so what a reader sees is the first part
+	// of a multipart message rather than the whole body. A reminder carries
+	// nothing and is still a single part. Both answer the same question here.
+	if strings.Contains(message, "multipart/mixed") {
+		text, _ := attachedFiles(t, message)
+		return text
+	}
 	_, encoded, found := strings.Cut(message, "\r\n\r\n")
 	if !found {
 		t.Fatalf("message has no body:\n%s", message)

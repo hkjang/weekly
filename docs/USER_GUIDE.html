@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="USER_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.287.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.288.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
 <h2>1. 개요</h2>
 <p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
 <h3>1.1 Keycloak 기존 세션으로 로그인</h3>
@@ -125,6 +125,18 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 </ul>
 <p>이 설정은 팀원의 보고서를 내 보고서로 복사하지 않습니다. 내 업무 항목·상태·버전과 팀원 원본은 그대로이며, 선택한 팀원이 다시 포함한 사람의 자료까지 이어 붙이지도 않습니다. 기간 보고·팀 종합·업무 추적·관리자 분석에도 내 업무로 중복 집계되지 않습니다.</p>
 <p>포함 자료는 보고서를 열거나 출력을 새로 만들 때 현재 선택과 현재 권한으로 계산합니다. 따라서 선택을 바꾸면 과거 보고 상세도 그 과거 보고서와 정확히 같은 주차 자료를 새 선택으로 보여 줍니다. 역할 강등, 조직 이동 또는 팀원 비활성화로 접근 범위가 바뀌면 해당 자료는 즉시 숨겨지며, 이미 발송하거나 다운로드한 파일 자체는 바뀌지 않습니다.</p>
+<h3>2.7 주간보고 메일 발송과 시험 발송</h3>
+<p><code>개인 설정 → 주간보고 메일 발송</code>에서 받을 주소를 저장하고 <code>제출할 때 보내기</code>를 켜면, 보고서를 <strong>제출할 때</strong> 그 주소로 본문과 <strong>PPTX 파일</strong>이 함께 갑니다. 첨부되는 파일은 보고서 화면의 <code>PPTX 내보내기</code>가 주는 것과 같은 파일입니다.</p>
+<ul>
+<li><code>시험 발송</code>은 저장한 주소로 <strong>가장 최근 주간보고</strong>를 지금 한 통 보냅니다. 제목에 <code>[시험]</code>이 붙는 것 외에는 실제 제출 때 나가는 본문·첨부와 같습니다. 주소가 맞는지, 첨부가 도착하는지를 월요일을 기다리지 않고 확인하는 용도입니다.</li>
+<li>시험 메일은 <strong>언제나 본인</strong>에게 갑니다. 저장한 주소가 없으면 계정 이메일로 가고, 둘 다 없으면 주소를 먼저 저장하라는 안내가 나옵니다. 화면에 입력만 하고 저장하지 않은 주소로는 가지 않습니다.</li>
+<li>시험 발송은 아래 발송 이력에 남지 않습니다. 이력은 실제 제출 발송만 기록합니다.</li>
+<li>한 사람당 30초에 한 번 보낼 수 있습니다. 그 사이에 다시 누르면 남은 시간이 표시됩니다.</li>
+<li>작성한 보고서가 하나도 없으면 첨부 없이 릴레이만 확인하는 짧은 메일이 갑니다.</li>
+<li>PPTX가 10MiB를 넘거나 만들지 못하면 메일은 그대로 가되 본문 첫 줄에 그 사실과 이유가 적힙니다. 첨부가 조용히 빠지지는 않습니다.</li>
+<li>관리자가 SMTP를 설정하지 않았으면 시험 발송은 어떤 설정이 꺼져 있는지 알려 주고 아무것도 보내지 않습니다.</li>
+</ul>
+<hr>
 <hr>
 <h2>3. 팀장 승인 및 검토 매뉴얼 (Team Leader Workflow)</h2>
 <p>관리자 설정에서 <code>workflow.enabled = true</code> 상태일 때 검토 및 승인 절차가 활성화됩니다.</p>

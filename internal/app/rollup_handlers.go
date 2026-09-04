@@ -309,7 +309,7 @@ func (a *App) exportRollupPPTX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filename := fmt.Sprintf("%s_%s_기간업무보고.pptx", view.Period, view.ScopeLabel)
-	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+	w.Header().Set("Content-Type", pptxMediaType)
 	w.Header().Set("Content-Disposition", "attachment; filename=rollup-report.pptx; filename*=UTF-8''"+url.PathEscape(filename))
 	w.Header().Set("Content-Length", fmt.Sprint(len(result)))
 	w.Header().Set("Cache-Control", "no-store")

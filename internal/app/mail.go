@@ -14,6 +14,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -206,6 +207,17 @@ func mailDisplayName(name string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(name) + `"`
 }
 
+// mailAttachment is one file carried alongside the text of a message.
+//
+// The whole file in memory, because that is what base64 needs and what the deck
+// already is by the time it gets here: the renderer builds it in a buffer, and
+// there is nothing to stream from.
+type mailAttachment struct {
+	Filename    string
+	ContentType string
+	Content     []byte
+}
+
 // buildMailMessage returns one RFC 5322 message.
 //
 // Base64 for the body and an encoded-word for the subject, because everything
@@ -220,7 +232,12 @@ func mailDisplayName(name string) string {
 // Content-Transfer-Encoding and Auto-Submitted, and neither of these. A reader's
 // client then has no send time to show or sort by, and no key to thread or
 // de-duplicate on.
-func buildMailMessage(from, fromName, to, subject, body string) []byte {
+//
+// With attachments the message becomes multipart/mixed and the text moves into
+// the first part. Without them it is byte-for-byte the single-part message it
+// always was: a reader whose client shows an empty paperclip on every mail is a
+// reader who stops noticing the paperclip.
+func buildMailMessage(from, fromName, to, subject, body string, attachments ...mailAttachment) []byte {
 	sender := from
 	// Trimmed, because a name that is only spaces is not a name: it would write
 	// a display name of whitespace in front of the address, which is one more
@@ -228,7 +245,61 @@ func buildMailMessage(from, fromName, to, subject, body string) []byte {
 	if name := strings.TrimSpace(headerSafe(fromName)); name != "" {
 		sender = fmt.Sprintf("%s <%s>", mailDisplayName(name), from)
 	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(body))
+	headers := []string{
+		"Date: " + time.Now().Format(time.RFC1123Z),
+		"From: " + sender,
+		"To: " + headerSafe(to),
+		"Message-ID: " + mailMessageID(from),
+		"Subject: " + mime.BEncoding.Encode("UTF-8", headerSafe(subject)),
+		"MIME-Version: 1.0",
+	}
+	if len(attachments) == 0 {
+		headers = append(headers,
+			"Content-Type: text/plain; charset=UTF-8",
+			"Content-Transfer-Encoding: base64",
+			"Auto-Submitted: auto-generated")
+		return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + wrapBase64([]byte(body)))
+	}
+
+	boundary := mailBoundary()
+	headers = append(headers,
+		`Content-Type: multipart/mixed; boundary="`+boundary+`"`,
+		"Auto-Submitted: auto-generated")
+	var out strings.Builder
+	out.WriteString(strings.Join(headers, "\r\n"))
+	out.WriteString("\r\n\r\n")
+	// The preamble, which only a client too old to know what multipart is will
+	// ever show. ASCII, like every other byte outside a part: nothing has
+	// declared a charset yet at this point in the message.
+	out.WriteString("This is a multi-part message in MIME format.\r\n")
+	out.WriteString("--" + boundary + "\r\n")
+	out.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	out.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	out.WriteString(wrapBase64([]byte(body)))
+	for _, attachment := range attachments {
+		mediaType := strings.TrimSpace(attachment.ContentType)
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		out.WriteString("--" + boundary + "\r\n")
+		// The name parameter on Content-Type is obsolete and Outlook still reads
+		// it, which is the whole argument for writing both.
+		out.WriteString("Content-Type: " + headerSafe(mediaType) + "; " + mailFileParameter("name", attachment.Filename) + "\r\n")
+		out.WriteString("Content-Transfer-Encoding: base64\r\n")
+		out.WriteString("Content-Disposition: attachment; " + mailFileParameter("filename", attachment.Filename) + "\r\n\r\n")
+		out.WriteString(wrapBase64(attachment.Content))
+	}
+	out.WriteString("--" + boundary + "--\r\n")
+	return []byte(out.String())
+}
+
+// wrapBase64 encodes content into the 76-character lines RFC 2045 allows.
+//
+// Every line ends with CRLF, including the last. In a multipart message that
+// final CRLF is what the boundary delimiter after it needs in front of it, so
+// this deliberately does not trim it.
+func wrapBase64(content []byte) string {
+	encoded := base64.StdEncoding.EncodeToString(content)
 	var wrapped strings.Builder
 	for index := 0; index < len(encoded); index += 76 {
 		end := index + 76
@@ -238,18 +309,89 @@ func buildMailMessage(from, fromName, to, subject, body string) []byte {
 		wrapped.WriteString(encoded[index:end])
 		wrapped.WriteString("\r\n")
 	}
-	headers := []string{
-		"Date: " + time.Now().Format(time.RFC1123Z),
-		"From: " + sender,
-		"To: " + headerSafe(to),
-		"Message-ID: " + mailMessageID(from),
-		"Subject: " + mime.BEncoding.Encode("UTF-8", headerSafe(subject)),
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"Content-Transfer-Encoding: base64",
-		"Auto-Submitted: auto-generated",
+	return wrapped.String()
+}
+
+// mailBoundary returns a delimiter no encoded part can contain.
+//
+// Every part of this product's messages is base64, whose alphabet has neither a
+// hyphen nor the letters this prefix is not made of — but the randomness is
+// still there, because "no part will ever contain this" is a promise about
+// content this function cannot see.
+func mailBoundary() string {
+	buffer := make([]byte, 16)
+	if _, err := rand.Read(buffer); err != nil {
+		return fmt.Sprintf("weekly-%d", time.Now().UnixNano())
 	}
-	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + wrapped.String())
+	return "weekly-" + hex.EncodeToString(buffer)
+}
+
+// mailFileParameter names an attached file for both a modern client and an old
+// one: RFC 2231 for the real name, and a plain parameter for whatever cannot
+// read that.
+//
+// The names here are Korean — "20260824_사용자 3_주간업무보고.pptx" — so the plain
+// parameter cannot carry them. It carries the same ASCII name the download
+// header has used all along, which is a file a reader can still open, rather
+// than the mangled one that transliteration would produce.
+func mailFileParameter(key, filename string) string {
+	name := strings.TrimSpace(headerSafe(filename))
+	if name == "" {
+		name = mailAttachmentFallbackName
+	}
+	return fmt.Sprintf("%s=%q; %s*=UTF-8''%s", key, asciiMailFilename(name), key, rfc2231Value(name))
+}
+
+// mailAttachmentFallbackName is what a client that cannot read RFC 2231 shows.
+// The same name Content-Disposition on the download has always used.
+const mailAttachmentFallbackName = "weekly-report.pptx"
+
+// asciiMailFilename returns a name a quoted parameter can hold.
+//
+// A name that is already ASCII is kept. One that is not — every real one, since
+// they read "20260831_사용자 3_주간업무보고.pptx" — keeps whatever ASCII it starts
+// with in front of the fallback, so an old client saving three weeks into one
+// folder gets three different files rather than three copies of
+// weekly-report.pptx. Only a prefix long enough to tell them apart is worth
+// keeping; a stray leading digit is not.
+func asciiMailFilename(name string) string {
+	plain := true
+	for _, r := range name {
+		if r > 126 || r < 32 || r == '"' || r == '\\' {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return name
+	}
+	prefix := strings.TrimRight(name[:len(name)-len(strings.TrimLeft(name, asciiNameRunes))], "._-")
+	if len(prefix) < 4 {
+		return mailAttachmentFallbackName
+	}
+	return prefix + "_" + mailAttachmentFallbackName
+}
+
+// asciiNameRunes are what a leading run of a file name may be built from.
+const asciiNameRunes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+
+// rfc2231Value percent-encodes everything RFC 5987 does not call attr-char.
+//
+// url.PathEscape was the obvious reach and it is the wrong alphabet: it leaves
+// ; = , and : alone, and each of those ends a parameter early — a file named
+// "1분기; 계획.pptx" would arrive as a truncated name and a parameter no client
+// can parse.
+func rfc2231Value(value string) string {
+	const safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$&+-.^_`|~"
+	var out strings.Builder
+	for _, b := range []byte(value) {
+		if strings.IndexByte(safe, b) >= 0 {
+			out.WriteByte(b)
+			continue
+		}
+		fmt.Fprintf(&out, "%%%02X", b)
+	}
+	return out.String()
 }
 
 // mailTLSConfig builds the client's TLS settings for one relay.
@@ -262,7 +404,7 @@ func buildMailMessage(from, fromName, to, subject, body string) []byte {
 var mailTLSConfig = func(host string) *tls.Config { return &tls.Config{ServerName: host} }
 
 // sendMail delivers one message and returns the relay's own refusal on failure.
-func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, body string) error {
+func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, body string, attachments ...mailAttachment) error {
 	if reason := settings.unusable(); reason != "" {
 		return errors.New(reason)
 	}
@@ -314,7 +456,7 @@ func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, 
 	if err != nil {
 		return fmt.Errorf("본문을 보낼 수 없습니다: %w", err)
 	}
-	if _, err := writer.Write(buildMailMessage(settings.From, settings.FromName, to, subject, body)); err != nil {
+	if _, err := writer.Write(buildMailMessage(settings.From, settings.FromName, to, subject, body, attachments...)); err != nil {
 		return fmt.Errorf("본문을 보낼 수 없습니다: %w", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -413,6 +555,35 @@ func reportStatusLabel(status string) string {
 		return "확정"
 	}
 	return status
+}
+
+// maxMailAttachmentBytes is the largest deck this hands to a relay.
+//
+// Base64 grows a file by a third, so ten mebibytes of PPTX is about thirteen on
+// the wire. Relays in these networks are configured for twenty-five and the one
+// in the test lab advertises ten, and a message a relay refuses for its size is
+// a week's report that never arrives — where a mail carrying only the text says
+// so and still carries the report.
+const maxMailAttachmentBytes = 10 << 20
+
+// reportMailAttachments builds the deck that goes with a report, and the line
+// to print at the top of the mail when there will not be one.
+//
+// A deck that cannot be built never blocks the mail. What it must not do is
+// disappear quietly: a reader who was sent the text alone is owed the reason,
+// because the file is the half of this mail that goes into a meeting.
+func (a *App) reportMailAttachments(ctx context.Context, report *reportView) ([]mailAttachment, string) {
+	deck, filename, err := a.reportDeck(ctx, report)
+	if err != nil {
+		a.logger.Error("report mail deck", "error", err, "reportId", report.ID)
+		return nil, "※ PPTX 파일을 만들지 못해 본문만 보냅니다. 화면에서 내려받아 주십시오.\n\n"
+	}
+	if len(deck) > maxMailAttachmentBytes {
+		a.logger.Warn("report mail deck too large", "bytes", len(deck), "reportId", report.ID)
+		return nil, fmt.Sprintf("※ PPTX 파일이 %.1fMB로 커서 첨부하지 않았습니다. 화면에서 내려받아 주십시오.\n\n",
+			float64(len(deck))/(1<<20))
+	}
+	return []mailAttachment{{Filename: filename, ContentType: pptxMediaType, Content: deck}}, ""
 }
 
 // ---------------------------------------------------------------------------
@@ -515,9 +686,12 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 		return true
 	}
 	subject := reportMailSubject(a.setting(ctx, "service.name", "Weekly"), report)
-	body := reportMailBody(report, reportStatusLabel(report.Status))
+	// The deck is what the reader forwards into a meeting; the text is what they
+	// read on a phone. The mail carries both, and says so when it cannot.
+	attachments, note := a.reportMailAttachments(ctx, report)
+	body := note + reportMailBody(report, reportStatusLabel(report.Status))
 
-	if err := a.sendMail(ctx, settings, address, subject, body); err != nil {
+	if err := a.sendMail(ctx, settings, address, subject, body, attachments...); err != nil {
 		if attempts >= settings.MaxAttempts {
 			a.logger.Error("report mail gave up", "delivery", deliveryID, "attempts", attempts, "error", err)
 			a.markMailFailed(ctx, deliveryID, mailUserMessage(err))
@@ -715,31 +889,33 @@ func (a *App) updateMyMailSettings(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{"address": input.Address, "onSubmit": input.OnSubmit})
 }
 
-// testMail sends one message to the administrator running the test.
+// mailRecipientFor is where this person receives.
 //
-// To them, not to an address they type: a test that can be pointed anywhere is
-// a way to send mail from this server to a stranger, and the question being
-// asked here is only whether the relay works.
-func (a *App) testMail(w http.ResponseWriter, r *http.Request) {
-	p := currentPrincipal(r.Context())
-	settings, err := a.loadMailSettings(r.Context())
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "MAIL_CONFIGURATION_INVALID", "메일 설정을 읽을 수 없습니다.")
-		return
-	}
-	if reason := settings.unusable(); reason != "" {
-		writeError(w, http.StatusBadRequest, "MAIL_CONFIGURATION_INVALID", reason)
-		return
-	}
+// The address they saved for their own reports, and their account address when
+// they saved none. Never an address somebody types into the request: a test
+// that can be pointed anywhere is a way to send mail from this server to a
+// stranger, and the question being asked is only whether the relay works.
+func (a *App) mailRecipientFor(ctx context.Context, p *principal) string {
 	var to string
-	if err := a.db.QueryRow(r.Context(),
+	if err := a.db.QueryRow(ctx,
 		`SELECT coalesce(s.address, '') FROM (SELECT $1::bigint AS id) x
 		 LEFT JOIN user_mail_settings s ON s.user_id = x.id`, p.ID).Scan(&to); err != nil {
 		to = ""
 	}
-	if to == "" {
+	if strings.TrimSpace(to) == "" {
 		to = strings.TrimSpace(p.Email)
 	}
+	return strings.TrimSpace(to)
+}
+
+// testMail sends one message to the administrator running the test.
+func (a *App) testMail(w http.ResponseWriter, r *http.Request) {
+	p := currentPrincipal(r.Context())
+	settings, ok := a.mailSettingsForTest(w, r)
+	if !ok {
+		return
+	}
+	to := a.mailRecipientFor(r.Context(), p)
 	if !validMailAddress(to) {
 		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED",
 			"시험 메일을 받을 주소가 없습니다. 개인 설정에서 받을 주소를 먼저 저장하세요.")
@@ -754,6 +930,139 @@ func (a *App) testMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"ok": true, "to": to})
+}
+
+// mailSettingsForTest answers with the relay, or writes the reason it cannot be
+// used and reports that nothing more should be done.
+func (a *App) mailSettingsForTest(w http.ResponseWriter, r *http.Request) (mailSettings, bool) {
+	settings, err := a.loadMailSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "MAIL_CONFIGURATION_INVALID", "메일 설정을 읽을 수 없습니다.")
+		return mailSettings{}, false
+	}
+	if reason := settings.unusable(); reason != "" {
+		writeError(w, http.StatusBadRequest, "MAIL_CONFIGURATION_INVALID", reason)
+		return mailSettings{}, false
+	}
+	return settings, true
+}
+
+// mailTestCooldown is how long a writer waits between test sends.
+const mailTestCooldown = 30 * time.Second
+
+// sendCooldown remembers when each person last asked for a test mail.
+//
+// In memory, and deliberately: this is courtesy, not security. The recipient is
+// always the person asking, so the worst a determined clicker can do is fill
+// their own mailbox. What it protects is this server — every test renders a
+// deck and then holds a request open for the whole relay timeout, and three
+// hundred writers on a Monday morning share one process. A restart forgetting
+// all of it costs one extra mail.
+type sendCooldown struct {
+	mu   sync.Mutex
+	last map[int64]time.Time
+}
+
+func newSendCooldown() *sendCooldown { return &sendCooldown{last: map[int64]time.Time{}} }
+
+// take reserves a turn, or reports how much of the last one is left.
+func (c *sendCooldown) take(id int64, window time.Duration, now time.Time) (time.Duration, bool) {
+	if c == nil {
+		return 0, true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if at, ok := c.last[id]; ok {
+		if remaining := window - now.Sub(at); remaining > 0 {
+			return remaining, false
+		}
+	}
+	c.last[id] = now
+	return 0, true
+}
+
+// testMyReportMail sends the writer their own weekly-report mail, now.
+//
+// The administrator's test proves the relay accepts a message. It does not
+// prove the thing a writer actually wants to know before Monday: that the
+// address they typed receives, that the report reads the way they expect, and
+// that the deck is attached. Those only happen on a submission, which is a week
+// away and cannot be repeated — a writer who set this up wrong found out by not
+// receiving anything, and had no way to tell that apart from a relay that is
+// down.
+//
+// So this sends the real thing: the same subject, the same body and the same
+// attachment the worker would build, from the writer's most recent report.
+// Synchronously, because the answer is the point — a queued test would only
+// move the question to a screen they would have to come back to.
+func (a *App) testMyReportMail(w http.ResponseWriter, r *http.Request) {
+	p := currentPrincipal(r.Context())
+	settings, ok := a.mailSettingsForTest(w, r)
+	if !ok {
+		return
+	}
+	to := a.mailRecipientFor(r.Context(), p)
+	if !validMailAddress(to) {
+		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED",
+			"시험 메일을 받을 주소가 없습니다. 받을 주소를 입력하고 저장한 뒤 다시 시도하세요.")
+		return
+	}
+	if remaining, ok := a.mailTests.take(p.ID, mailTestCooldown, time.Now()); !ok {
+		writeError(w, http.StatusTooManyRequests, "TOO_MANY_ATTEMPTS",
+			fmt.Sprintf("시험 메일은 %d초에 한 번 보낼 수 있습니다. %d초 뒤에 다시 시도하세요.",
+				int(mailTestCooldown.Seconds()), int(remaining.Seconds())+1))
+		return
+	}
+
+	service := a.setting(r.Context(), "service.name", "Weekly")
+	subject := fmt.Sprintf("[%s] 주간보고 메일 시험", service)
+	body := "이 메일은 개인 설정에서 직접 보낸 시험 메일입니다.\n" +
+		"아직 작성한 주간보고가 없어 본문 예시와 PPTX 첨부는 넣지 못했습니다.\n" +
+		"보고서를 한 번 저장한 뒤 다시 시험하면 실제로 발송될 메일을 그대로 받아 볼 수 있습니다.\n"
+	var attachments []mailAttachment
+	weekStart, attached := "", ""
+
+	// The most recent report they wrote, whatever state it is in: a draft is
+	// what a writer has in front of them when they come to this screen, and
+	// refusing to use one would make the test unavailable exactly when it is
+	// wanted.
+	var reportID int64
+	err := a.db.QueryRow(r.Context(),
+		`SELECT id FROM weekly_reports WHERE user_id=$1 ORDER BY week_start DESC, id DESC LIMIT 1`, p.ID).
+		Scan(&reportID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		a.logger.Error("find report for mail test", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "보고서를 읽을 수 없습니다.")
+		return
+	}
+	if err == nil {
+		report, loadErr := a.loadReport(r.Context(), reportID)
+		if loadErr != nil || report == nil {
+			a.logger.Error("load report for mail test", "error", loadErr, "reportId", reportID)
+			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "보고서를 읽을 수 없습니다.")
+			return
+		}
+		deckAttachments, note := a.reportMailAttachments(r.Context(), report)
+		attachments = deckAttachments
+		for _, attachment := range attachments {
+			attached = attachment.Filename
+		}
+		subject = fmt.Sprintf("[시험] %s", reportMailSubject(service, report))
+		body = "이 메일은 개인 설정에서 직접 보낸 시험 메일입니다. 아래는 가장 최근 주간보고이며,\n" +
+			"제출할 때 실제로 발송되는 본문과 첨부 파일이 같습니다.\n\n" +
+			note + reportMailBody(report, reportStatusLabel(report.Status))
+		weekStart = report.WeekStart
+	}
+
+	if err := a.sendMail(r.Context(), settings, to, subject, body, attachments...); err != nil {
+		a.logger.Error("report mail test", "error", err, "trace", traceIDFromContext(r.Context()))
+		// The relay's own words, for the same reason a failed delivery keeps
+		// them: "받는 주소를 릴레이가 거부했습니다: 550 …" is the answer.
+		writeError(w, http.StatusBadGateway, "MAIL_SEND_FAILED", mailUserMessage(err))
+		return
+	}
+	a.audit(r, p, "mail.test", "user", fmt.Sprint(p.ID), map[string]any{"weekStart": weekStart})
+	writeData(w, http.StatusOK, map[string]any{"ok": true, "to": to, "weekStart": weekStart, "attachment": attached})
 }
 
 // ---------------------------------------------------------------------------

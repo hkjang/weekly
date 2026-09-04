@@ -314,21 +314,22 @@ func (a *App) resetPPTXTemplate(w http.ResponseWriter, r *http.Request) {
 	writeData(w, 200, map[string]bool{"reset": true})
 }
 
-func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
-	}
-	p := currentPrincipal(r.Context())
-	if !a.canViewReport(r.Context(), p, id) {
-		writeError(w, 403, "FORBIDDEN", "이 보고서를 내보낼 권한이 없습니다.")
-		return
-	}
-	report, err := a.loadReport(r.Context(), id)
-	if err != nil {
-		writeError(w, 404, "REPORT_NOT_FOUND", "보고서를 찾을 수 없습니다.")
-		return
-	}
+// pptxMediaType is what a PPTX is called on the wire, wherever it is handed
+// over: a download header, or a mail attachment.
+const pptxMediaType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+// errPPTXTemplate separates a template nobody can read from a deck this code
+// could not build out of one. The first is an operator's file and the second is
+// ours, and the download says which.
+var errPPTXTemplate = errors.New("PPTX 템플릿을 읽을 수 없습니다")
+
+// reportDeck renders one report as the PPTX the download button hands over,
+// and the name to file it under.
+//
+// Lifted out of the handler so the mail worker attaches this exact deck. A file
+// built one way for the screen and another way for a mail is two files, and the
+// one nobody looks at is the one that rots.
+func (a *App) reportDeck(ctx context.Context, report *reportView) ([]byte, string, error) {
 	// Team material is a live, read-only composition. Flatten it only for the
 	// renderer, with owner-labelled categories; never insert these ephemeral
 	// rows into report_items where rollups would count the work twice.
@@ -336,8 +337,8 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 	outputReport.Items = reportItemsWithIncludedMaterials(report)
 	// The author's organisation decides the format, not the person exporting:
 	// a report belongs to the team that wrote it however it is being read.
-	authorOrg := a.userOrganizationID(r.Context(), report.UserID)
-	templatePath, _ := a.templateForOrganization(r.Context(), authorOrg)
+	authorOrg := a.userOrganizationID(ctx, report.UserID)
+	templatePath, _ := a.templateForOrganization(ctx, authorOrg)
 	template, err := os.ReadFile(templatePath)
 	if errors.Is(err, os.ErrNotExist) && templatePath != customPPTXPath {
 		// The row says an organisation has a template and the file is gone.
@@ -354,12 +355,11 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		template, err = defaultPPTX()
 	}
 	if err != nil {
-		writeError(w, 500, "PPTX_TEMPLATE_ERROR", "PPTX 템플릿을 읽을 수 없습니다.")
-		return
+		return nil, "", fmt.Errorf("%w: %w", errPPTXTemplate, err)
 	}
 	weekStart, _ := time.Parse("2006-01-02", report.WeekStart)
 	weekEnd := weekStart.AddDate(0, 0, 6)
-	team := a.userOrganizationName(r.Context(), report.UserID)
+	team := a.userOrganizationName(ctx, report.UserID)
 	values := map[string]string{
 		"{{WEEK_START}}":    weekStart.Format("2006.01.02"),
 		"{{WEEK_END}}":      weekEnd.Format("2006.01.02"),
@@ -377,9 +377,7 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 		result, err = renderPPTX(template, values)
 	}
 	if err != nil {
-		a.logger.Error("render PPTX", "error", err)
-		writeError(w, 500, "PPTX_RENDER_ERROR", "PPTX를 생성할 수 없습니다.")
-		return
+		return nil, "", err
 	}
 	// Screen captures become their own slides before or after the written report.
 	// Issues get their own page, after the work and before any captures. The
@@ -391,15 +389,44 @@ func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
 			if withIssues, appendErr := appendSlidesToPPTX(result, nil, []builtSlide{slide}); appendErr != nil {
 				// A deck without the issue page is still the report, so a
 				// failure here never blocks the download.
-				a.logger.Error("append issue slide", "error", appendErr, "reportId", id)
+				a.logger.Error("append issue slide", "error", appendErr, "reportId", report.ID)
 			} else {
 				result = withIssues
 			}
 		}
 	}
-	result = a.attachCaptureSlides(r.Context(), result, id)
+	result = a.attachCaptureSlides(ctx, result, report.ID)
 	filename := fmt.Sprintf("%s_%s_주간업무보고.pptx", strings.ReplaceAll(report.WeekStart, "-", ""), report.DisplayName)
-	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+	return result, filename, nil
+}
+
+func (a *App) exportReportPPTX(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	p := currentPrincipal(r.Context())
+	if !a.canViewReport(r.Context(), p, id) {
+		writeError(w, 403, "FORBIDDEN", "이 보고서를 내보낼 권한이 없습니다.")
+		return
+	}
+	report, err := a.loadReport(r.Context(), id)
+	if err != nil {
+		writeError(w, 404, "REPORT_NOT_FOUND", "보고서를 찾을 수 없습니다.")
+		return
+	}
+	result, filename, err := a.reportDeck(r.Context(), report)
+	if errors.Is(err, errPPTXTemplate) {
+		a.logger.Error("read PPTX template", "error", err)
+		writeError(w, 500, "PPTX_TEMPLATE_ERROR", "PPTX 템플릿을 읽을 수 없습니다.")
+		return
+	}
+	if err != nil {
+		a.logger.Error("render PPTX", "error", err)
+		writeError(w, 500, "PPTX_RENDER_ERROR", "PPTX를 생성할 수 없습니다.")
+		return
+	}
+	w.Header().Set("Content-Type", pptxMediaType)
 	w.Header().Set("Content-Disposition", "attachment; filename=weekly-report.pptx; filename*=UTF-8''"+url.PathEscape(filename))
 	w.Header().Set("Content-Length", fmt.Sprint(len(result)))
 	w.Header().Set("Cache-Control", "no-store")
