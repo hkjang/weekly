@@ -146,14 +146,73 @@ func weekBefore(week string) string {
 	return parsed.AddDate(0, 0, -7).Format("2006-01-02")
 }
 
-// snapshotFor returns the task's report for a given week, if it has one.
+// snapshotFor returns the task's report covering the seven days beginning on
+// the given date, if it has one.
+//
+// This is weekCoveringDays asked of a loaded work item instead of of SQL, and
+// it is here for the same reason. A stored snapshot carries the week start it
+// was written under, so an exact date match answers the question only while the
+// grid has never moved. After it moves, the report covering these days carries
+// a different date and every screen built on this lookup — the meeting agenda
+// and the weekly change summary — went blank for the one transition week: not
+// "nothing changed", but no work at all, in a week the whole team had reported.
+//
+// When the move leaves two snapshots overlapping the same seven days the later
+// one wins, which is the rule the SQL side already uses (week_start DESC).
 func snapshotFor(item workItemView, week string) *workItemWeek {
+	day, err := time.Parse("2006-01-02", week)
+	if err != nil {
+		return nil
+	}
+	var found *workItemWeek
 	for index := range item.Weeks {
-		if item.Weeks[index].WeekStart == week {
-			return &item.Weeks[index]
+		start, err := time.Parse("2006-01-02", item.Weeks[index].WeekStart)
+		if err != nil {
+			continue
+		}
+		if start.After(day.AddDate(0, 0, 6)) || start.AddDate(0, 0, 6).Before(day) {
+			continue
+		}
+		if found == nil || item.Weeks[index].WeekStart > found.WeekStart {
+			found = &item.Weeks[index]
 		}
 	}
-	return nil
+	return found
+}
+
+// snapshotPrior returns the task's report for the week before the seven days
+// beginning on the given date, if it has one.
+//
+// The other half of snapshotFor, and the reason it is not simply
+// snapshotFor(item, weekBefore(week)): after the grid moves, the report for the
+// week before these days ended on the old grid, a day or two short of where the
+// new grid puts it. Asked by exact date it is not there, and the task that had
+// been running for months is announced to the meeting as 신규 or 재개.
+//
+// The window is the seven days ending the day before this week, not everything
+// earlier, because "was not reported last week" is a fact the classification
+// depends on: a task last seen five weeks ago has resumed, and pairing it with
+// that old snapshot would report it as ordinary progress instead.
+func snapshotPrior(item workItemView, week string) *workItemWeek {
+	day, err := time.Parse("2006-01-02", week)
+	if err != nil {
+		return nil
+	}
+	var found *workItemWeek
+	for index := range item.Weeks {
+		start, err := time.Parse("2006-01-02", item.Weeks[index].WeekStart)
+		if err != nil {
+			continue
+		}
+		end := start.AddDate(0, 0, 6)
+		if !end.Before(day) || end.Before(day.AddDate(0, 0, -7)) {
+			continue
+		}
+		if found == nil || item.Weeks[index].WeekStart > found.WeekStart {
+			found = &item.Weeks[index]
+		}
+	}
+	return found
 }
 
 // buildMeeting selects the agenda for one week.
@@ -177,7 +236,7 @@ func buildMeeting(items []workItemView, week string, cfg rollupConfig) meetingVi
 	counted := 0
 	for _, item := range items {
 		current := snapshotFor(item, week)
-		prior := snapshotFor(item, previous)
+		prior := snapshotPrior(item, week)
 		if current == nil && prior == nil {
 			continue
 		}
@@ -217,7 +276,7 @@ func buildMeeting(items []workItemView, week string, cfg rollupConfig) meetingVi
 		// What changed, stated as a change rather than as a status. The
 		// classification is shared with the change summary so the two screens
 		// can never disagree about the same task in the same week.
-		change := classifyWeeklyChange(item, week, previous, cfg)
+		change := classifyWeeklyChange(item, week, cfg)
 		entry := base
 		entry.Detail = change.Detail
 		entry.Note = change.Note
