@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.288.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.289.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4140,6 +4140,14 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p>회귀 시험 7개를 더했습니다. 실제 SMTP 릴레이가 받은 바이트를 <code>net/mail</code> 과 <code>mime/multipart</code> 로 다시 읽어, 클라이언트가 파일을 찾을 수 있는지를 구조로 확인합니다 — 첨부가 zip 으로 열리고 슬라이드가 들어 있는지, 내려받은 파일과 해시가 같은지, 한글·세미콜론·따옴표가 든 이름이 그대로 도착하는지, 첨부가 없을 때 메시지 모양이 그대로인지, 시험 발송이 저장한 주소로만 가고 이력을 만들지 않는지, 두 번째 요청이 429 인지, 한 사람의 대기가 다른 사람을 막지 않는지.</p>
 <p>전체 Go 테스트와 <code>go vet</code>, 가드 검사, 프런트엔드 121개 시험·프로덕션 빌드, 버전·OpenAPI·모달 검사를 통과했습니다.</p>
 <p>API 는 <code>POST /api/v1/me/mail/test</code> 하나가 늘었습니다. 데이터 모델과 환경변수 변경은 없습니다.</p>
+<h3>v0.289.0 — 주 격자를 옮긴 주에도 회의 안건과 변화 요약이 그 주의 보고서를 읽습니다</h3>
+<p>주차 시작 요일을 바꾸면 주 격자만 옮겨지고 이미 저장된 보고서는 그 자리에 남습니다. 전환되는 한 주 동안 팀이 써 둔 보고서는 같은 7일을 다른 날짜로 덮는데, 회의 모드와 주간 변화 요약은 스냅샷을 <code>week_start</code> 정확일치로 골랐습니다. 그래서 전환 주의 회의 자료가 통째로 비었고 — 업무 0건, 인원 0명, 이슈 0건, 결정 요청 0건 — 그다음 주에는 몇 달째 이어지던 업무가 <code>신규</code>나 <code>재개</code>로 올라왔습니다.</p>
+<p><strong>두 화면이 같은 7일을 읽습니다</strong></p>
+<p>스냅샷 조회를 기간 겹침으로 바꿨습니다. SQL 쪽의 <code>weekCoveringDays</code>·<code>weekEndedBefore</code> 와 같은 규칙을 Go 안에서 묻는 <code>snapshotFor</code>·<code>snapshotPrior</code> 이며, 두 화면이 판정을 공유하므로(<code>classifyWeeklyChange</code>) 한 자리를 고치면 둘이 함께 맞습니다. 비교 대상은 이번 7일 바로 앞의 7일로 한정합니다 — 여기를 "더 이른 것 중 가장 늦은 것" 으로 열면 다섯 주 전에 마지막으로 보고된 업무가 <code>재개</code> 가 아니라 평범한 <code>진척</code> 이 되고, 그것은 이 화면이 있는 이유를 지웁니다. <code>신규</code> 판정도 업무의 첫 주차를 요청한 날짜가 아니라 찾아낸 스냅샷의 날짜와 견줍니다. v0.282.0 의 작성 화면, v0.283.0 의 팀원 자료, v0.284.0 의 자동 복제, v0.285.0 의 지난주 계획, v0.287.0 의 분석 화면과 같은 불일치의 일곱 번째 자리입니다.</p>
+<p><strong>검증</strong></p>
+<p>회귀 시험 2개를 더했습니다. 전환 주의 회의 안건이 그 주의 이슈와 진척을 담는지, 그리고 판정 여덟 가지가 각각 맞는지 봅니다. 고치기 전에는 전환 주 두 가지와 그다음 주 두 가지가 <code>ABSENT</code>·<code>ABSENT</code>·<code>RESUMED</code>·<code>ABSENT</code> 로 실패하고, 다섯 주 전 두 가지는 창을 한 주로 묶어 두었다는 것을, 겹치는 두 가지는 같은 7일에 두 보고서가 있을 때 늦은 것을 고른다는 것을 지킵니다. 판정의 모든 분기를 이미 걸어 보던 기존 시험에는 가드 표시가 없어 변이 검사가 세지 않았으므로 표시를 달고, 정체 판정의 경계를 짚는 사례를 하나 더했습니다.</p>
+<p>전체 Go 테스트와 <code>go vet</code>, <code>gofmt</code>, 가드 검사, 변이 검사, 프런트엔드 121개 시험·린트·프로덕션 빌드, 버전·OpenAPI·모달 검사를 통과했습니다.</p>
+<p>API·데이터 모델·환경변수 변경은 없습니다.</p>
 </div>
 </body>
 </html>
