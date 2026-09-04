@@ -60,9 +60,9 @@ type weeklyChange struct {
 // The order of the branches is the order of newsworthiness, and the first match
 // wins. A task that both resumed and completed is reported as completed, because
 // that is the fact that changes what anyone does next.
-func classifyWeeklyChange(item workItemView, week, previous string, cfg rollupConfig) weeklyChange {
+func classifyWeeklyChange(item workItemView, week string, cfg rollupConfig) weeklyChange {
 	current := snapshotFor(item, week)
-	prior := snapshotFor(item, previous)
+	prior := snapshotPrior(item, week)
 
 	switch {
 	case current == nil && prior == nil:
@@ -91,7 +91,11 @@ func classifyWeeklyChange(item workItemView, week, previous string, cfg rollupCo
 			ProgressDelta: delta,
 		}
 
-	case prior == nil && item.FirstWeek == week:
+	// The item's first week is the date its earliest snapshot was written under,
+	// so it is compared against the snapshot found rather than against the date
+	// asked for: on a moved grid those two differ, and a brand new task would be
+	// announced as 재개 — resumed from a silence that never happened.
+	case prior == nil && item.FirstWeek == current.WeekStart:
 		return weeklyChange{
 			Kind:   changeNew,
 			Note:   "이번 주에 시작된 업무입니다.",
@@ -232,7 +236,7 @@ func buildChangeSummary(items []workItemView, week string, cfg rollupConfig) cha
 	byKind := map[changeKind][]changeSummaryEntry{}
 
 	for _, item := range items {
-		change := classifyWeeklyChange(item, week, previous, cfg)
+		change := classifyWeeklyChange(item, week, cfg)
 		if change.Kind == changeAbsent {
 			continue
 		}

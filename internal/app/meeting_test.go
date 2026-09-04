@@ -53,6 +53,43 @@ func TestMeetingSeparatesNewFromContinuingIssues(t *testing.T) {
 	}
 }
 
+// Moving the week start weekday moves the grid, not the reports already on it,
+// and the agenda is built for the days rather than for the date.
+//
+// The reports stay where they were written, so for the one transition week they
+// cover the same seven days under a date the new grid does not use. Asked by
+// exact date the agenda found nothing at all — not "nothing changed", which is
+// a meeting saying the written report covers it, but no work, no people and no
+// issues in a week the whole team had reported. The row that would have carried
+// this week's new issue to the meeting was the one that went missing.
+//
+// guards: buildMeeting
+func TestMeetingCoversTheseDaysAfterTheGridMoves(t *testing.T) {
+	// Monday moved to Wednesday, so the transition week begins on 08-12 while
+	// the report covering those days was filed under 08-10.
+	item := workItem(1, "인증 연동", 10, org(1), []workItemWeek{
+		week("2026-08-03", 40, "설계", "구현", "", ""),
+		week("2026-08-10", 60, "구현", "시험", "인증서 발급이 지연되고 있습니다", "")})
+	view := buildMeeting([]workItemView{item}, "2026-08-12", defaultRollupConfig())
+
+	if view.WorkItems != 1 || view.People != 1 {
+		t.Fatalf("workItems=%d people=%d, want 1 and 1", view.WorkItems, view.People)
+	}
+	newIssues := sectionOf(view, "NEW_ISSUE")
+	if len(newIssues.Entries) != 1 || newIssues.Entries[0].Detail != "인증서 발급이 지연되고 있습니다" {
+		t.Errorf("new issue section = %+v", newIssues.Entries)
+	}
+	// The week before is read the same way, so the task that had been running
+	// since 08-03 is reported as having moved rather than as newly begun.
+	changes := sectionOf(view, "CHANGE")
+	if len(changes.Entries) != 1 || changes.Entries[0].ProgressDelta != 20 {
+		t.Fatalf("change section = %+v", changes.Entries)
+	}
+	if !strings.Contains(changes.Entries[0].Note, "40% → 60%") {
+		t.Errorf("change note = %q, want the week-before figure", changes.Entries[0].Note)
+	}
+}
+
 // A request that only the meeting can settle is the first thing on the agenda.
 func TestMeetingPutsDecisionsFirst(t *testing.T) {
 	item := workItem(1, "GPU 증설", 10, org(1), []workItemWeek{
