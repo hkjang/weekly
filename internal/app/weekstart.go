@@ -33,7 +33,14 @@ import (
 // disagrees with that refusal for one transition week: the team recommendation
 // mail asked a whole team for a report the product would not let them write.
 func weekCoveringDays(alias string, placeholder int) string {
-	day := "$" + strconv.Itoa(placeholder) + "::date"
+	return weekCoveringDaysOf(alias, "$"+strconv.Itoa(placeholder)+"::date")
+}
+
+// weekCoveringDaysOf is the same question asked of a date expression rather than
+// a placeholder, for the queries that walk a generated grid instead of being
+// handed one week: participation counts a week against everybody who did not
+// report for it, and the weeks it counts come out of generate_series.
+func weekCoveringDaysOf(alias, day string) string {
 	return alias + ".week_start <= " + day + " + 6 AND " + alias + ".week_start + 6 >= " + day
 }
 

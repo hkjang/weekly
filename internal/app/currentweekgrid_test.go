@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -307,5 +308,119 @@ func TestAnalyticsOverviewCountsTheReportsCoveringTheseDaysAfterTheGridMoves(t *
 	}
 	if progress, _ := overview["averageProgress"].(float64); progress != 40 {
 		t.Errorf("평균 진행률 %v, want the 40 the member reported", overview["averageProgress"])
+	}
+}
+
+// 관리자 참여 분석, where the same exact date is asked of every week at once
+// rather than of one, so moving the grid does not misreport a week — it
+// misreports the history.
+//
+// The trend grouped reports by their own week_start and the screen reads the
+// rows off the grid, so after the move not one report before it lands on a row:
+// twelve weeks of 제출률 0% for a team that reported in every one of them. The
+// arrears list is the same question inverted (NOT EXISTS ... week_start=week.day)
+// and answered the same way, so it named everybody, for every week they had
+// reported in — a nagging mail's worth of accusation produced by a setting.
+//
+// guards: analyticsParticipation, weekCoveringDaysOf
+func TestParticipationCountsTheReportsCoveringTheseDaysAfterTheGridMoves(t *testing.T) {
+	server := newTestServer(t)
+	org := server.createOrganization("격자 참여 본부", "GRIDPART")
+	member := server.createUser("gridpart_member", "USER", &org)
+	memberName := server.lastCreatedUsername("gridpart_member")
+
+	location := server.app.serviceLocation(server.ctx())
+	moved := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	// Two weeks of the old grid whose deadlines have passed, written on the
+	// Mondays two days before the Wednesdays that are about to replace them.
+	first := moved.AddDate(0, 0, -23)
+	second := moved.AddDate(0, 0, -16)
+	third := moved.AddDate(0, 0, -9)
+	for _, week := range []time.Time{first, second, third} {
+		server.submitted(member, week.Format("2006-01-02"), week.Format("2006-01-02")+" 옛 격자 보고")
+	}
+
+	// Somebody who has genuinely written nothing since the same date, so that
+	// widening the question cannot be mistaken for emptying the list.
+	server.createUser("gridpart_silent", "USER", &org)
+	silentName := server.lastCreatedUsername("gridpart_silent")
+	if _, err := server.app.db.Exec(server.ctx(),
+		`UPDATE users SET created_at = $2::date AT TIME ZONE 'Asia/Seoul' WHERE id = $1`,
+		server.userIDOf(silentName), first.Format("2006-01-02")); err != nil {
+		t.Fatal(err)
+	}
+
+	server.setWeekStart("WEDNESDAY")
+
+	w := server.request(http.MethodGet, "/api/v1/admin/analytics/participation", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read participation: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Trend []struct {
+				WeekStart      string  `json:"weekStart"`
+				Submitted      int     `json:"submitted"`
+				SubmissionRate float64 `json:"submissionRate"`
+				Open           bool    `json:"open"`
+			} `json:"trend"`
+			Missing []struct {
+				Username    string `json:"username"`
+				MissedWeeks int    `json:"missedWeeks"`
+			} `json:"missing"`
+			MissingTotal int `json:"missingTotal"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+
+	// Each report is counted into the week of the new grid it covers, and the
+	// person who wrote it is counted there once. A week of the moved grid
+	// overlaps two of the old one, so counting reports instead of people puts the
+	// member in the first row twice and 제출률 above 100%.
+	for _, week := range []time.Time{first, second, third} {
+		key := week.AddDate(0, 0, 2).Format("2006-01-02")
+		found := false
+		for _, row := range envelope.Data.Trend {
+			if row.WeekStart != key {
+				continue
+			}
+			found = true
+			if row.Submitted != 1 {
+				t.Errorf("%s 주 제출 %d건 (제출률 %.1f%%), want the one member who reported for those days",
+					key, row.Submitted, row.SubmissionRate)
+			}
+		}
+		if !found {
+			t.Errorf("추세에 %s 주가 없습니다", key)
+		}
+	}
+
+	// And the arrears, read against the closed weeks the same response reports:
+	// the member covered every one of them, the other member none.
+	closed := 0
+	for _, row := range envelope.Data.Trend {
+		if !row.Open && row.WeekStart >= first.Format("2006-01-02") {
+			closed++
+		}
+	}
+	if closed == 0 {
+		t.Fatalf("%s 이후로 마감된 주가 없습니다", first.Format("2006-01-02"))
+	}
+	silent := 0
+	for _, reporter := range envelope.Data.Missing {
+		if reporter.Username == memberName {
+			t.Errorf("보고를 마친 사람이 %d주 밀린 것으로 지목됩니다", reporter.MissedWeeks)
+		}
+		if reporter.Username == silentName {
+			silent = reporter.MissedWeeks
+		}
+	}
+	if silent != closed {
+		t.Errorf("한 건도 내지 않은 사람이 %d주 밀린 것으로 나옵니다, 마감된 %d주를 기대합니다", silent, closed)
+	}
+	if envelope.Data.MissingTotal != 1 {
+		t.Errorf("미제출자 %d명, want only the one who wrote nothing", envelope.Data.MissingTotal)
 	}
 }
