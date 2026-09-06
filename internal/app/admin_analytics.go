@@ -334,9 +334,16 @@ var deadlinePassed = deadlinePassedFor("week.day")
 
 // weekIsOwed combines the two: this week counted against this person, and it is
 // no longer open.
+//
+// The report is looked for by the days it covers, not by the date it is filed
+// under. Asked as week_start=week.day it is the exact match weekIsFree already
+// disagrees with: after the grid moves, every report written before the move
+// covers its seven days under a date that is no longer on the grid, so this list
+// named the whole company — for weeks they had reported in, and, for the
+// transition week, weeks the product would not let them report in again.
 var weekIsOwed = `week.day::date >= ` + expectedFromWeek + ` AND ` + deadlinePassed + `
 		AND NOT EXISTS (SELECT 1 FROM weekly_reports r
-			WHERE r.user_id=u.id AND r.week_start=week.day::date AND r.status <> 'DRAFT')`
+			WHERE r.user_id=u.id AND ` + weekCoveringDaysOf("r", "week.day::date") + ` AND r.status <> 'DRAFT')`
 
 // analyticsParticipation reports whether the reporting habit is holding, which
 // is the first thing to check before trusting any other number.
@@ -352,16 +359,37 @@ func (a *App) analyticsParticipation(w http.ResponseWriter, r *http.Request) {
 	// cast submitted_at to a date in UTC, so a report handed in at 08:00 KST the
 	// day after the deadline was dated to the previous day and counted on time.
 	deadline := a.deadlineRule(r.Context())
+	// Each row is a week of the grid the screen draws, and the reports counted
+	// into it are the ones covering its seven days — not the ones filed under its
+	// date. Grouping by r.week_start dropped every report written before the grid
+	// last moved out of the table entirely, because no grid week is named after
+	// its date any more: measured after moving Monday to Wednesday, 제출률 read
+	// 0% for all twelve weeks of a team that had reported in every one of them.
+	//
+	// DISTINCT ON keeps one report per person per week. A week of the moved grid
+	// overlaps two weeks of the old one, so without it the person who reported
+	// every week is counted twice in the same row and the rate passes 100%.
+	// Ordered to prefer a report that was actually handed in, then the later week,
+	// which is the rule snapshotFor uses on the Go side for the same tie.
+	//
+	// On time is still measured against the deadline of the report's own week,
+	// because that is the deadline its author had to meet, even when the row it
+	// is counted into is now named after a different date.
 	rows, err := a.db.Query(r.Context(), `
-		SELECT r.week_start,
-		  count(*),
-		  count(*) FILTER (WHERE r.status <> 'DRAFT'),
-		  count(*) FILTER (WHERE r.submitted_at IS NOT NULL AND r.submitted_at < deadline.at),
-		  count(*) FILTER (WHERE r.submitted_at IS NOT NULL AND r.submitted_at >= deadline.at)
-		FROM weekly_reports r
-		CROSS JOIN LATERAL (SELECT (r.week_start + make_interval(days => $3, hours => $4)) AT TIME ZONE $5 AS at) deadline
-		WHERE r.week_start BETWEEN $1 AND $2
-		GROUP BY r.week_start ORDER BY r.week_start`,
+		SELECT week.day::date,
+		  count(covering.id),
+		  count(covering.id) FILTER (WHERE covering.status <> 'DRAFT'),
+		  count(covering.id) FILTER (WHERE covering.submitted_at IS NOT NULL AND covering.submitted_at < covering.at),
+		  count(covering.id) FILTER (WHERE covering.submitted_at IS NOT NULL AND covering.submitted_at >= covering.at)
+		FROM generate_series($1::date, $2::date, interval '7 day') AS week(day)
+		LEFT JOIN LATERAL (
+		  SELECT DISTINCT ON (r.user_id) r.id, r.status, r.submitted_at,
+		    (r.week_start + make_interval(days => $3, hours => $4)) AT TIME ZONE $5 AS at
+		  FROM weekly_reports r
+		  WHERE `+weekCoveringDaysOf("r", "week.day::date")+`
+		  ORDER BY r.user_id, (r.status <> 'DRAFT') DESC, r.week_start DESC
+		) covering ON true
+		GROUP BY week.day ORDER BY week.day`,
 		start, end, deadline.Days, deadline.Hour, deadline.Timezone)
 	if err != nil {
 		a.logger.Error("participation analytics", "error", err, "trace", traceIDFromContext(r.Context()))
