@@ -76,7 +76,7 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.291.0.tar.gz
+sha256sum weekly-v0.292.0.tar.gz
 gzip -dc weekly-v0.291.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
 gzip -dc weekly-v0.291.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
@@ -287,7 +287,7 @@ SMTP 비밀번호는 다른 비밀 설정과 같이 `WEEKLY_ENCRYPTION_KEY`로 �
 
 ## ITSM 연동
 
-SR 번호를 입력하면 ITSM에서 제목을 가져와 상황판에 그대로 올립니다. `관리자 설정 → ITSM 연동`에서 켭니다.
+SR 번호를 입력하면 ITSM에서 제목을 가져와 상황판에 그대로 올립니다. `관리자 설정 → ITSM 연동` 카드에서 `ITSM 연동 사용`을 켜고 아래 주소를 채운 뒤 `설정 저장`을 누르면 상황판의 일정 추가 창에 SR 번호 칸이 나타납니다.
 
 | 설정 | 예 | 비고 |
 |---|---|---|

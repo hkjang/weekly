@@ -148,6 +148,18 @@ type settingView struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
+// adminSettings answers with every setting this product has, not only the ones
+// somebody has already written.
+//
+// It used to read app_settings and nothing else, and the screen draws a box for
+// each row it is given — so a setting whose row did not exist yet had no box.
+// Adding the ITSM link shipped exactly that: eleven settings defined in the
+// code, documented in two guides, and nowhere to type them. The administrator
+// could only reach them through the API, which is not an answer.
+//
+// So the definitions are the list and the stored rows fill it in. A key that is
+// in the table but no longer in the code is kept as well — it is somebody's
+// data, and hiding it would be the same mistake pointed the other way.
 func (a *App) adminSettings(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `SELECT key,value,secret,updated_at FROM app_settings ORDER BY key`)
 	if err != nil {
@@ -155,23 +167,50 @@ func (a *App) adminSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	result := []settingView{}
+	stored := map[string]settingView{}
 	for rows.Next() {
 		var item settingView
-		var stored string
-		if err := rows.Scan(&item.Key, &stored, &item.Secret, &item.UpdatedAt); err != nil {
+		var value string
+		if err := rows.Scan(&item.Key, &value, &item.Secret, &item.UpdatedAt); err != nil {
 			writeError(w, 500, "QUERY_FAILED", "설정을 조회할 수 없습니다.")
 			return
 		}
-		item.Configured = stored != ""
+		item.Configured = value != ""
 		item.Available = true
 		if !item.Secret {
-			item.Value = stored
+			item.Value = value
 		} else if item.Configured {
-			_, decryptErr := a.box.Decrypt(stored)
+			_, decryptErr := a.box.Decrypt(value)
 			item.Available = decryptErr == nil
 		}
-		result = append(result, item)
+		stored[item.Key] = item
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "설정을 조회할 수 없습니다.")
+		return
+	}
+
+	keys := make([]string, 0, len(settingDefinitions)+len(stored))
+	for key := range settingDefinitions {
+		keys = append(keys, key)
+	}
+	for key := range stored {
+		if _, defined := settingDefinitions[key]; !defined {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	result := make([]settingView, 0, len(keys))
+	for _, key := range keys {
+		if item, ok := stored[key]; ok {
+			result = append(result, item)
+			continue
+		}
+		// Never written. Empty, unconfigured, and readable — the screen draws
+		// an empty box and the product goes on using its built-in default until
+		// somebody types into it.
+		result = append(result, settingView{Key: key, Secret: settingDefinitions[key].Secret, Available: true})
 	}
 	writeData(w, 200, result)
 }

@@ -358,17 +358,31 @@ function ScheduleDialog({ draft, members, session, onChange, onClose, onSave, on
     finally { setLooking(false) }
   }
 
-  return <Modal onClose={onClose} label={draft.id ? '업무 일정 수정' : '업무 일정 추가'} className="schedule-dialog">
-    <h3>{draft.id ? '업무 일정 수정' : '업무 일정 추가'}</h3>
-    {session.itsmEnabled && <div className="sr-row">
+  const heading = draft.id ? '업무 일정 수정' : '업무 일정 추가'
+
+  // The house dialog shape — header, a padded form, a footer — rather than
+  // fields laid straight onto the panel. The first version put them there and
+  // every control sat against the edge of the white box with nothing between
+  // the rows: a form that is legible only because it is short.
+  return <Modal onClose={onClose} label={heading} className="schedule-dialog">
+    <header>
+      <h2>{heading}</h2>
+      <button onClick={onClose} aria-label="닫기">×</button>
+    </header>
+
+    {/* The ITSM box is set apart because it is a different act: fetching
+        something from another system, before filling anything in by hand. */}
+    {session.itsmEnabled && <div className="sr-lookup">
       <label>{label} 번호<input value={draft.srId} placeholder="SR2609-00001"
         onChange={event => onChange({ ...draft, srId: event.target.value })}
         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void lookup() } }}/></label>
       <Button variant="secondary" onClick={lookup} disabled={looking}>{looking ? '가져오는 중…' : '제목 가져오기'}</Button>
+      <p className="sr-hint">번호를 넣고 <strong>제목 가져오기</strong>를 누르면 ITSM에서 제목을 채웁니다. 비워 두어도 됩니다.</p>
     </div>}
-    <label>업무명<input value={draft.title} autoFocus
-      onChange={event => onChange({ ...draft, title: event.target.value })}/></label>
-    <div className="dialog-row">
+
+    <div className="modal-form schedule-form">
+      <label className="wide">업무명<input value={draft.title} autoFocus placeholder="예: 월간 안전점검"
+        onChange={event => onChange({ ...draft, title: event.target.value })}/></label>
       <label>시작일<input type="date" value={draft.startDate}
         onChange={event => onChange({
           ...draft, startDate: event.target.value,
@@ -376,28 +390,34 @@ function ScheduleDialog({ draft, members, session, onChange, onClose, onSave, on
         })}/></label>
       <label>종료일<input type="date" value={draft.endDate} min={draft.startDate}
         onChange={event => onChange({ ...draft, endDate: event.target.value })}/></label>
-    </div>
-    <div className="dialog-row">
-      <label>중요도<select value={draft.priority}
-        onChange={event => onChange({ ...draft, priority: event.target.value as SchedulePriority })}>
-        {priorityOrder.map(level => <option key={level} value={level}>{priorityLabels[level]}</option>)}
-      </select></label>
+      <label>
+        {/* The colour is what the board is read by, so the form shows it while
+            it is being chosen rather than only after the row is drawn. */}
+        <span className="label-line">중요도<i className={`pri-dot pri-${draft.priority.toLowerCase()}`}/></span>
+        <select value={draft.priority}
+          onChange={event => onChange({ ...draft, priority: event.target.value as SchedulePriority })}>
+          {priorityOrder.map(level => <option key={level} value={level}>{priorityLabels[level]}</option>)}
+        </select>
+      </label>
       <label>구분<input value={draft.category} placeholder="감사 · 회의 · 배포"
         onChange={event => onChange({ ...draft, category: event.target.value })}/></label>
+      {members.length > 0 && <label className="wide">담당자<select value={draft.assigneeId || session.user.id}
+        onChange={event => onChange({ ...draft, assigneeId: Number(event.target.value) })}>
+        <option value={session.user.id}>{session.user.displayName} (본인)</option>
+        {members.map(member => <option key={member.id} value={member.id}>
+          {member.displayName}{member.organizationName ? ` · ${member.organizationName}` : ''}</option>)}
+      </select></label>}
+      <label className="wide">비고<textarea rows={3} value={draft.note} placeholder="상황판 줄 위에 마우스를 올리면 보이는 설명입니다."
+        onChange={event => onChange({ ...draft, note: event.target.value })}/></label>
+      <p className="form-hint wide">
+        하루짜리 일정은 종료일을 시작일과 같게 두면 됩니다. 며칠에 걸친 일은 걸친 날짜 칸에 모두 나옵니다.
+      </p>
     </div>
-    {members.length > 0 && <label>담당자<select value={draft.assigneeId || session.user.id}
-      onChange={event => onChange({ ...draft, assigneeId: Number(event.target.value) })}>
-      <option value={session.user.id}>{session.user.displayName} (본인)</option>
-      {members.map(member => <option key={member.id} value={member.id}>
-        {member.displayName}{member.organizationName ? ` · ${member.organizationName}` : ''}</option>)}
-    </select></label>}
-    <label>비고<textarea rows={2} value={draft.note}
-      onChange={event => onChange({ ...draft, note: event.target.value })}/></label>
-    <div className="dialog-actions">
-      {draft.id > 0 && <Button variant="danger" onClick={() => onDelete(draft)}>삭제</Button>}
-      <span className="dialog-spacer"/>
+
+    <footer>
+      {draft.id > 0 && <Button variant="danger" className="footer-left" onClick={() => onDelete(draft)}>삭제</Button>}
       <Button variant="secondary" onClick={onClose}>취소</Button>
       <Button onClick={() => onSave(draft)}>저장</Button>
-    </div>
+    </footer>
   </Modal>
 }
