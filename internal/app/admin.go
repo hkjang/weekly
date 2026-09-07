@@ -120,6 +120,23 @@ var settingDefinitions = map[string]settingDefinition{
 	// is not a mailbox: a report that has not left after five tries is a relay
 	// problem, and repeating it forever hides that.
 	"mail.max_attempts": {Validate: integerRange(1, 20)},
+	// ITSM 연동. Two addresses, deliberately: the one a machine asks for a
+	// title and the one a person opens to read the request. In these companies
+	// they are usually different systems — an API behind a gateway and a
+	// portal — and assuming otherwise gives every board a link into raw JSON.
+	"itsm.enabled":     {Validate: booleanValue},
+	"itsm.lookup_url":  {Validate: validITSMTemplate},
+	"itsm.link_url":    {Validate: validITSMTemplate},
+	"itsm.query_param": {Validate: bounded(0, 60)},
+	// Where the title is in the answer: a dotted path into JSON, or a regular
+	// expression with one capture group for services that only serve HTML.
+	"itsm.title_path":      {Validate: bounded(0, 200)},
+	"itsm.title_regex":     {Validate: validOptionalRegex},
+	"itsm.id_pattern":      {Validate: validOptionalRegex},
+	"itsm.auth_header":     {Validate: bounded(0, 120)},
+	"itsm.auth_token":      {Secret: true, Validate: bounded(0, 4096)},
+	"itsm.label":           {Validate: bounded(0, 40)},
+	"itsm.timeout_seconds": {Validate: integerRange(1, 60)},
 }
 
 type settingView struct {
@@ -931,6 +948,40 @@ func oneOf(values ...string) func(string) bool {
 func integerRange(minimum, maximum int) func(string) bool {
 	return func(v string) bool { n, err := strconv.Atoi(v); return err == nil && n >= minimum && n <= maximum }
 }
+
+// validITSMTemplate accepts an address that may carry a {id} placeholder.
+//
+// The placeholder is removed before parsing rather than escaped, because what
+// is being checked is the shape of the address around it — scheme and host —
+// and url.Parse has no opinion about braces in a path that a person reading the
+// setting would share.
+func validITSMTemplate(v string) bool {
+	if strings.TrimSpace(v) == "" {
+		return true
+	}
+	if runeLength(v) > 1000 {
+		return false
+	}
+	bare := strings.NewReplacer("{id}", "1", "{sr_id}", "1").Replace(strings.TrimSpace(v))
+	parsed, err := url.Parse(bare)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+}
+
+// validOptionalRegex refuses a pattern that does not compile.
+//
+// Saving one would leave a setting that fails at lookup time with a message
+// about somebody else's service, when the mistake is right here in this box.
+func validOptionalRegex(v string) bool {
+	if strings.TrimSpace(v) == "" {
+		return true
+	}
+	if runeLength(v) > 500 {
+		return false
+	}
+	_, err := regexp.Compile(v)
+	return err == nil
+}
+
 func validOptionalURL(v string) bool {
 	if v == "" {
 		return true

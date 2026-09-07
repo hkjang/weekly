@@ -82,7 +82,7 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
           <label className="toggle-row"><span><strong>팀원 작성 권고 메일</strong><small>아직 제출하지 않은 활성 팀원에게 계정의 수신 주소로 한 주에 한 번 보냅니다.</small></span>
             <input type="checkbox" checked={reminderEnabled} onChange={event => setReminderEnabled(event.target.checked)}/></label>
           <div className="setting-row"><span><strong>권고 메일 발송 요일</strong><small>{weekly.timezone} 기준 오전 {weekly.reminderHour}시 이후 자동 발송</small></span>
-            <select value={reminderWeekday} disabled={!reminderEnabled} onChange={event => setReminderWeekday(event.target.value as WeekdayName)}>
+            <select aria-label="권고 메일 발송 요일" value={reminderWeekday} disabled={!reminderEnabled} onChange={event => setReminderWeekday(event.target.value as WeekdayName)}>
               {weekdays.map(day => <option value={day.value} key={day.value}>{day.label}</option>)}
             </select></div>
           {!weekly.relayReady && reminderEnabled && <div className="edit-notice">관리자가 아직 메일 서버를 설정하지 않았습니다. 설정이 완료된 뒤 해당 주차의 선택 요일이 지났다면 자동 발송합니다.</div>}

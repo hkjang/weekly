@@ -3,7 +3,7 @@ export type ReportStatus = 'DRAFT' | 'SUBMITTED' | 'REVISION_REQUESTED' | 'APPRO
 
 export interface BuildInfo { version: string; commit: string; builtAt: string }
 export interface User { id: number; username: string; displayName: string; email: string; role: Role; organizationId?: number; keyVersion: number }
-export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; confluenceEnabled: boolean; currentWeekStart: string; serviceName: string; notice: string; accountNotice?: string; build: BuildInfo }
+export interface SessionInfo { user: User; workflowEnabled: boolean; aiEnabled: boolean; confluenceEnabled: boolean; itsmEnabled?: boolean; itsmLabel?: string; currentWeekStart: string; serviceName: string; notice: string; accountNotice?: string; build: BuildInfo }
 export interface Providers { local: boolean; oidc: boolean; name: string; notice: string; build: BuildInfo }
 export type ItemSourceKind = 'MANUAL' | 'CONFLUENCE' | 'PPTX' | 'AI_TEXT' | 'JIRA' | 'GIT' | 'CI' | 'ITSM' | 'API'
 export interface ItemSource { kind: ItemSourceKind; reference?: string; title?: string; url?: string; detail?: string; occurredAt?: string }
@@ -379,3 +379,25 @@ export interface TeamReminderQueueResult {
  * looks exactly like one nobody has used yet.
  */
 export interface MailHealth { days: number; sent: number; queued: number; failed: number; writers: number; lastError: string; lastFailedAt: string | null }
+
+/** 월간 업무 상황판. 긴급 빨강 · 중요 초록 · 필요 파랑 · 일반 검정. */
+export type SchedulePriority = 'URGENT' | 'IMPORTANT' | 'NEEDED' | 'NORMAL'
+export interface ScheduleTask {
+  id: number; title: string; category: string
+  startDate: string; endDate: string
+  done: boolean; doneAt?: string; doneByName?: string
+  userId: number; displayName: string; organizationName?: string
+  createdById: number; createdByName?: string
+  workItemId?: number; note?: string
+  priority: SchedulePriority
+  /** The ITSM service request this line came from, and where a reader goes. */
+  srId?: string; srUrl?: string
+  /** Decided by the server so the board never draws a checkbox that is refused. */
+  canEdit: boolean
+}
+export interface ScheduleSummary { total: number; done: number; overdue: number; today: number; people: number; urgent: number }
+export interface ScheduleBoard {
+  from: string; to: string; scope: 'SELF' | 'TEAM'; today: string
+  tasks: ScheduleTask[]; summary: ScheduleSummary
+}
+export interface ITSMLookup { id: string; title: string; url?: string }

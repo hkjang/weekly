@@ -63,8 +63,6 @@ func TestEveryColumnTheProductWritesIsAlsoRead(t *testing.T) {
 		"source_ref": "이 보고서를 만든 구체적인 출처. 복제면 원본 보고서, Import 면 파일, " +
 			"Confluence 면 초안이다. 화면은 sourceType 으로 '무엇에서 왔는지'를 말하고, " +
 			"'그중 어느 것인지'는 운영자가 추적할 때 쓴다.",
-		"created_by": "업무 의존 관계를 선언한 사람. 목록은 관계와 메모를 보여 주고, " +
-			"누가 적었는지는 조회 범위가 이미 그 사람의 조직으로 좁혀 준다.",
 		"user_agent": "로그인한 브라우저. 세션 목록 화면이 없으므로 지금은 " +
 			"'무엇으로 접속했는가'를 뒤에서 따질 때만 쓰인다.",
 		// confluence_pages 는 Confluence 의 지역 사본이다. 수집은 API 응답을

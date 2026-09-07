@@ -7,12 +7,12 @@
  */
 
 export type PageName =
-  | 'dashboard' | 'current' | 'history' | 'work' | 'rollup'
+  | 'dashboard' | 'current' | 'history' | 'work' | 'schedule' | 'rollup'
   | 'meeting' | 'digest' | 'insights' | 'handover'
   | 'import' | 'team' | 'analytics' | 'profile' | 'admin'
 
 export const pageNames: PageName[] = [
-  'dashboard', 'current', 'history', 'work', 'rollup',
+  'dashboard', 'current', 'history', 'work', 'schedule', 'rollup',
   'meeting', 'digest', 'insights', 'handover',
   'import', 'team', 'analytics', 'profile', 'admin',
 ]

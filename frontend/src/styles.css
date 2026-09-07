@@ -301,3 +301,116 @@
 /* Report fields grow with wrapped and explicit lines, so their content scrolls
    with the page instead of inside each individual input. */
 textarea.auto-resize-textarea{width:100%;min-width:0;max-width:100%;overflow-y:hidden;resize:none}
+
+/* 월간 업무 상황판.
+
+   The four priority colours are the load-bearing part: 긴급 빨강, 중요 초록,
+   필요 파랑, 일반 검정. They are the only thing that carries across an office
+   from a wall display, so they are on the left edge of every line rather than
+   in the text, and the word is kept beside them for anyone who cannot tell red
+   from green. */
+.pri-urgent{--pri:#dc2626}
+.pri-important{--pri:#16a34a}
+.pri-needed{--pri:#2563eb}
+.pri-normal{--pri:#111827}
+.board-legend em{font-style:normal;font-weight:600;margin-left:10px;padding-left:12px;position:relative}
+.board-legend em::before{content:'';position:absolute;left:0;top:50%;width:8px;height:8px;border-radius:3px;transform:translateY(-50%)}
+.board-legend em.pri-urgent::before{background:#dc2626}
+.board-legend em.pri-important::before{background:#16a34a}
+.board-legend em.pri-needed::before{background:#2563eb}
+.board-legend em.pri-normal::before{background:#111827}
+.pri-dot{display:inline-block;width:8px;height:8px;border-radius:3px;margin-right:6px;background:var(--pri,#111827)}
+
+.board-shell{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.board-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between}
+.board-move{display:flex;align-items:center;gap:6px}
+.board-heading{font-size:1.15rem;min-width:150px;text-align:center}
+.board-step{border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;width:30px;height:30px;font-size:1.1rem;cursor:pointer}
+.board-step:hover{background:#eef2f7}
+.board-views{display:flex;border:1px solid #e2e8f0;border-radius:9px;overflow:hidden}
+.board-view{border:0;background:#fff;padding:6px 14px;cursor:pointer;font-size:.86rem;color:#475569}
+.board-view+.board-view{border-left:1px solid #e2e8f0}
+.board-view.active{background:#0f172a;color:#fff;font-weight:600}
+.board-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.board-toggle{display:flex;align-items:center;gap:5px;font-size:.85rem;color:#475569}
+.board-summary{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:8px 12px;background:#f8fafc;border-radius:10px;font-size:.9rem;color:#475569}
+.board-summary b{font-size:1.05rem;color:#0f172a}
+.board-summary .overdue b{color:#dc2626}
+.board-summary .urgent b{color:#dc2626}
+.board-summary .done b{color:#16a34a}
+.board-summary .board-legend{margin-left:auto}
+
+.month-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.month-head{text-align:center;font-size:.82rem;font-weight:600;color:#64748b;padding:4px 0}
+.month-head.sunday{color:#dc2626}
+.month-head.saturday{color:#2563eb}
+.month-cell{border:1px solid #e2e8f0;border-radius:9px;min-height:104px;padding:5px;display:flex;flex-direction:column;gap:3px;background:#fff}
+.month-cell.outside{background:#f8fafc;color:#94a3b8}
+.month-cell.is-today{border-color:#0f172a;box-shadow:inset 0 0 0 1px #0f172a}
+.month-date{display:flex;align-items:center;justify-content:space-between;font-size:.82rem;font-weight:600}
+.month-add{border:0;background:transparent;color:#94a3b8;cursor:pointer;font-size:.9rem;line-height:1;padding:2px 4px;border-radius:6px}
+.month-cell:hover .month-add,.board-day-head .month-add{color:#0f172a}
+.month-add:hover{background:#eef2f7}
+.month-tasks{display:flex;flex-direction:column;gap:2px;overflow:auto}
+
+.board-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.board-day{border:1px solid #e2e8f0;border-radius:10px;padding:6px;min-height:260px;display:flex;flex-direction:column;gap:6px}
+.board-day.is-today{border-color:#0f172a}
+.board-day-head{display:flex;align-items:center;gap:6px;font-size:.85rem;color:#475569}
+.board-day-head strong{font-size:.95rem;color:#0f172a}
+.board-day-head .month-add{margin-left:auto}
+.board-day-tasks{display:flex;flex-direction:column;gap:4px}
+.board-day-empty{color:#cbd5e1;font-size:.8rem;margin:6px 0 0}
+
+/* A line. The colour is a bar down its left edge so it survives being read at
+   an angle, and a finished one is struck through rather than removed — the
+   board is a record of the month, not only of what is left. */
+.task-chip{display:flex;align-items:center;gap:5px;border-left:3px solid var(--pri,#111827);background:#f8fafc;border-radius:6px;padding:3px 5px;font-size:.83rem;min-width:0}
+.task-chip.compact{font-size:.78rem;padding:2px 4px}
+.task-chip input[type=checkbox]{flex:none;margin:0;cursor:pointer}
+.task-chip input[type=checkbox]:disabled{cursor:not-allowed;opacity:.45}
+.task-title{flex:1;min-width:0;border:0;background:transparent;text-align:left;cursor:pointer;padding:0;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-title:disabled{cursor:default;color:#334155}
+.task-title em{font-style:normal;color:#64748b;margin-right:4px}
+.task-title small{color:#64748b;margin-left:5px}
+.task-chip.state-done{opacity:.55}
+.task-chip.state-done .task-title{text-decoration:line-through}
+.task-chip.state-overdue{background:#fef2f2}
+.task-chip.state-overdue .task-title{color:#b91c1c;font-weight:600}
+.task-chip.state-today{background:#eff6ff}
+.sr-tag{flex:none;font-size:.72rem;background:#e2e8f0;color:#334155;border-radius:5px;padding:1px 5px;text-decoration:none;white-space:nowrap}
+a.sr-tag:hover{background:#cbd5e1;text-decoration:underline}
+
+.board-list tr.state-overdue td{background:#fef2f2}
+.board-list tr.state-done td{color:#94a3b8}
+.people-lanes{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.people-lane{border:1px solid #e2e8f0;border-radius:10px;padding:8px}
+.people-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.people-bar{flex:1 0 100%;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden}
+.people-bar i{display:block;height:100%;background:#16a34a}
+.people-tasks{display:flex;flex-direction:column;gap:4px}
+
+/* Full screen is the wall display. Everything gets bigger, because the reader
+   is standing across the room rather than sitting in front of it. */
+.board-fullscreen{border-radius:0;height:100vh;overflow:auto;padding:18px 22px}
+.board-fullscreen .board-heading{font-size:1.6rem}
+.board-fullscreen .board-summary{font-size:1.1rem}
+.board-fullscreen .board-summary b{font-size:1.35rem}
+.board-fullscreen .month-grid{flex:1}
+.board-fullscreen .month-cell{min-height:120px}
+.board-fullscreen .task-chip,.board-fullscreen .task-chip.compact{font-size:1rem;padding:4px 6px}
+.board-fullscreen .month-head{font-size:1rem}
+
+.schedule-dialog label{display:flex;flex-direction:column;gap:4px;font-size:.86rem;color:#475569;margin-bottom:10px}
+.schedule-dialog .dialog-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.schedule-dialog .sr-row{display:flex;align-items:flex-end;gap:8px;margin-bottom:10px}
+.schedule-dialog .sr-row label{flex:1;margin:0}
+.dialog-actions{display:flex;align-items:center;gap:8px;margin-top:14px}
+.dialog-spacer{flex:1}
+@media(max-width:900px){
+  .board-summary .board-legend{margin-left:0;flex:1 0 100%}
+  .board-week{grid-template-columns:1fr;}
+  .board-day{min-height:0}
+  .month-cell{min-height:76px}
+  .schedule-dialog .dialog-row{grid-template-columns:1fr}
+}

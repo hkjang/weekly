@@ -23,6 +23,7 @@ import DigestPage from './pages/DigestPage'
 import InsightsPage from './pages/InsightsPage'
 import HandoverPage from './pages/HandoverPage'
 import RollupPage from './pages/RollupPage'
+import SchedulePage from './pages/SchedulePage'
 import WorkItemsPage from './pages/WorkItemsPage'
 import {
   beginOIDCAutoLogin, clearOIDCAutoLoginMarkers, isAnonymousSessionProbe,
@@ -278,6 +279,7 @@ export default function App() {
     { page: 'current', label: '내 주간보고', keywords: ['current', 'weekly', '작성', '임시저장', '제출'], visible: true },
     { page: 'history', label: '과거 보고', keywords: ['history', 'past', '이전', '복제'], visible: true },
     { page: 'work', label: '업무 추적', keywords: ['work', 'workitem', '업무', '정체', '경과', 'aging'], visible: true },
+    { page: 'schedule', label: '업무 상황판', keywords: ['schedule', 'calendar', '캘린더', '일정', '달력', '월간', '체크', 'todo', 'sr'], visible: true },
     { page: 'meeting', label: '회의 모드', keywords: ['meeting', '회의', '안건', '발표', 'agenda', 'presentation'], visible: true },
     { page: 'handover', label: '인수인계', keywords: ['handover', '인수', '인계', '이관', '담당자 변경'], visible: true },
     { page: 'digest', label: '경영 요약', keywords: ['digest', '경영', '요약', 'executive', '핵심'], visible: canTeam },
@@ -314,6 +316,7 @@ export default function App() {
         <Nav page='current' active={page === 'current'} icon="✎" onClick={() => navigate('current')}>내 주간보고</Nav>
         <Nav page='history' active={page === 'history'} icon="◷" onClick={() => navigate('history')}>과거 보고</Nav>
         <Nav page='work' active={page === 'work'} icon="◎" onClick={() => navigate('work')}>업무 추적</Nav>
+        <Nav page='schedule' active={page === 'schedule'} icon="▦" onClick={() => navigate('schedule')}>업무 상황판</Nav>
         <Nav page='meeting' active={page === 'meeting'} icon="◍" onClick={() => navigate('meeting')}>회의 모드</Nav>
         <Nav page='handover' active={page === 'handover'} icon="⇄" onClick={() => navigate('handover')}>인수인계</Nav>
         <Nav page='rollup' active={page === 'rollup'} icon="▤" onClick={() => navigate('rollup')}>기간 업무보고</Nav>
@@ -351,6 +354,7 @@ export default function App() {
         {page === 'current' && <ReportEditorPage workflowEnabled={session.workflowEnabled} aiEnabled={session.aiEnabled} confluenceEnabled={session.confluenceEnabled} notify={notify} />}
         {page === 'history' && <ReportsPage currentWeekStart={session.currentWeekStart} openReportId={Number(params.report) || undefined} notify={notify} />}
         {page === 'work' && <WorkItemsPage session={session} notify={notify} />}
+        {page === 'schedule' && <SchedulePage session={session} notify={notify} />}
         {page === 'rollup' && <RollupPage session={session} route={params} notify={notify} />}
         {page === 'meeting' && <MeetingPage session={session} notify={notify} />}
         {page === 'handover' && <HandoverPage session={session} notify={notify} />}

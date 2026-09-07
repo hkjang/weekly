@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="USER_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.290.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.291.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
 <h2>1. 개요</h2>
 <p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
 <h3>1.1 Keycloak 기존 세션으로 로그인</h3>
@@ -136,6 +136,39 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <li>PPTX가 10MiB를 넘거나 만들지 못하면 메일은 그대로 가되 본문 첫 줄에 그 사실과 이유가 적힙니다. 첨부가 조용히 빠지지는 않습니다.</li>
 <li>관리자가 SMTP를 설정하지 않았으면 시험 발송은 어떤 설정이 꺼져 있는지 알려 주고 아무것도 보내지 않습니다.</li>
 </ul>
+<hr>
+<h3>2.8 월간 업무 상황판 (업무 캘린더)</h3>
+<p><code>업무 상황판</code>은 부서의 한 달을 한 화면에 놓고, 끝난 일을 <strong>체크박스로 지우는</strong> 화면입니다. 주간보고가 지나간 주를 기록한다면 이 화면은 다가올 달을 계획합니다.</p>
+<p><strong>보기 네 가지</strong></p>
+<table><thead><tr><th>보기</th><th>쓰는 때</th></tr></thead><tbody><tr><td>월</td><td>달력 격자. 한 달 전체를 계획하고 훑을 때</td></tr><tr><td>주</td><td>그 주 7일을 세로로. 아침 회의에서 이번 주를 볼 때</td></tr><tr><td>목록</td><td>기간·중요도·업무·담당자·완료 표. 순서대로 처리할 때</td></tr><tr><td>담당자</td><td>사람별 묶음과 완료율 막대. 누가 무엇을 얼마나 들고 있는지 볼 때</td></tr></tbody></table>
+<p><strong>중요도와 색</strong></p>
+<table><thead><tr><th>중요도</th><th>색</th></tr></thead><tbody><tr><td>긴급</td><td>빨강</td></tr><tr><td>중요</td><td>초록</td></tr><tr><td>필요</td><td>파랑</td></tr><tr><td>일반</td><td>검정</td></tr></tbody></table>
+<p>색은 줄 왼쪽 테두리에 있고 글자로도 함께 표시합니다. 하루 안에서는 긴급이 맨 위에 옵니다.</p>
+<p><strong>일정 추가와 체크</strong></p>
+<ul>
+<li>날짜 칸의 <code>＋</code> 를 누르거나 칸을 더블클릭하면 그 날짜로 추가 창이 열립니다. <code>일정 추가</code> 버튼도 같습니다.</li>
+<li>업무명, 시작일, 종료일(비우면 하루), 중요도, 구분, 비고를 입력합니다. 팀장·조직장·관리자는 담당자를 조직원 중에서 고를 수 있습니다.</li>
+<li>체크박스를 누르면 그 자리에서 완료로 바뀝니다. <strong>누가 언제</strong> 체크했는지 함께 기록되며, 해제하면 둘 다 지워집니다.</li>
+<li>완료한 일은 취소선으로 남습니다. 위쪽 <code>완료 숨기기</code>로 감출 수 있습니다.</li>
+</ul>
+<p><strong>보이는 범위</strong></p>
+<ul>
+<li>상황판은 공유 계획이므로 <code>부서 전체</code>를 켜면 <strong>본인 조직과 하위 조직 전체</strong>의 일정이 보입니다. 끄면 본인 것만 봅니다.</li>
+<li>다만 <strong>체크·수정·삭제는 본인 일정</strong>만 할 수 있습니다. 팀장·조직장은 담당 조직원의 일정도 다룰 수 있고, 남의 조직 일정은 보이지도 않습니다. 권한이 없는 줄의 체크박스는 비활성으로 표시됩니다.</li>
+<li><code>지연</code>·<code>오늘</code> 판정은 서비스 시간대의 오늘을 기준으로 합니다.</li>
+</ul>
+<p><strong>전체화면</strong></p>
+<p><code>전체화면</code> 버튼은 사무실 벽 화면용입니다. 글자와 칸이 커지고, <strong>전체화면일 때만 60초마다 스스로 다시 읽습니다</strong>. <code>Esc</code> 로 빠져나옵니다.</p>
+<p><strong>여러 날에 걸친 일정</strong></p>
+<p>시작일과 종료일을 다르게 주면 걸친 모든 날짜 칸에 나옵니다. 8월에 시작해 9월에 끝나는 일은 8월 상황판과 9월 상황판에 모두 나옵니다.</p>
+<h3>2.9 ITSM SR 번호로 일정 만들기</h3>
+<p>관리자가 ITSM 연동을 켜 두었다면 일정 추가 창 맨 위에 <code>SR 번호</code> 칸이 있습니다.</p>
+<ul>
+<li>SR 번호(예: <code>SR2609-00001</code>)를 입력하고 <code>제목 가져오기</code> 를 누르거나 Enter를 칩니다.</li>
+<li>ITSM에서 가져온 제목이 업무명에 채워집니다. 그대로 저장하거나 고쳐서 저장합니다.</li>
+<li>저장한 뒤에는 상황판의 그 줄에 SR 번호 배지가 붙고, 누르면 ITSM 화면이 새 탭에서 열립니다.</li>
+</ul>
+<p>번호 형식이 맞지 않거나 ITSM에 없는 번호면 그 자리에서 이유가 표시됩니다. 연동이 꺼져 있으면 이 칸은 보이지 않습니다.</p>
 <hr>
 <hr>
 <h2>3. 팀장 승인 및 검토 매뉴얼 (Team Leader Workflow)</h2>

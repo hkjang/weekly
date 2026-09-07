@@ -240,6 +240,15 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/keys", a.requireAuth(a.csrf(http.HandlerFunc(a.createKey))))
 	a.mux.Handle("POST /api/v1/keys/rotate", a.requireAuth(a.csrf(http.HandlerFunc(a.rotateKeys))))
 	a.mux.Handle("DELETE /api/v1/keys/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.revokeKey))))
+	// 월간 업무 상황판. The checkbox is its own route because it is the action
+	// this screen exists for; everything else about a row goes through the
+	// editor.
+	a.mux.Handle("GET /api/v1/schedule", a.requireAuth(http.HandlerFunc(a.listScheduleTasks)))
+	a.mux.Handle("POST /api/v1/schedule", a.requireAuth(a.csrf(http.HandlerFunc(a.createScheduleTask))))
+	a.mux.Handle("PUT /api/v1/schedule/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.updateScheduleTask))))
+	a.mux.Handle("POST /api/v1/schedule/{id}/done", a.requireAuth(a.csrf(http.HandlerFunc(a.setScheduleTaskDone))))
+	a.mux.Handle("DELETE /api/v1/schedule/{id}", a.requireAuth(a.csrf(http.HandlerFunc(a.deleteScheduleTask))))
+	a.mux.Handle("GET /api/v1/itsm/lookup", a.requireAuth(http.HandlerFunc(a.itsmLookup)))
 	a.mux.Handle("GET /api/v1/me/mail", a.requireAuth(http.HandlerFunc(a.myMailSettings)))
 	a.mux.Handle("PUT /api/v1/me/mail", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyMailSettings))))
 	a.mux.Handle("POST /api/v1/me/mail/test", a.requireAuth(a.csrf(http.HandlerFunc(a.testMyReportMail))))
@@ -256,6 +265,7 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/admin/settings/ai/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testAI))))
 	a.mux.Handle("POST /api/v1/admin/settings/confluence/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testConfluence))))
 	a.mux.Handle("POST /api/v1/admin/settings/mail/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.testMail))))
+	a.mux.Handle("POST /api/v1/admin/settings/itsm/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.adminITSMTest))))
 	a.mux.Handle("DELETE /api/v1/admin/settings/{key}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.clearSecretSetting))))
 	a.mux.Handle("GET /api/v1/admin/mail/health", a.requireRole("ADMIN")(http.HandlerFunc(a.adminMailHealth)))
 	a.mux.Handle("GET /api/v1/admin/users", a.requireRole("ADMIN")(http.HandlerFunc(a.adminUsers)))

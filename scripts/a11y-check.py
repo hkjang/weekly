@@ -33,7 +33,7 @@ import json
 import subprocess
 import sys
 
-PAGES = ["dashboard", "current", "history", "work", "rollup", "meeting", "digest",
+PAGES = ["dashboard", "current", "history", "work", "schedule", "rollup", "meeting", "digest",
          "insights", "handover", "import", "team", "analytics", "profile", "admin"]
 
 def parse_args():
