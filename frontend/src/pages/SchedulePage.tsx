@@ -3,7 +3,7 @@ import { api, del, errorText, post, put } from '../api'
 import { Button, Card, Empty, Modal, PageHeader } from '../components'
 import { todayLocal } from '../localdate'
 import {
-  addDays, byAssignee, doneRatio, gridRange, monthGrid, monthLabel, monthStart,
+  addDays, boardAfterFailure, byAssignee, doneRatio, gridRange, monthGrid, monthLabel, monthStart,
   priorityLabels, priorityOrder, shiftMonths, taskState, tasksOnDay, weekDays, weekdayNames,
 } from '../scheduleGrid'
 import type {
@@ -75,7 +75,9 @@ export default function SchedulePage({ session, notify }: {
     } catch (error) {
       // An empty board and a board that failed to load look identical, and the
       // difference is whether the department has nothing planned or cannot see
-      // what it planned.
+      // what it planned. Whatever is on the screen is kept only while it is
+      // still an answer to the question on the screen — see boardAfterFailure.
+      setBoard(current => boardAfterFailure(current, range.from, range.to, scope))
       setFailed(errorText(error, '업무 일정을 불러오지 못했습니다.'))
     }
   }, [range.from, range.to, scope])
@@ -218,7 +220,11 @@ export default function SchedulePage({ session, notify }: {
 
       {failed && <div className="edit-notice" role="alert">{failed}</div>}
 
-      {view === 'month' && <div className="month-grid">
+      {/* Every view below is drawn only from a board that was read. A grid of
+          empty squares, seven columns of "일정 없음" and "등록된 업무 일정이
+          없습니다" all say the same thing about a department, and none of them
+          is true of a read that failed. */}
+      {board && view === 'month' && <div className="month-grid">
         {weekdayNames.map((name, index) => <div key={name}
           className={`month-head${index === 0 ? ' sunday' : index === 6 ? ' saturday' : ''}`}>{name}</div>)}
         {weeks.flat().map(day => {
@@ -238,7 +244,7 @@ export default function SchedulePage({ session, notify }: {
         })}
       </div>}
 
-      {view === 'week' && <div className="board-week">
+      {board && view === 'week' && <div className="board-week">
         {weekDays(anchor).map(day => <div key={day}
           className={`board-day${day === today ? ' is-today' : ''}`}>
           <div className="board-day-head">
@@ -254,7 +260,7 @@ export default function SchedulePage({ session, notify }: {
         </div>)}
       </div>}
 
-      {view === 'list' && (tasks.length ? <div className="table-wrap board-list">
+      {board && view === 'list' && (tasks.length ? <div className="table-wrap board-list">
         <table><thead><tr><th>기간</th><th>중요도</th><th>업무</th><th>담당자</th><th>비고</th><th>완료</th></tr></thead>
           <tbody>{[...tasks].sort((left, right) => left.startDate < right.startDate ? -1 : left.startDate > right.startDate ? 1 : 0)
             .map(task => <tr key={task.id} className={`state-${taskState(task, today)}`}>
@@ -270,7 +276,7 @@ export default function SchedulePage({ session, notify }: {
             </tr>)}</tbody></table>
       </div> : <Empty>이 기간에 등록된 업무 일정이 없습니다.</Empty>)}
 
-      {view === 'people' && (tasks.length ? <div className="people-lanes">
+      {board && view === 'people' && (tasks.length ? <div className="people-lanes">
         {byAssignee(tasks, session.user.id).map(lane => <div key={lane.userId} className="people-lane">
           <div className="people-head">
             <strong>{lane.name}</strong>
