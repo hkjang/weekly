@@ -21,6 +21,7 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
   const [mail, setMail] = useState<MailPreference>()
   const [mailAddress, setMailAddress] = useState('')
   const [mailOn, setMailOn] = useState(false)
+  const [mailDeadline, setMailDeadline] = useState(false)
   const [mailTesting, setMailTesting] = useState(false)
   const [weekly, setWeekly] = useState<WeeklyPreference>()
   const [autoClonePrevious, setAutoClonePrevious] = useState(false)
@@ -28,12 +29,15 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
   const [reminderWeekday, setReminderWeekday] = useState<WeekdayName>('FRIDAY')
   const loadMail = () => api<MailPreference>('/api/v1/me/mail').then(value => {
     setMail(value); setMailAddress(value.address); setMailOn(value.onSubmit)
+    setMailDeadline(value.scheduleReminder)
   })
   const saveMail = async () => {
     try {
-      await put('/api/v1/me/mail', { address: mailAddress.trim(), onSubmit: mailOn })
+      await put('/api/v1/me/mail', {
+        address: mailAddress.trim(), onSubmit: mailOn, scheduleReminder: mailDeadline,
+      })
       await loadMail()
-      notify(mailOn ? '주간보고를 제출하면 이 주소로 발송합니다.' : '메일 발송을 껐습니다.')
+      notify(mailOn || mailDeadline ? '이 주소로 발송합니다.' : '메일 발송을 껐습니다.')
     } catch (error) { notify(errorText(error, '메일 발송 설정을 저장할 수 없습니다.'), 'error') }
   }
   // A writer who set this up wrong used to find out by not receiving anything a
@@ -106,6 +110,10 @@ export default function ProfilePage({ session, notify, refreshSession }: { sessi
           onChange={e => setMailAddress(e.target.value)}/></label>
         <label className="toggle-row"><span>제출할 때 보내기</span>
           <input type="checkbox" checked={mailOn} onChange={e => setMailOn(e.target.checked)}/></label>
+        {/* The board's own reminder shares this address. Two switches, one
+            place to type where the mail goes. */}
+        <label className="toggle-row"><span><strong>마감 임박 알림 받기</strong><small>업무 상황판에서 내가 담당인 일정 중 <b>마감 5일 전부터</b> 남은 일수별로 묶어 하루 한 번 보냅니다. 시작일과는 무관하며, 체크한 일정은 빠집니다.</small></span>
+          <input type="checkbox" checked={mailDeadline} onChange={e => setMailDeadline(e.target.checked)}/></label>
         <Button onClick={saveMail}>저장</Button>
         <Button variant="secondary" onClick={testMail} disabled={mailTesting}>{mailTesting ? '보내는 중…' : '시험 발송'}</Button>
       </div>

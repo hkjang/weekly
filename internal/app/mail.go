@@ -625,7 +625,8 @@ func (a *App) mailWorker(ctx context.Context) {
 		for {
 			reportMore := a.sendNextQueuedMail(ctx)
 			reminderMore := a.sendNextQueuedReminder(ctx)
-			if !reportMore && !reminderMore {
+			deadlineMore := a.sendNextQueuedScheduleReminder(ctx)
+			if !reportMore && !reminderMore && !deadlineMore {
 				break
 			}
 		}
@@ -790,10 +791,13 @@ type mailPreferenceView struct {
 	// writer who turns this on and never receives anything is owed the reason,
 	// and "the administrator has not set up a mail server" is not something the
 	// screen could otherwise know.
-	RelayReady bool               `json:"relayReady"`
-	Address    string             `json:"address"`
-	OnSubmit   bool               `json:"onSubmit"`
-	Deliveries []mailDeliveryView `json:"deliveries"`
+	RelayReady bool   `json:"relayReady"`
+	Address    string `json:"address"`
+	OnSubmit   bool   `json:"onSubmit"`
+	// ScheduleReminder is the 업무 상황판 deadline digest: one mail a day listing
+	// this person's own open lines due within five days. Off until asked for.
+	ScheduleReminder bool               `json:"scheduleReminder"`
+	Deliveries       []mailDeliveryView `json:"deliveries"`
 }
 
 type mailDeliveryView struct {
@@ -822,8 +826,8 @@ func (a *App) myMailSettings(w http.ResponseWriter, r *http.Request) {
 	view.RelayReady = err == nil && settings.unusable() == ""
 
 	if err := a.db.QueryRow(r.Context(),
-		`SELECT address, on_submit FROM user_mail_settings WHERE user_id=$1`, p.ID).
-		Scan(&view.Address, &view.OnSubmit); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		`SELECT address, on_submit, schedule_reminder FROM user_mail_settings WHERE user_id=$1`, p.ID).
+		Scan(&view.Address, &view.OnSubmit, &view.ScheduleReminder); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		a.logger.Error("read mail preference", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 설정을 읽을 수 없습니다.")
 		return
@@ -858,8 +862,9 @@ func (a *App) myMailSettings(w http.ResponseWriter, r *http.Request) {
 func (a *App) updateMyMailSettings(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	var input struct {
-		Address  string `json:"address"`
-		OnSubmit bool   `json:"onSubmit"`
+		Address          string `json:"address"`
+		OnSubmit         bool   `json:"onSubmit"`
+		ScheduleReminder bool   `json:"scheduleReminder"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -876,17 +881,26 @@ func (a *App) updateMyMailSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED", "발송을 켜려면 받을 주소를 먼저 입력하세요.")
 		return
 	}
+	// Same rule for the deadline digest, and for the same reason: a switch that
+	// is on and delivers nothing is worse than one that is off.
+	if input.ScheduleReminder && input.Address == "" {
+		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED", "마감 임박 알림을 켜려면 받을 주소를 먼저 입력하세요.")
+		return
+	}
 	if _, err := a.db.Exec(r.Context(), `
-		INSERT INTO user_mail_settings(user_id, address, on_submit, updated_at)
-		VALUES($1, $2, $3, now())
-		ON CONFLICT (user_id) DO UPDATE SET address=EXCLUDED.address, on_submit=EXCLUDED.on_submit, updated_at=now()`,
-		p.ID, input.Address, input.OnSubmit); err != nil {
+		INSERT INTO user_mail_settings(user_id, address, on_submit, schedule_reminder, updated_at)
+		VALUES($1, $2, $3, $4, now())
+		ON CONFLICT (user_id) DO UPDATE SET address=EXCLUDED.address, on_submit=EXCLUDED.on_submit,
+			schedule_reminder=EXCLUDED.schedule_reminder, updated_at=now()`,
+		p.ID, input.Address, input.OnSubmit, input.ScheduleReminder); err != nil {
 		a.logger.Error("save mail preference", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "메일 발송 설정을 저장할 수 없습니다.")
 		return
 	}
-	a.audit(r, p, "mail.preference", "user", fmt.Sprint(p.ID), map[string]any{"onSubmit": input.OnSubmit})
-	writeData(w, http.StatusOK, map[string]any{"address": input.Address, "onSubmit": input.OnSubmit})
+	a.audit(r, p, "mail.preference", "user", fmt.Sprint(p.ID), map[string]any{
+		"onSubmit": input.OnSubmit, "scheduleReminder": input.ScheduleReminder})
+	writeData(w, http.StatusOK, map[string]any{"address": input.Address,
+		"onSubmit": input.OnSubmit, "scheduleReminder": input.ScheduleReminder})
 }
 
 // mailRecipientFor is where this person receives.

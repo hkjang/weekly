@@ -226,6 +226,12 @@ func (a *App) runWeeklyAutomations(ctx context.Context, now time.Time) {
 	if err := a.queueDueTeamReminders(ctx, localNow, week); err != nil {
 		a.logger.Error("queue team report reminders", "error", err, "week", week.Format("2006-01-02"))
 	}
+	// The board's own reminder rides the same tick. It is a daily digest rather
+	// than a weekly one, and it belongs here for the same reason: this is the
+	// loop that already knows what time it is where the service lives.
+	if err := a.queueDueScheduleReminders(ctx, localNow); err != nil {
+		a.logger.Error("queue schedule deadline reminders", "error", err)
+	}
 }
 
 func (a *App) runAutomaticClones(ctx context.Context, week time.Time) error {

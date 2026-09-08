@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="USER_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 사용자 가이드 (User Guide &amp; Employee Manual)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.291.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.293.0</div><div class="meta-item"><strong>대상</strong>: 임직원 작성자, 팀장(검토/승인자), 조직 관리자, AI MCP 클라이언트 사용자</div><div class="meta-item"><strong>문서 개요</strong>: 주간업무보고 작성·자동 복제, 선택 팀원 자료, 팀 작성 권고, Keycloak 로그인, 승인·반려, PPTX 내보내기와 API·Streamable MCP 활용 매뉴얼</div></div></div>
 <h2>1. 개요</h2>
 <p>Weekly 서비스는 개인 업무 작성부터 팀 승인, PPTX 자동 내보내기까지 단일 화면에서 직관적으로 사용할 수 있는 주간보고 시스템입니다.</p>
 <h3>1.1 Keycloak 기존 세션으로 로그인</h3>
@@ -161,6 +161,15 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <p><code>전체화면</code> 버튼은 사무실 벽 화면용입니다. 글자와 칸이 커지고, <strong>전체화면일 때만 60초마다 스스로 다시 읽습니다</strong>. <code>Esc</code> 로 빠져나옵니다.</p>
 <p><strong>여러 날에 걸친 일정</strong></p>
 <p>시작일과 종료일을 다르게 주면 걸친 모든 날짜 칸에 나옵니다. 8월에 시작해 9월에 끝나는 일은 8월 상황판과 9월 상황판에 모두 나옵니다.</p>
+<h3>2.8-1 마감 임박 알림 받기</h3>
+<p><code>개인 설정 → 주간보고 메일 발송</code>의 <code>마감 임박 알림 받기</code>를 켜면, 상황판에서 <strong>내가 담당인 미완료 일정</strong> 중 마감이 5일 안으로 다가온 것을 하루 한 번 메일로 받습니다. 기본은 꺼져 있고, 받을 주소는 주간보고 메일과 같은 주소를 씁니다(주소가 없으면 켜지지 않습니다).</p>
+<ul>
+<li>남은 일수별로 묶여 옵니다: <code>[D-1 · 2026-10-06 마감] 2건</code>, <code>[D-2 …] 1건</code> 처럼 급한 것부터입니다.</li>
+<li><strong>시작일과는 무관합니다.</strong> 아직 시작하지 않은 일도 마감이 가까우면 들어옵니다.</li>
+<li><strong>오늘 마감과 이미 지난 일은 들어오지 않습니다.</strong> 그것은 경고가 아니라 사후 통지이고, 상황판에서 빨간색으로 이미 보입니다.</li>
+<li>상황판에서 <strong>체크한 일정은 다음 알림에서 빠집니다.</strong> 보낼 것이 하나도 없는 날은 메일이 오지 않습니다.</li>
+<li>서비스 시간대 오전 9시 이후에 하루 한 통만 갑니다. 관리자가 메일 서버를 설정하지 않았다면 설정이 끝난 다음 날부터 시작합니다.</li>
+</ul>
 <h3>2.9 ITSM SR 번호로 일정 만들기</h3>
 <p>관리자가 ITSM 연동을 켜 두었다면 일정 추가 창 맨 위에 <code>SR 번호</code> 칸이 있습니다.</p>
 <ul>

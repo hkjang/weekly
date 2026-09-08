@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 관리자 가이드 (Admin & Operational Guide)
 
-- **문서 버전**: v0.292.0
+- **문서 버전**: v0.293.0
 - **대상**: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자
 - **문서 개요**: Weekly 부트스트랩, Keycloak OIDC 자동 SSO, RBAC, 개인 주간보고 자동화·선택 팀원 자료·SMTP, PPTX 템플릿과 감사 로그 운영
 
@@ -174,6 +174,14 @@ Confluence 본문은 PostgreSQL이나 로그에 저장되지 않습니다. 규�
 일정에는 **SR 번호만** 저장하고 링크는 읽을 때마다 현재 `itsm.link_url`로 다시 만듭니다. 포털이 이사하면 설정 한 줄로 기존 일정의 링크가 모두 따라갑니다.
 
 안전 장치: SR 번호는 주소에 넣기 전에 `itsm.id_pattern`으로 검사하고 URL 인코딩합니다. 주소는 http·https만 허용하며, 응답은 1MB까지만 읽습니다. 조회는 서버가 수행하므로 사내 ITSM이 브라우저에서 닿지 않아도 되고 토큰이 브라우저로 나가지 않습니다. `POST /api/v1/admin/settings/itsm/test`(화면의 `SR 조회 시험`)는 실제 호출 주소·HTTP 상태·응답 앞부분을 함께 돌려주므로 템플릿과 JSON 경로를 맞출 때 이것부터 쓰십시오.
+
+## 7-3. 마감 임박 알림 운영
+
+사용자가 개인 설정에서 켜면(`user_mail_settings.schedule_reminder`, 기본 false) 서비스 시간대 **오전 9시 이후** 주간 자동화 Worker의 같은 틱에서 하루치 다이제스트를 큐에 넣습니다. 큐는 `schedule_reminder_deliveries`이고 `UNIQUE(user_id, reminder_on)`이 하루 한 통을 보장합니다 — Worker가 매분 돌고 서비스가 재시작·복제되어도 같은 날 두 번 나가지 않습니다. 발송은 주간보고 메일과 같은 SMTP 설정·제한시간·재시도(`mail.max_attempts`, 지수형 backoff)를 씁니다.
+
+대상은 **담당자 본인의 미완료 일정 중 종료일이 내일부터 5일 이내**인 것입니다(상수 `scheduleReminderDays = 5`, 한 통 최대 100건). 시작일은 조건에 넣지 않습니다. 오늘 마감과 지연은 넣지 않습니다.
+
+큐에 넣은 뒤 발송 직전에 수신 여부·주소·계정 활성·남은 일감을 **다시 확인**합니다. 그 사이 알림을 끄거나, 주소를 지우거나, 일을 모두 체크했다면 행을 삭제하고 아무것도 보내지 않습니다 — 보낼 내용이 없는 알림은 다음 알림까지 무시하게 만듭니다. 감사 이벤트는 설정 변경 시 `mail.preference`(`scheduleReminder` 포함)이며, 발송 실패와 최종 포기는 서버 로그(`schedule reminder retry`, `schedule reminder gave up`)에 남습니다.
 
 ## 8. 선택 팀원 주간보고 자료 운영
 

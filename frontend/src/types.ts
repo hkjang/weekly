@@ -363,7 +363,7 @@ export interface EncryptionStatus { keySource: string; storedSecrets: number; re
  * otherwise know.
  */
 export interface MailDelivery { id: number; weekStart: string; address: string; status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; error: string; createdAt: string; sentAt: string | null; nextAttemptAt: string | null }
-export interface MailPreference { relayReady: boolean; address: string; onSubmit: boolean; deliveries: MailDelivery[] }
+export interface MailPreference { relayReady: boolean; address: string; onSubmit: boolean; scheduleReminder: boolean; deliveries: MailDelivery[] }
 export type WeekdayName = 'SUNDAY' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY'
 export interface WeeklyPreference {
   autoClonePrevious: boolean; reminderAvailable: boolean; reminderEnabled: boolean

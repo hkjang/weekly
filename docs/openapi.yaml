@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.292.0
+  version: 0.293.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1519,6 +1519,9 @@ paths:
                       relayReady: { type: boolean }
                       address: { type: string }
                       onSubmit: { type: boolean }
+                      scheduleReminder:
+                        type: boolean
+                        description: 업무 상황판 마감 임박 알림 수신 여부. 담당인 미완료 일정 중 마감이 5일 안으로 남은 것을 하루 한 번 남은 일수별로 묶어 보낸다.
                       deliveries:
                         type: array
                         items:
@@ -1540,9 +1543,15 @@ paths:
     put:
       summary: 주간보고 메일 발송 설정 저장
       description: |
-        `address`는 표시 이름이나 목록이 아닌 주소 하나여야 한다. `onSubmit`을 켜면서
-        주소를 비우는 것은 거부한다 — 설정된 것처럼 보이면서 아무것도 보내지 않는 유일한
-        조합이기 때문이다.
+        `address`는 표시 이름이나 목록이 아닌 주소 하나여야 한다. `onSubmit`이나
+        `scheduleReminder`를 켜면서 주소를 비우는 것은 거부한다 — 설정된 것처럼 보이면서
+        아무것도 보내지 않는 유일한 조합이기 때문이다.
+
+        `scheduleReminder`는 업무 상황판의 **마감 임박 알림**이다. 서비스 시간대 오전 9시
+        이후, 담당인 **미완료** 일정 중 마감이 내일부터 5일 안인 것을 남은 일수별로 묶어
+        하루 한 통 보낸다. 시작일은 보지 않는다 — 아직 시작하지 않았는데 금요일이 마감인
+        일이야말로 이 알림이 있는 이유다. 오늘 마감과 이미 지난 것은 넣지 않는다: 경고는
+        닥치기 전에 와야 하고, 상황판 자신이 이미 빨간색으로 보여 준다.
       requestBody:
         required: true
         content:
@@ -1552,6 +1561,7 @@ paths:
               properties:
                 address: { type: string }
                 onSubmit: { type: boolean }
+                scheduleReminder: { type: boolean }
       responses:
         "200": { description: OK }
         "400": { $ref: "#/components/responses/Error" }
