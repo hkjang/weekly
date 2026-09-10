@@ -133,7 +133,7 @@ func (a *App) mcpTools(p *principal) []map[string]any {
 				"한 번에 최대 100건을 반환하고 조건에 맞는 전체 건수를 total로 함께 알려 줍니다. " +
 				"total이 반환 건수보다 크면 offset을 옮겨 나머지를 가져오세요.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
-				"weekStart": map[string]any{"type": "string", "format": "date"},
+				"weekStart": map[string]any{"type": "string", "format": "date", "description": "YYYY-MM-DD 주차 시작일. 그 날짜부터 7일을 덮는 보고서를 찾는다"},
 				"status":    map[string]any{"type": "string", "enum": []string{"DRAFT", "SUBMITTED", "REVISION_REQUESTED", "APPROVED", "CLOSED"}},
 				"limit":     map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "default": 100, "description": "한 번에 가져올 건수"},
 				"offset":    map[string]any{"type": "integer", "minimum": 0, "default": 0, "description": "건너뛸 건수"},
@@ -521,7 +521,13 @@ func (a *App) mcpSearchReports(r *http.Request, p *principal, week, status strin
 	}
 	if week != "" {
 		args = append(args, week)
-		where += " AND r.week_start=$" + asString(len(args))
+		// The seven days beginning on that date, not the date itself. A report
+		// covers a week from its own week_start, so after the grid moves the
+		// report covering the week an agent names carries a different date and an
+		// exact match answers with nothing. weekly_submission_overview counts the
+		// same week by overlap, which is how the two tools of one toolset came to
+		// disagree inside a single answer: 제출 1명, and no reports to show for it.
+		where += " AND " + weekCoveringDays("r", len(args))
 	}
 	if status != "" {
 		args = append(args, status)

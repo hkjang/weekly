@@ -311,6 +311,88 @@ func TestAnalyticsOverviewCountsTheReportsCoveringTheseDaysAfterTheGridMoves(t *
 	}
 }
 
+// The same transition week asked through MCP, by a caller with no screen to
+// notice the answer is impossible.
+//
+// weekly_submission_overview has counted the reports covering a week since the
+// analytics fix above. weekly_reports_search still matched week_start exactly,
+// so an agent told "이 주에 1명이 제출했습니다" and then asked for that week's
+// reports was handed an empty list — two tools of one toolset contradicting each
+// other inside a single answer, with nothing in either payload to say which one
+// is wrong. The likeliest repair a model attempts, filing the missing report, is
+// the one thing weekIsFree refuses.
+//
+// guards: mcpSearchReports, weekCoveringDays
+func TestMCPSearchFindsTheReportsCoveringTheseDaysAfterTheGridMoves(t *testing.T) {
+	server := newTestServer(t)
+	org := server.createOrganization("격자 MCP 본부", "GRIDMCP")
+	leader := server.createUser("gridmcp_leader", "TEAM_LEADER", &org)
+	member := server.createUser("gridmcp_member", "USER", &org)
+
+	location := server.app.serviceLocation(server.ctx())
+	moved := currentWeekStart(time.Now().In(location), "WEDNESDAY")
+	previousGrid := moved.AddDate(0, 0, -2).Format("2006-01-02")
+	server.submitted(member, previousGrid, "옛 격자에서 낸 보고")
+
+	server.setWeekStart("WEDNESDAY")
+
+	week := moved.Format("2006-01-02")
+	reply := mcpCall(t, server, leader, "tools/call", map[string]any{
+		"name": "weekly_submission_overview", "arguments": map[string]any{"weekStart": week},
+	})
+	if reply.Result.IsError || len(reply.Result.Content) == 0 {
+		t.Fatalf("submission overview failed: %+v", reply)
+	}
+	var overview struct {
+		SubmittedUsers int `json:"submittedUsers"`
+	}
+	if err := json.Unmarshal([]byte(reply.Result.Content[0].Text), &overview); err != nil {
+		t.Fatal(err)
+	}
+	if overview.SubmittedUsers != 1 {
+		t.Fatalf("제출 %d명, want the member who reported for those days: %s",
+			overview.SubmittedUsers, reply.Result.Content[0].Text)
+	}
+
+	search := func(weekStart string) (summaries []string, total int) {
+		s := mcpCall(t, server, leader, "tools/call", map[string]any{
+			"name": "weekly_reports_search", "arguments": map[string]any{"weekStart": weekStart, "limit": 100},
+		})
+		if s.Result.IsError || len(s.Result.Content) == 0 {
+			t.Fatalf("search %s failed: %+v", weekStart, s)
+		}
+		var payload struct {
+			Reports []struct {
+				Summary string `json:"summary"`
+			} `json:"reports"`
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal([]byte(s.Result.Content[0].Text), &payload); err != nil {
+			t.Fatalf("decode %s: %v", s.Result.Content[0].Text, err)
+		}
+		for _, report := range payload.Reports {
+			summaries = append(summaries, report.Summary)
+		}
+		return summaries, payload.Total
+	}
+
+	summaries, total := search(week)
+	if len(summaries) != 1 || summaries[0] != "옛 격자에서 낸 보고" {
+		t.Fatalf("이 주의 보고 %v, want the one the overview counted", summaries)
+	}
+	// total is what tells the caller whether to page, so it has to answer the
+	// same question the list did rather than the one the filter used to ask.
+	if total != 1 {
+		t.Errorf("total %d, want the one report covering these days", total)
+	}
+
+	// Widening the question to the seven days must not widen it to "any report":
+	// the week after the transition is one nobody wrote in.
+	if quiet, quietTotal := search(moved.AddDate(0, 0, 7).Format("2006-01-02")); len(quiet) != 0 || quietTotal != 0 {
+		t.Errorf("아무도 쓰지 않은 주에서 %v (total %d) 를 찾았습니다", quiet, quietTotal)
+	}
+}
+
 // 관리자 참여 분석, where the same exact date is asked of every week at once
 // rather than of one, so moving the grid does not misreport a week — it
 // misreports the history.

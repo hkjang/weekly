@@ -148,7 +148,7 @@ func TestMCPSearchReturnsOnlyTheCallersOwnOrganisation(t *testing.T) {
 	// A search that quietly reaches past the caller's organisation is the same
 	// leak as the screens would be, through a door nothing was watching.
 	reply := mcpCall(t, server, leader, "tools/call", map[string]any{
-		"name": "weekly_reports_search", "arguments": map[string]any{"week": "2026-03-02", "limit": 100},
+		"name": "weekly_reports_search", "arguments": map[string]any{"weekStart": "2026-03-02", "limit": 100},
 	})
 	if reply.Result.IsError || len(reply.Result.Content) == 0 {
 		t.Fatalf("search failed: %+v", reply)
