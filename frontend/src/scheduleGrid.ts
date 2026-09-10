@@ -170,6 +170,66 @@ export function boardAfterFailure(
   return board.from === from && board.to === to && board.scope === scope ? board : undefined
 }
 
+/**
+ * 편집 창이 들고 있는 한 줄.
+ *
+ * 저장은 PUT 이고 PUT 은 줄 전체를 보낸 것으로 갈아 끼웁니다 — 그래서 창이 들고
+ * 있지 않은 것은 저장하는 순간 사라집니다. 화면에 아무 데도 그려지지 않는
+ * workItemId 가 여기 있는 이유가 그것입니다: 업무 추적으로 이어지는 링크는
+ * 상황판의 어느 보기에도 나타나지 않으므로, 제목의 오타 하나를 고치는 사람은
+ * 그런 것이 있다는 사실조차 모르는 채로 계획과 그 계획이 가리키던 업무를
+ * 끊게 됩니다. 창이 값을 들고 다니면 고치지 않은 것은 고쳐지지 않습니다.
+ */
+export interface ScheduleDraft {
+  id: number; title: string; category: string
+  startDate: string; endDate: string
+  priority: SchedulePriority; assigneeId: number; srId: string; note: string
+  workItemId?: number
+}
+
+/** 그 날짜에 새로 쓰는 빈 줄. */
+export function emptyDraft(day: string): ScheduleDraft {
+  return {
+    id: 0, title: '', category: '', startDate: day, endDate: day,
+    priority: 'NORMAL', assigneeId: 0, srId: '', note: '',
+  }
+}
+
+/** 판에 있는 줄을 편집 창이 들 수 있는 모양으로 — 보이지 않는 것까지 그대로. */
+export function draftOf(task: ScheduleTask): ScheduleDraft {
+  return {
+    id: task.id, title: task.title, category: task.category,
+    startDate: task.startDate, endDate: task.endDate, priority: task.priority,
+    assigneeId: task.userId, srId: task.srId ?? '', note: task.note ?? '',
+    workItemId: task.workItemId,
+  }
+}
+
+/** 저장이 보내는 것. 창이 든 것을 전부 보냅니다 — 빠뜨린 것은 지워집니다. */
+export function scheduleBody(draft: ScheduleDraft) {
+  return {
+    title: draft.title.trim(), category: draft.category.trim(),
+    startDate: draft.startDate, endDate: draft.endDate || draft.startDate,
+    priority: draft.priority, note: draft.note.trim(),
+    srId: draft.srId.trim(), assigneeId: draft.assigneeId || undefined,
+    workItemId: draft.workItemId,
+  }
+}
+
+/**
+ * 담당자를 바꾸면 업무 링크는 함께 내려놓습니다.
+ *
+ * 한 줄의 링크는 담당자 본인의 업무만 가리킬 수 있습니다 — 상황판과 업무
+ * 추적이 같은 일을 말하게 하려고 서버가 그렇게 거절합니다. 그러므로 일을 다른
+ * 사람에게 넘기면서 링크를 함께 보내는 것은 저장 자체가 실패하는 길이고, 그
+ * 실패는 화면에 보이지도 않는 값 때문에 일어납니다. 넘길 때 링크를 놓는 쪽이
+ * 남은 하나입니다.
+ */
+export function withAssignee(draft: ScheduleDraft, assigneeId: number): ScheduleDraft {
+  if (assigneeId === draft.assigneeId) return draft
+  return { ...draft, assigneeId, workItemId: undefined }
+}
+
 /** How many of a set are finished, for the progress strip. */
 export function doneRatio(tasks: ScheduleTask[]): number {
   if (tasks.length === 0) return 0

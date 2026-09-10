@@ -3,9 +3,11 @@ import { api, del, errorText, post, put } from '../api'
 import { Button, Card, Empty, Modal, PageHeader } from '../components'
 import { todayLocal } from '../localdate'
 import {
-  addDays, boardAfterFailure, byAssignee, doneRatio, gridRange, monthGrid, monthLabel, monthStart,
-  priorityLabels, priorityOrder, shiftMonths, taskState, tasksOnDay, weekDays, weekdayNames,
+  addDays, boardAfterFailure, byAssignee, doneRatio, draftOf, emptyDraft, gridRange, monthGrid,
+  monthLabel, monthStart, priorityLabels, priorityOrder, scheduleBody, shiftMonths, taskState,
+  tasksOnDay, weekDays, weekdayNames, withAssignee,
 } from '../scheduleGrid'
+import type { ScheduleDraft } from '../scheduleGrid'
 import type {
   ITSMLookup, ReportInclusionPreference, ScheduleBoard, SchedulePriority, ScheduleTask, SessionInfo,
 } from '../types'
@@ -30,17 +32,6 @@ const views: { id: ViewName; label: string }[] = [
   { id: 'list', label: '목록' }, { id: 'people', label: '담당자' },
 ]
 
-const emptyDraft = (day: string): Draft => ({
-  id: 0, title: '', category: '', startDate: day, endDate: day,
-  priority: 'NORMAL', assigneeId: 0, srId: '', note: '',
-})
-
-interface Draft {
-  id: number; title: string; category: string
-  startDate: string; endDate: string
-  priority: SchedulePriority; assigneeId: number; srId: string; note: string
-}
-
 export default function SchedulePage({ session, notify }: {
   session: SessionInfo
   notify: (message: string, kind?: 'success' | 'error') => void
@@ -51,7 +42,7 @@ export default function SchedulePage({ session, notify }: {
   const [hideDone, setHideDone] = useState(false)
   const [board, setBoard] = useState<ScheduleBoard>()
   const [failed, setFailed] = useState('')
-  const [draft, setDraft] = useState<Draft>()
+  const [draft, setDraft] = useState<ScheduleDraft>()
   const [members, setMembers] = useState<{ id: number; displayName: string; organizationName: string }[]>([])
   const [fullscreen, setFullscreen] = useState(false)
   const boardRef = useRef<HTMLDivElement>(null)
@@ -136,13 +127,10 @@ export default function SchedulePage({ session, notify }: {
     }
   }
 
-  const save = async (value: Draft) => {
-    const body = {
-      title: value.title.trim(), category: value.category.trim(),
-      startDate: value.startDate, endDate: value.endDate || value.startDate,
-      priority: value.priority, note: value.note.trim(),
-      srId: value.srId.trim(), assigneeId: value.assigneeId || undefined,
-    }
+  const save = async (value: ScheduleDraft) => {
+    // 수정은 줄 전체를 갈아 끼웁니다 — 보내지 않은 것은 지워지므로 창이 든 것을
+    // 전부 보냅니다. scheduleBody 를 참조하십시오.
+    const body = scheduleBody(value)
     try {
       if (value.id) await put(`/api/v1/schedule/${value.id}`, body)
       else await post('/api/v1/schedule', body)
@@ -152,7 +140,7 @@ export default function SchedulePage({ session, notify }: {
     } catch (error) { notify(errorText(error, '일정을 저장하지 못했습니다.'), 'error') }
   }
 
-  const remove = async (value: Draft) => {
+  const remove = async (value: ScheduleDraft) => {
     if (!confirm('이 일정을 삭제하시겠습니까?')) return
     try {
       await del(`/api/v1/schedule/${value.id}`)
@@ -165,11 +153,7 @@ export default function SchedulePage({ session, notify }: {
   const openDay = (day: string) => setDraft(emptyDraft(day))
   const openTask = (task: ScheduleTask) => {
     if (!task.canEdit) return
-    setDraft({
-      id: task.id, title: task.title, category: task.category,
-      startDate: task.startDate, endDate: task.endDate, priority: task.priority,
-      assigneeId: task.userId, srId: task.srId ?? '', note: task.note ?? '',
-    })
+    setDraft(draftOf(task))
   }
 
   const step = (direction: number) =>
@@ -337,13 +321,13 @@ function SRLink({ task, short }: { task: ScheduleTask; short?: boolean }) {
 }
 
 function ScheduleDialog({ draft, members, session, onChange, onClose, onSave, onDelete, notify }: {
-  draft: Draft
+  draft: ScheduleDraft
   members: { id: number; displayName: string; organizationName: string }[]
   session: SessionInfo
-  onChange: (draft: Draft) => void
+  onChange: (draft: ScheduleDraft) => void
   onClose: () => void
-  onSave: (draft: Draft) => void
-  onDelete: (draft: Draft) => void
+  onSave: (draft: ScheduleDraft) => void
+  onDelete: (draft: ScheduleDraft) => void
   notify: (message: string, kind?: 'success' | 'error') => void
 }) {
   const [looking, setLooking] = useState(false)
@@ -408,7 +392,7 @@ function ScheduleDialog({ draft, members, session, onChange, onClose, onSave, on
       <label>구분<input value={draft.category} placeholder="감사 · 회의 · 배포"
         onChange={event => onChange({ ...draft, category: event.target.value })}/></label>
       {members.length > 0 && <label className="wide">담당자<select value={draft.assigneeId || session.user.id}
-        onChange={event => onChange({ ...draft, assigneeId: Number(event.target.value) })}>
+        onChange={event => onChange(withAssignee(draft, Number(event.target.value)))}>
         <option value={session.user.id}>{session.user.displayName} (본인)</option>
         {members.map(member => <option key={member.id} value={member.id}>
           {member.displayName}{member.organizationName ? ` · ${member.organizationName}` : ''}</option>)}
