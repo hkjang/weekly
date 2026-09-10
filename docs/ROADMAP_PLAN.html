@@ -51,7 +51,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.294.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.295.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4208,6 +4208,15 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p>시험 7개를 더했습니다 — 순수 함수 4개(<code>scheduleGrid.test.ts</code>)와 화면 3개(<code>SchedulePage.test.tsx</code>). 고치기 전 코드에서 새 화면 시험이 <code>month-cell</code> 42칸을 그리며 실패하는 것을 먼저 확인했습니다.</p>
 <p>프런트엔드 141개 시험과 <code>tsc -b</code>·프로덕션 빌드를 두 시간대(<code>Asia/Seoul</code>, <code>America/New_York</code>)에서 통과했고, 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>, 버전·OpenAPI·모달·페이징 검사를 통과했습니다.</p>
 <p>API·데이터 모델·환경변수 변경은 없습니다. 프런트엔드만 바뀝니다.</p>
+<h3>v0.295.0 — 상황판에서 제목의 오타를 고쳐도 업무 링크가 끊기지 않습니다</h3>
+<p>상황판의 수정은 <code>PUT</code> 이고 <code>PUT</code> 은 줄 전체를 보낸 것으로 갈아 끼웁니다. 편집 창은 읽어 온 줄에서 <code>workItemId</code> 를 담지 않았고 저장도 보내지 않았으므로, 제목의 오타 하나를 고치면 그 줄이 가리키던 업무가 사라졌습니다. 링크는 상황판의 어느 보기에도 그려지지 않아 고치는 사람에게는 그런 것이 있었다는 단서조차 없고, 판은 고치기 전과 똑같이 보입니다 — 끊긴 것은 한참 뒤 업무 추적 쪽에서 발견됩니다.</p>
+<p><strong>창이 값을 들고 다닙니다</strong></p>
+<p>편집 창이 드는 줄(<code>ScheduleDraft</code>)이 <code>workItemId</code> 를 들게 해서 고치지 않은 것은 고쳐지지 않게 했습니다. 담당자를 바꿀 때만 링크를 함께 내려놓습니다: 한 줄의 링크는 담당자 본인의 업무만 가리킬 수 있어 서버가 <code>WORK_ITEM_NOT_OWNED</code> 로 거절하므로, 보이지도 않는 값 때문에 저장이 통째로 실패하는 것보다 넘길 때 놓는 쪽이 남은 하나입니다. 편집 창이 드는 줄과 저장이 보내는 것(<code>scheduleBody</code>·<code>draftOf</code>·<code>withAssignee</code>)을 <code>scheduleGrid.ts</code> 의 순수 함수로 옮겨 시험이 화면을 거치지 않고 직접 물을 수 있게 했습니다.</p>
+<p><strong>시험이 하나도 없던 쓰기</strong></p>
+<p><code>updateScheduleTask</code> 는 쓰기 넷 가운데 전체 치환 계약을 가진 하나이고 담당자를 남에게 옮기는 권한 판정도 여기서만 걸리는데, 시험이 하나도 없었습니다. 두 계약을 적었습니다(<code>scheduleedit_test.go</code>): 보낸 것은 남고 보내지 않은 것은 지워진다(업무 링크 포함, 남의 업무·없는 업무는 400), 그리고 체크할 수 있는 사람이면 고쳐 쓰되 조직 범위로 재는 것은 '옮기는 것' 뿐이다 — 등록한 사람은 그 줄이 남에게 넘어간 뒤에도 고칠 수 있습니다. <code>openapi.yaml</code> 의 <code>PUT /schedule/{id}</code> 에도 전체 치환 계약을 적었습니다. 이 API 를 직접 부르는 쪽도 같은 함정을 밟기 때문입니다.</p>
+<p><strong>검증</strong></p>
+<p>프런트엔드는 이전 동작으로 되돌려 새 시험 3개가 모두 실패하는 것을 먼저 확인했고, Go 는 <code>UPDATE</code> 의 <code>input.WorkItemID</code> 를 nil 로 바꾼 변이가 시험에 잡히는 것을 확인했습니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드·OpenAPI·모달·페이징·버전 검사를 통과했고, 프런트엔드 144개 시험과 <code>tsc -b</code>·프로덕션 빌드를 두 시간대(<code>Asia/Seoul</code>, <code>America/New_York</code>)에서 통과했습니다. 변이 검사는 첫 회차에서 <code>&amp;&amp;</code>→<code>||</code> 변이 하나가 아무 시험에도 잡히지 않아 사례를 하나 더해 닫았습니다.</p>
+<p>마이그레이션도 새 환경변수도 없고 응답 모양도 그대로입니다. <code>PUT /schedule/{id}</code> 의 계약은 원래부터 전체 치환이었고 문서에만 없었습니다.</p>
 </div>
 </body>
 </html>
