@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, boardAfterFailure, byAssignee, compareTasks, doneRatio, gridRange, monthGrid,
-  monthLabel, monthStart, shiftMonths, taskState, tasksOnDay, weekDays,
+  addDays, boardAfterFailure, byAssignee, compareTasks, doneRatio, draftOf, emptyDraft, gridRange,
+  monthGrid, monthLabel, monthStart, scheduleBody, shiftMonths, taskState, tasksOnDay, weekDays,
+  withAssignee,
 } from './scheduleGrid'
 import type { ScheduleBoard, ScheduleTask } from './types'
 
@@ -115,6 +116,44 @@ describe('담당자별 보기', () => {
   it('완료율', () => {
     expect(doneRatio([])).toBe(0)
     expect(doneRatio([task({ id: 1, startDate: '2026-09-01', done: true }), task({ id: 2, startDate: '2026-09-02' })])).toBe(50)
+  })
+})
+
+/**
+ * 저장은 줄 전체를 갈아 끼우므로, 편집 창이 들지 않은 것은 저장하는 순간
+ * 사라집니다. 업무 링크는 상황판 어디에도 그려지지 않아 고치는 사람이 그것이
+ * 있다는 것조차 알 수 없으므로, 제목의 오타 하나가 계획과 업무의 연결을 조용히
+ * 끊는 자리였습니다.
+ */
+describe('편집 창이 들고 가는 것', () => {
+  const linked = task({ id: 5, startDate: '2026-09-08', endDate: '2026-09-09', userId: 7 })
+
+  it('보이지 않는 업무 링크까지 창이 들고, 저장이 그대로 보낸다', () => {
+    const draft = draftOf({ ...linked, workItemId: 42, note: '회의실 2층', srId: 'SR2609-00001' })
+    expect(draft.workItemId).toBe(42)
+    expect(scheduleBody(draft).workItemId).toBe(42)
+    // 제목만 고쳐도 나머지는 그대로 실려 갑니다.
+    expect(scheduleBody({ ...draft, title: '감사 사전 점검(정정)' })).toMatchObject({
+      title: '감사 사전 점검(정정)', endDate: '2026-09-09', workItemId: 42,
+      note: '회의실 2층', srId: 'SR2609-00001', assigneeId: 7,
+    })
+  })
+
+  it('링크가 없던 줄은 없는 채로 간다', () => {
+    expect(scheduleBody(draftOf(linked)).workItemId).toBeUndefined()
+    expect(scheduleBody(emptyDraft('2026-09-08'))).toMatchObject({
+      startDate: '2026-09-08', endDate: '2026-09-08', assigneeId: undefined, workItemId: undefined,
+    })
+  })
+
+  it('담당자를 바꾸면 업무 링크는 함께 내려놓는다', () => {
+    // 링크는 담당자 본인의 업무만 가리킬 수 있어 서버가 거절합니다 — 보이지도
+    // 않는 값 때문에 저장이 실패하는 것보다 넘길 때 놓는 쪽이 낫습니다.
+    const draft = draftOf({ ...linked, workItemId: 42 })
+    expect(withAssignee(draft, 9).workItemId).toBeUndefined()
+    expect(withAssignee(draft, 9).assigneeId).toBe(9)
+    // 같은 사람을 다시 고르는 것은 바꾼 것이 아닙니다.
+    expect(withAssignee(draft, 7).workItemId).toBe(42)
   })
 })
 
