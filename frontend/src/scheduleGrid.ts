@@ -13,7 +13,7 @@
  * yesterday.
  */
 import { localDate } from './localdate'
-import type { ScheduleTask, SchedulePriority } from './types'
+import type { ScheduleBoard, ScheduleTask, SchedulePriority } from './types'
 
 /** The four levels, most urgent first. The colours are in the stylesheet. */
 export const priorityOrder: SchedulePriority[] = ['URGENT', 'IMPORTANT', 'NEEDED', 'NORMAL']
@@ -144,6 +144,30 @@ export function byAssignee(tasks: ScheduleTask[], meId?: number): { userId: numb
       if (right.userId === meId) return 1
       return left.name.localeCompare(right.name, 'ko')
     })
+}
+
+/**
+ * What a failed read is allowed to leave on the screen.
+ *
+ * 전체화면 hangs this board on a wall and re-reads it every minute, so a minute
+ * that fails must not wipe it: the last good answer for the same window is
+ * still the department's plan, and a blank wall is worse than one that is a
+ * minute old. The banner says the read failed; the rows stay.
+ *
+ * A board for a different window is not old, it is wrong. Stepping to October
+ * and failing would draw September's rows under October's heading, and turning
+ * 부서 전체 off and failing would draw the department's rows beside a toggle
+ * that says they are the reader's own. Neither is stale data — both are the
+ * screen answering a question nobody asked. Those are dropped, and the board
+ * then draws nothing at all, because an empty month is a claim too: "이 부서는
+ * 이번 달에 아무 계획이 없습니다" is a different sentence from "계획을 읽지
+ * 못했습니다".
+ */
+export function boardAfterFailure(
+  board: ScheduleBoard | undefined, from: string, to: string, scope: 'SELF' | 'TEAM',
+): ScheduleBoard | undefined {
+  if (!board) return undefined
+  return board.from === from && board.to === to && board.scope === scope ? board : undefined
 }
 
 /** How many of a set are finished, for the progress strip. */

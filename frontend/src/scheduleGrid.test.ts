@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, byAssignee, compareTasks, doneRatio, gridRange, monthGrid, monthLabel,
-  monthStart, shiftMonths, taskState, tasksOnDay, weekDays,
+  addDays, boardAfterFailure, byAssignee, compareTasks, doneRatio, gridRange, monthGrid,
+  monthLabel, monthStart, shiftMonths, taskState, tasksOnDay, weekDays,
 } from './scheduleGrid'
-import type { ScheduleTask } from './types'
+import type { ScheduleBoard, ScheduleTask } from './types'
 
 function task(partial: Partial<ScheduleTask> & { id: number; startDate: string }): ScheduleTask {
   return {
@@ -115,5 +115,31 @@ describe('담당자별 보기', () => {
   it('완료율', () => {
     expect(doneRatio([])).toBe(0)
     expect(doneRatio([task({ id: 1, startDate: '2026-09-01', done: true }), task({ id: 2, startDate: '2026-09-02' })])).toBe(50)
+  })
+})
+
+describe('읽기가 실패했을 때 화면에 남는 것', () => {
+  const board = (over: Partial<ScheduleBoard> = {}): ScheduleBoard => ({
+    from: '2026-08-30', to: '2026-10-03', scope: 'TEAM', today: '2026-09-11',
+    tasks: [task({ id: 1, startDate: '2026-09-11' })],
+    summary: { total: 1, done: 0, overdue: 0, today: 1, people: 1, urgent: 0 },
+    ...over,
+  })
+
+  it('같은 창을 다시 읽다 실패하면 벽에 걸린 판을 지우지 않는다', () => {
+    const kept = boardAfterFailure(board(), '2026-08-30', '2026-10-03', 'TEAM')
+    expect(kept?.tasks.map(item => item.id)).toEqual([1])
+  })
+
+  it('다음 달로 넘어가다 실패하면 지난달 줄을 이번 달 제목 아래 남기지 않는다', () => {
+    expect(boardAfterFailure(board(), '2026-09-27', '2026-10-31', 'TEAM')).toBeUndefined()
+  })
+
+  it('부서 전체를 끄다 실패하면 남의 줄을 본인 것으로 남기지 않는다', () => {
+    expect(boardAfterFailure(board(), '2026-08-30', '2026-10-03', 'SELF')).toBeUndefined()
+  })
+
+  it('한 번도 읽지 못했으면 남길 것이 없다', () => {
+    expect(boardAfterFailure(undefined, '2026-08-30', '2026-10-03', 'TEAM')).toBeUndefined()
   })
 })

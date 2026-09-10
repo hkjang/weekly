@@ -54,6 +54,7 @@ SCREENS = [
     ("dashboard", r"/api/v1/reports/current"),
     ("history", r"/api/v1/reports\?"),
     ("work", r"/api/v1/work-items\?"),
+    ("schedule", r"/api/v1/schedule\?"),
     ("team", r"/api/v1/team/reports"),
     ("rollup", r"/api/v1/rollups\?"),
     ("handover", r"/api/v1/handover"),
