@@ -110,13 +110,29 @@ func escapeLikePattern(value string) string {
 }
 
 func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	terms := searchTerms(query)
-	if len(terms) == 0 || runeLength(query) < 2 {
-		writeData(w, http.StatusOK, searchResponse{Query: query, Terms: []string{}, Hits: []searchHit{}})
+	result, err := a.searchReportsFor(r, currentPrincipal(r.Context()), r.URL.Query().Get("q"))
+	if err != nil {
+		a.logger.Error("search reports", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "검색을 수행할 수 없습니다.")
 		return
 	}
-	p := currentPrincipal(r.Context())
+	writeData(w, http.StatusOK, result)
+}
+
+// searchReportsFor is the search itself, with no screen around it.
+//
+// Extracted because the screen is no longer the only reader: the MCP surface
+// answers "그 얘기가 어느 보고서에 있었나" from the same three passes. A second
+// implementation beside this one would be a second set of visibility rules, a
+// second scoring order and a second answer to the same question — and the
+// caller that reads only one of them has no way to tell which.
+func (a *App) searchReportsFor(r *http.Request, p *principal, rawQuery string) (searchResponse, error) {
+
+	query := strings.TrimSpace(rawQuery)
+	terms := searchTerms(query)
+	if len(terms) == 0 || runeLength(query) < 2 {
+		return searchResponse{Query: query, Terms: []string{}, Hits: []searchHit{}}, nil
+	}
 
 	// Searchable text of one report plus one of its items.
 	const fields = `coalesce(r.summary,''),coalesce(i.title,''),coalesce(i.category,''),
@@ -152,9 +168,7 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	}
 	order, byReport, scanned, priorityScanned, err := a.searchScan(r.Context(), statement, args, termPositions, terms)
 	if err != nil {
-		a.logger.Error("search reports", "error", err, "trace", traceIDFromContext(r.Context()))
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "검색을 수행할 수 없습니다.")
-		return
+		return searchResponse{}, err
 	}
 
 	hits := make([]searchHit, 0, len(order))
@@ -224,8 +238,8 @@ func (a *App) searchReports(w http.ResponseWriter, r *http.Request) {
 	if len(hits) > searchReportLimit {
 		hits = hits[:searchReportLimit]
 	}
-	writeData(w, http.StatusOK, searchResponse{Query: query, Terms: terms, Hits: hits, Truncated: truncated,
-		Fuzzy: fuzzy, Semantic: semantic, Reason: strings.Join(notes, " ")})
+	return searchResponse{Query: query, Terms: terms, Hits: hits, Truncated: truncated,
+		Fuzzy: fuzzy, Semantic: semantic, Reason: strings.Join(notes, " ")}, nil
 }
 
 // appendSearchMatches records the highest value snippets for one scanned row.

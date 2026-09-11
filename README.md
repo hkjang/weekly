@@ -619,7 +619,8 @@ Authorization: Bearer wky_...
 
 - `weekly_submission_overview`: 주차별 제출률, 상태, 이슈, 진척도 분석
 - `weekly_missing_submitters`: 그 주차에 내지 않은 사람의 **이름**, 팀장 이상
-- `weekly_reports_search`: 호출자 권한 범위의 보고서 검색
+- `weekly_reports_search`: 호출자 권한 범위의 보고서 검색(주차·상태)
+- `weekly_reports_text_search`: 본문 내용으로 찾기, 스니펫과 유사·의미 검색 표시
 - `weekly_report_detail`: 보고서 한 건의 업무·실적·계획·이슈 본문
 - `period_report_rollup`: 주·월·분기·반기·연 단위 취합과 경영 인사이트
 - `schedule_board_tasks`: 업무 상황판 일정, 지연·오늘·긴급 집계

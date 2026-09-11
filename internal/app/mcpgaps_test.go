@@ -382,9 +382,14 @@ func TestEveryToolTheListingOffersAnswersItsOwnDefaultCall(t *testing.T) {
 
 	for who, cookie := range callers {
 		for name := range mcpToolNames(mcpCall(t, server, cookie, "tools/list", map[string]any{})) {
+			// The two tools with a required argument are given a real one;
+			// every other tool must answer with none at all.
 			arguments := map[string]any{}
-			if name == "weekly_report_detail" {
+			switch name {
+			case "weekly_report_detail":
 				arguments["reportId"] = reports[who]
+			case "weekly_reports_text_search":
+				arguments["q"] = "전수 점검"
 			}
 			reply := mcpCall(t, server, cookie, "tools/call", map[string]any{
 				"name": name, "arguments": arguments,
@@ -467,5 +472,86 @@ func TestALeadersReportNamesItsMaterialsWithoutCarryingThem(t *testing.T) {
 		"name": "weekly_report_detail", "arguments": map[string]any{"reportId": leaderReport},
 	})), "팀원이 한 일") {
 		t.Error("the leader's report carried the whole body of every material it was written from")
+	}
+}
+
+// 어느 주인지 모르는 질문. The report search filters by week and status, so an
+// agent asked "그 장애 얘기가 어느 보고서에 있었나" could only page weeks and
+// read summaries — while the product has had a content search, with the
+// caller's own visibility rules and snippets, the whole time.
+//
+// guards: mcpTextSearch
+func TestReportsCanBeFoundByWhatTheySayNotOnlyByWhen(t *testing.T) {
+	server := newTestServer(t)
+	mine := server.createOrganization("검색 조직", "MCPTXT")
+	theirs := server.createOrganization("검색 남의 조직", "MCPTXTX")
+	leader := server.createUser("mcptxtlead", "TEAM_LEADER", &mine)
+	member := server.createUser("mcptxtmate", "USER", &mine)
+	stranger := server.createUser("mcptxtouter", "USER", &theirs)
+
+	id, version := server.draft(member, "2026-03-02", "3월 첫째 주")
+	fillInclusionTestReport(t, server, member, id, version, "3월 첫째 주", "야간 배치 장애 대응")
+	outsideID, outsideVersion := server.draft(stranger, "2026-03-02", "남의 조직 주간보고")
+	fillInclusionTestReport(t, server, stranger, outsideID, outsideVersion, "남의 조직 주간보고", "야간 배치 장애 대응")
+
+	payload := mcpPayload(t, mcpCall(t, server, leader, "tools/call", map[string]any{
+		"name": "weekly_reports_text_search", "arguments": map[string]any{"q": "야간 배치"},
+	}))
+	hits, _ := payload["hits"].([]any)
+	if len(hits) != 1 {
+		t.Fatalf("the search found %d reports, want the one in the caller's own organisation: %v", len(hits), payload)
+	}
+	hit, _ := hits[0].(map[string]any)
+	if reportID, _ := hit["reportId"].(float64); int64(reportID) != id {
+		t.Errorf("the search reached outside the caller's organisation: %v", hit)
+	}
+	// A hit that carries no snippet is a citation the caller cannot check.
+	matches, _ := hit["matches"].([]any)
+	if len(matches) == 0 {
+		t.Errorf("the hit carries no snippet of what matched: %v", hit)
+	}
+	// And the answer says where the body is, because the hit is not the body.
+	if note, _ := payload["note"].(string); !strings.Contains(note, "weekly_report_detail") {
+		t.Errorf("the result does not say how to read the report it found: %q", note)
+	}
+
+	// Two characters is the floor the screen uses; below it the search returns
+	// everything or nothing, and either is a wrong answer stated confidently.
+	short := mcpCall(t, server, leader, "tools/call", map[string]any{
+		"name": "weekly_reports_text_search", "arguments": map[string]any{"q": "야"},
+	})
+	if !short.Result.IsError {
+		t.Errorf("a one character query was answered instead of refused: %s", mcpText(t, short))
+	}
+
+	// A near miss, not a word that appears nowhere: a query matching nothing
+	// leaves the widening passes empty either way, and the flags stay false
+	// whether the gate held or not.
+	const nearMiss = "야간 배티"
+	capabilities := server.app.capabilities
+	if capabilities.Trigram {
+		widened := mcpPayload(t, mcpCall(t, server, leader, "tools/call", map[string]any{
+			"name": "weekly_reports_text_search", "arguments": map[string]any{"q": nearMiss},
+		}))
+		if fuzzy, _ := widened["fuzzy"].(bool); !fuzzy {
+			t.Fatalf("the near miss did not reach the approximate pass even with pg_trgm present: %v", widened)
+		}
+		// A match that is not literal must say so. A model told only "찾았습니다"
+		// quotes an approximate hit as though it were the report's own words.
+		if note, _ := widened["note"].(string); !strings.Contains(note, "원문 인용처럼 다루지 마세요") {
+			t.Errorf("an approximate result was handed over without saying it was approximate: %q", note)
+		}
+	}
+
+	// And when the widening passes cannot run at all, the answer says why.
+	// Without it a search that could not widen looks exactly like one that
+	// widened and found nothing — and the reader concludes it does not exist.
+	server.app.capabilities = databaseCapabilities{}
+	t.Cleanup(func() { server.app.capabilities = capabilities })
+	narrow := mcpPayload(t, mcpCall(t, server, leader, "tools/call", map[string]any{
+		"name": "weekly_reports_text_search", "arguments": map[string]any{"q": nearMiss},
+	}))
+	if note, _ := narrow["note"].(string); !strings.Contains(note, "pg_trgm") {
+		t.Errorf("a thin result does not say why it stayed thin: %q", note)
 	}
 }

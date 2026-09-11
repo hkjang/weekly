@@ -271,6 +271,49 @@ func (a *App) mcpScheduleTasks(ctx context.Context, p *principal, from, to time.
 	return data, nil
 }
 
+// mcpTextSearch is the content search as a tool result.
+//
+// The report search filters by week and status; nothing on this surface could
+// ask what a report *says*. An agent asked "AI 게이트웨이 문제가 어느 주에
+// 있었나" had to page weeks and read summaries, or answer from the one line the
+// search returns — and the product has had a three-pass content search, with
+// the caller's own visibility rules and snippets, the whole time.
+//
+// The screen's answer is kept whole rather than re-scored: `reason` says why a
+// thin result stayed thin, and `fuzzy`/`semantic` say the match was not
+// literal. A model that is not told the match was approximate reports it as an
+// exact quotation.
+func (a *App) mcpTextSearch(r *http.Request, p *principal, query string) (map[string]any, error) {
+	result, err := a.searchReportsFor(r, p, query)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{
+		"query": result.Query, "terms": result.Terms, "hits": result.Hits,
+		"returned": len(result.Hits), "truncated": result.Truncated,
+		"fuzzy": result.Fuzzy, "semantic": result.Semantic,
+	}
+	notes := []string{}
+	if result.Reason != "" {
+		notes = append(notes, result.Reason)
+	}
+	if result.Truncated {
+		notes = append(notes, fmt.Sprintf(
+			"조건에 맞는 보고서가 더 있어 상위 %d건만 반환했습니다. 이 목록을 전체로 보고 요약하지 마세요.",
+			len(result.Hits)))
+	}
+	if result.Fuzzy || result.Semantic {
+		notes = append(notes, "일부 결과는 글자가 그대로 일치한 것이 아니라 비슷한 표기(approximate) 또는 뜻이 가까운 것(semantic)입니다. 해당 항목을 원문 인용처럼 다루지 마세요.")
+	}
+	if len(result.Hits) > 0 {
+		notes = append(notes, "본문 전체는 reportId 로 weekly_report_detail 을 호출해 읽으세요.")
+	}
+	if len(notes) > 0 {
+		data["note"] = strings.Join(notes, " ")
+	}
+	return data, nil
+}
+
 // mcpScheduleWindow reads the board window out of tool arguments, defaulting to
 // the month the service is in — the same default the board opens on.
 func mcpScheduleWindow(arguments map[string]any, today time.Time) (time.Time, time.Time, error) {
@@ -328,6 +371,24 @@ func mcpNewTools(p *principal, readOnly map[string]any) []map[string]any {
 				"items":    map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
 				"comments": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
 			}, "required": []string{"id", "weekStart", "status", "summary", "items"}},
+			"annotations": readOnly,
+		},
+		{
+			"name": "weekly_reports_text_search", "title": "주간보고 내용 검색",
+			"description": "보고서 본문(요약·업무명·실적·계획·이슈)에서 말로 찾습니다. 어느 주인지 모를 때 쓰세요. " +
+				"주차나 상태로 거르려면 weekly_reports_search 를 쓰세요. " +
+				"일치한 부분을 스니펫으로 돌려주며, 결과가 적으면 오타·어미가 다른 표기와 뜻이 가까운 보고서까지 넓혀 찾고 그 사실을 함께 알려 줍니다.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+				"q": map[string]any{"type": "string", "minLength": 2, "description": "찾을 말. 공백으로 나눈 최대 6개 낱말을 모두 포함하는 보고서를 찾는다"},
+			}, "required": []string{"q"}},
+			"outputSchema": map[string]any{"type": "object", "properties": map[string]any{
+				"query":     map[string]any{"type": "string"},
+				"terms":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"hits":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"truncated": map[string]any{"type": "boolean"},
+				"fuzzy":     map[string]any{"type": "boolean", "description": "글자가 그대로 일치하지 않은 결과가 섞여 있다"},
+				"semantic":  map[string]any{"type": "boolean", "description": "뜻으로 찾은 결과가 섞여 있다"},
+			}, "required": []string{"query", "terms", "hits", "truncated"}},
 			"annotations": readOnly,
 		},
 		{
@@ -396,6 +457,13 @@ func (a *App) callMCPNewTool(r *http.Request, p *principal, name string, argumen
 				a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format(dateLayout)
 		}
 		data, err := a.mcpMissingSubmitters(r.Context(), p, week)
+		return data, err, true
+	case "weekly_reports_text_search":
+		query := mcpArgumentString(arguments, "q")
+		if runeLength(query) < 2 {
+			return nil, mcpRefuse("q 는 두 글자 이상이어야 합니다. 찾을 말을 넣으세요."), true
+		}
+		data, err := a.mcpTextSearch(r, p, query)
 		return data, err, true
 	case "schedule_board_tasks":
 		location := a.serviceLocation(r.Context())
