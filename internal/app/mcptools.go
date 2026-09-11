@@ -129,7 +129,11 @@ func (a *App) mcpReportDetail(ctx context.Context, p *principal, id int64) (map[
 		return nil, errMCPReportUnreachable
 	}
 	report, err := a.loadReport(ctx, id)
-	if errors.Is(err, errNotFound) || (err == nil && report == nil) {
+	// Reachable only by a race: canViewReport has already read the row, so a
+	// report that is gone by the time this line runs was deleted between the
+	// two queries. Answering that with "볼 수 없거나 존재하지 않습니다" is
+	// exactly right, and it keeps a benign race out of the incident log.
+	if errors.Is(err, errNotFound) {
 		return nil, errMCPReportUnreachable
 	}
 	// A database that is down is not a report that does not exist. Folding the

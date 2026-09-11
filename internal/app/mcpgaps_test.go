@@ -423,3 +423,49 @@ func TestTheProfileCardNamesEveryMCPToolTheServerOffers(t *testing.T) {
 		}
 	}
 }
+
+// A leader's report is often written from the team's, and those materials are
+// whole reports of their own — a leader with thirty members carries thirty of
+// them. The tool names them and gives the id to open each; handing the caller
+// the department's entire week to answer a question about one person's is the
+// opposite of what a bounded payload is for.
+//
+// guards: mcpReportDetail
+func TestALeadersReportNamesItsMaterialsWithoutCarryingThem(t *testing.T) {
+	server := newTestServer(t)
+	org := server.createOrganization("재료 조직", "MCPMAT")
+	leader := server.createUser("mcpmatlead", "TEAM_LEADER", &org)
+	member := server.createUser("mcpmatmate", "USER", &org)
+	memberID := server.userIDOf(server.lastCreatedUsername("mcpmatmate"))
+
+	memberReport, memberVersion := server.draft(member, "2026-03-02", "팀원 요약")
+	fillInclusionTestReport(t, server, member, memberReport, memberVersion, "팀원 요약", "팀원이 한 일")
+	if w := server.request(http.MethodPut, "/api/v1/me/report-inclusions",
+		map[string]any{"memberIds": []int64{memberID}}, leader); w.Code != http.StatusOK {
+		t.Fatalf("select the member: %d %s", w.Code, w.Body.String())
+	}
+	leaderReport, leaderVersion := server.draft(leader, "2026-03-02", "팀장 요약")
+	fillInclusionTestReport(t, server, leader, leaderReport, leaderVersion, "팀장 요약", "팀장이 한 일")
+
+	payload := mcpPayload(t, mcpCall(t, server, leader, "tools/call", map[string]any{
+		"name": "weekly_report_detail", "arguments": map[string]any{"reportId": leaderReport},
+	}))
+	materials, _ := payload["includedMaterials"].([]any)
+	if len(materials) != 1 {
+		t.Fatalf("the leader's report was written from one member's and the tool named %d: %v", len(materials), payload)
+	}
+	material, _ := materials[0].(map[string]any)
+	if id, _ := material["reportId"].(float64); int64(id) != memberReport {
+		t.Errorf("the material does not carry the id needed to open it: %v", material)
+	}
+	if count, _ := material["itemCount"].(float64); count != 1 {
+		t.Errorf("the material does not say how much is in it: %v", material)
+	}
+	// The member's own lines are not inlined — the caller is told where they
+	// are, and asks for them if it wants them.
+	if strings.Contains(mcpText(t, mcpCall(t, server, leader, "tools/call", map[string]any{
+		"name": "weekly_report_detail", "arguments": map[string]any{"reportId": leaderReport},
+	})), "팀원이 한 일") {
+		t.Error("the leader's report carried the whole body of every material it was written from")
+	}
+}
