@@ -1,8 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -66,18 +69,109 @@ func (a *App) mcp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "MCP_SCOPE_REQUIRED", "mcp:read 범위가 필요합니다.")
 		return
 	}
+	// Read once and frame the answer as JSON-RPC, whatever the body turns out
+	// to be.
+	//
+	// decodeJSON used to do this, and it answers a bad body with the product's
+	// REST envelope and HTTP 400 — measured: a torn-off request came back as
+	// {"success":false,...,"error":{"code":"INVALID_REQUEST"}}, which no MCP
+	// client can read. A transport that answers a protocol error outside the
+	// protocol looks to the caller like the server is down. It also decoded
+	// with DisallowUnknownFields, so a client that sends any field this struct
+	// does not name — _meta, on any frame — was refused the same opaque way.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, mcpRequestBytes))
+	if err != nil {
+		a.writeRPC(w, jsonRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+			Error: &jsonRPCError{Code: -32700, Message: "Parse error", Data: "요청 본문을 읽지 못했습니다."}})
+		return
+	}
+	body = bytes.TrimSpace(body)
+	// A JSON-RPC batch. The server advertises 2025-03-26, where batching is
+	// part of the protocol, and answered one with the REST envelope above —
+	// so a conformant client of a version this server claims to speak could
+	// not complete a handshake. Later versions dropped batching, and nothing
+	// obliges a client to use it, but claiming a version and refusing its
+	// frames is the kind of gap that is only found by the client that breaks.
+	if len(body) > 0 && body[0] == '[' {
+		a.mcpBatch(w, r, p, body)
+		return
+	}
 	var request jsonRPCRequest
-	if !decodeJSON(w, r, &request) {
+	if err := json.Unmarshal(body, &request); err != nil {
+		a.writeRPC(w, jsonRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+			Error: &jsonRPCError{Code: -32700, Message: "Parse error", Data: "JSON-RPC 2.0 요청 본문이 아닙니다."}})
 		return
 	}
-	if request.JSONRPC != "2.0" || request.Method == "" {
-		a.writeRPC(w, jsonRPCResponse{JSONRPC: "2.0", ID: request.ID, Error: &jsonRPCError{Code: -32600, Message: "Invalid Request"}})
-		return
-	}
-	if len(request.ID) == 0 {
+	response, answered := a.mcpDispatch(r, p, request)
+	if !answered {
 		// JSON-RPC notifications never receive a JSON-RPC response.
 		w.WriteHeader(http.StatusAccepted)
 		return
+	}
+	a.writeRPC(w, response)
+}
+
+// mcpRequestBytes is the largest MCP request body read, matching what
+// decodeJSON allowed every other door.
+const mcpRequestBytes = 2 << 20
+
+// mcpBatchLimit is how many calls one batch may carry.
+//
+// Not unbounded: every element is dispatched here and there is no cheap one —
+// a batch of period rollups is that many full-period queries and that many
+// 64 KiB payloads assembled before anything is written. A client with real
+// work to batch is sending a handshake and a listing, not twenty analyses.
+const mcpBatchLimit = 20
+
+func (a *App) mcpBatch(w http.ResponseWriter, r *http.Request, p *principal, body []byte) {
+	var requests []json.RawMessage
+	if err := json.Unmarshal(body, &requests); err != nil {
+		a.writeRPC(w, jsonRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+			Error: &jsonRPCError{Code: -32700, Message: "Parse error", Data: "JSON-RPC 2.0 요청 본문이 아닙니다."}})
+		return
+	}
+	if len(requests) == 0 {
+		a.writeRPC(w, jsonRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+			Error: &jsonRPCError{Code: -32600, Message: "Invalid Request", Data: "빈 배치입니다."}})
+		return
+	}
+	if len(requests) > mcpBatchLimit {
+		a.writeRPC(w, jsonRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+			Error: &jsonRPCError{Code: -32600, Message: "Invalid Request",
+				Data: fmt.Sprintf("한 배치에는 최대 %d건까지 담을 수 있습니다.", mcpBatchLimit)}})
+		return
+	}
+	responses := []jsonRPCResponse{}
+	for _, raw := range requests {
+		var request jsonRPCRequest
+		if err := json.Unmarshal(raw, &request); err != nil {
+			responses = append(responses, jsonRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+				Error: &jsonRPCError{Code: -32600, Message: "Invalid Request"}})
+			continue
+		}
+		if response, answered := a.mcpDispatch(r, p, request); answered {
+			responses = append(responses, response)
+		}
+	}
+	// A batch of nothing but notifications is answered the way one
+	// notification is: accepted, with no body. Sending [] back instead is the
+	// one thing the specification names as forbidden.
+	if len(responses) == 0 {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(responses)
+}
+
+// mcpDispatch answers one JSON-RPC request. The second return is whether there
+// is an answer at all: a notification carries no id and is owed none.
+func (a *App) mcpDispatch(r *http.Request, p *principal, request jsonRPCRequest) (jsonRPCResponse, bool) {
+	if request.JSONRPC != "2.0" || request.Method == "" {
+		return jsonRPCResponse{JSONRPC: "2.0", ID: request.ID, Error: &jsonRPCError{Code: -32600, Message: "Invalid Request"}}, true
+	}
+	if len(request.ID) == 0 {
+		return jsonRPCResponse{}, false
 	}
 	var response jsonRPCResponse
 	response.JSONRPC = "2.0"
@@ -91,7 +185,7 @@ func (a *App) mcp(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(request.Params, &params) == nil && supportedMCPVersions[params.ProtocolVersion] {
 			negotiated = params.ProtocolVersion
 		}
-		response.Result = map[string]any{"protocolVersion": negotiated, "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "Weekly Analytics MCP", "title": "Weekly 보고·서비스 분석", "version": a.build.Version}, "instructions": "주간보고 제출 현황, 보고서 검색, 서비스 API 상태를 읽기 전용으로 분석합니다."}
+		response.Result = map[string]any{"protocolVersion": negotiated, "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "Weekly Analytics MCP", "title": "Weekly 보고·서비스 분석", "version": a.build.Version}, "instructions": mcpInstructions}
 	case "ping":
 		response.Result = map[string]any{}
 	case "tools/list":
@@ -101,8 +195,14 @@ func (a *App) mcp(w http.ResponseWriter, r *http.Request) {
 	default:
 		response.Error = &jsonRPCError{Code: -32601, Message: "Method not found"}
 	}
-	a.writeRPC(w, response)
+	return response, true
 }
+
+// mcpInstructions is what the server tells a model it is for, before the model
+// has called anything. It names the surfaces rather than describing them,
+// because the tool descriptions carry the detail and this is read every time.
+const mcpInstructions = "주간보고 제출 현황과 미제출자, 보고서 검색과 본문, 기간(주·월·분기·반기·연) 집계, 업무 상황판 일정, 서비스 API 상태를 읽기 전용으로 분석합니다. " +
+	"모든 도구는 호출한 계정의 권한 범위 안에서만 답하며, 목록을 돌려주는 도구는 전체 건수(total)와 잘라낸 사실을 note 로 함께 알려 줍니다."
 
 func (a *App) writeRPC(w http.ResponseWriter, response jsonRPCResponse) {
 	w.Header().Set("Content-Type", "application/json")
@@ -151,8 +251,8 @@ func (a *App) mcpTools(p *principal) []map[string]any {
 			"name": "period_report_rollup", "title": "월간·분기·반기·연간 보고 집계",
 			"description": "주간보고를 기간 단위로 취합해 중복을 제거한 업무 목록과 완료율, 정체·이슈 지속 업무 같은 경영 인사이트를 반환합니다.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
-				"kind":   map[string]any{"type": "string", "enum": []string{periodMonth, periodQuarter, periodHalf, periodYear}, "description": "집계 단위. 생략하면 MONTH"},
-				"period": map[string]any{"type": "string", "description": "2026-08, 2026-Q3, 2026-H2, 2026 형식. 생략하면 현재 기간"},
+				"kind":   map[string]any{"type": "string", "enum": []string{periodWeek, periodMonth, periodQuarter, periodHalf, periodYear}, "description": "집계 단위. 생략하면 MONTH"},
+				"period": map[string]any{"type": "string", "description": "2026-09-07(WEEK), 2026-08, 2026-Q3, 2026-H2, 2026 형식. 생략하면 현재 기간"},
 				"scope":  map[string]any{"type": "string", "enum": []string{scopeSelf, scopeTeam}, "description": "SELF는 본인, TEAM은 소속 조직. 생략하면 SELF"},
 			}},
 			"outputSchema": map[string]any{"type": "object", "properties": map[string]any{
@@ -164,6 +264,7 @@ func (a *App) mcpTools(p *principal) []map[string]any {
 			"annotations": readOnly,
 		},
 	}
+	tools = append(tools, mcpNewTools(p, readOnly)...)
 	if p.Role == "ADMIN" {
 		tools = append(tools, map[string]any{"name": "weekly_endpoint_analysis", "title": "Weekly API 운영 분석", "description": "최근 24시간 API별 호출 수, 평균/최대 응답시간, 서버 오류(5xx) 수와 거부(4xx) 비율을 분석합니다. 거부는 권한·검증처럼 정상적으로 막아 낸 요청을 포함하므로 장애 지표가 아닙니다.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "outputSchema": map[string]any{"type": "object", "properties": map[string]any{"endpoints": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}}, "required": []string{"endpoints"}}, "annotations": readOnly})
 	}
@@ -184,16 +285,25 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 	var err error
 	switch params.Name {
 	case "weekly_submission_overview":
-		week := mcpArgumentString(params.Arguments, "weekStart")
+		week, argumentErr := mcpDateArgument(params.Arguments, "weekStart")
+		if argumentErr != nil {
+			return a.mcpToolError(response, argumentErr.Error())
+		}
 		if week == "" {
 			week = currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY")).Format("2006-01-02")
 		}
 		data, err = a.analyticsOverviewContext(r.Context(), p, week)
 	case "weekly_reports_search":
+		week, argumentErr := mcpDateArgument(params.Arguments, "weekStart")
+		if argumentErr != nil {
+			return a.mcpToolError(response, argumentErr.Error())
+		}
+		status, statusErr := mcpStatusArgument(params.Arguments)
+		if statusErr != nil {
+			return a.mcpToolError(response, statusErr.Error())
+		}
 		var page mcpReportPage
-		page, err = a.mcpSearchReports(r, p,
-			mcpArgumentString(params.Arguments, "weekStart"),
-			mcpArgumentString(params.Arguments, "status"),
+		page, err = a.mcpSearchReports(r, p, week, status,
 			mcpArgumentInt(params.Arguments, "limit", mcpReportPageMaximum, 1, mcpReportPageMaximum),
 			mcpArgumentInt(params.Arguments, "offset", 0, 0, 1_000_000))
 		data = map[string]any{"reports": page.Reports, "total": page.Total, "limit": page.Limit, "offset": page.Offset}
@@ -225,7 +335,7 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 			time.Now().In(a.serviceLocation(r.Context())),
 			a.setting(r.Context(), "workflow.week_start", "MONDAY"))
 		if periodErr != nil {
-			return a.mcpToolError(response, "조회 기간이 올바르지 않습니다. 예: 2026-08, 2026-Q3, 2026-H2, 2026")
+			return a.mcpToolError(response, "조회 기간이 올바르지 않습니다. 예: WEEK=2026-09-07, MONTH=2026-08, QUARTER=2026-Q3, HALF=2026-H2, YEAR=2026")
 		}
 		var view rollupView
 		view, err = a.loadRollup(r.Context(), p, period, scope)
@@ -240,8 +350,18 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 		endpoints, err = a.endpointAnalytics(r.Context())
 		data = map[string]any{"endpoints": endpoints}
 	default:
-		response.Error = &jsonRPCError{Code: -32602, Message: "Unknown tool"}
-		return response
+		handled := false
+		data, err, handled = a.callMCPNewTool(r, p, params.Name, params.Arguments)
+		if !handled {
+			response.Error = &jsonRPCError{Code: -32602, Message: "Unknown tool"}
+			return response
+		}
+	}
+	// A mistake the caller made is answered in the caller's own terms, and is
+	// not an incident: logging it as one buried real failures under typos.
+	var refusal mcpRefusal
+	if errors.As(err, &refusal) {
+		return a.mcpToolError(response, refusal.message)
 	}
 	if err != nil {
 		// The caller gets one sentence; whoever has to fix it needs the cause.
@@ -366,9 +486,16 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 	// counted one copy and had a 2x headroom, and the existing test that
 	// measures "the model's whole view" caught it the moment the headroom went.
 	writeNote := func() {
-		notes := []string{fmt.Sprintf(
-			"업무 %d건 중 주차별 진척 이력(weeks)은 상위 %d건에만 있습니다. 나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.",
-			total, view.TimelineItems)}
+		notes := []string{}
+		// Only when a series was actually withheld. A period small enough that
+		// every row kept its history was still told "업무 3건 중 … 상위 3건에만
+		// 있습니다", which warns a reader about an absence that is not there —
+		// and on an empty period it read "0건 중 상위 0건".
+		if total > view.TimelineItems {
+			notes = append(notes, fmt.Sprintf(
+				"업무 %d건 중 주차별 진척 이력(weeks)은 상위 %d건에만 있습니다. 나머지 항목의 weeks 가 비어 있는 것은 진척이 없었다는 뜻이 아닙니다.",
+				total, view.TimelineItems))
+		}
 		if contributorsTotal > len(contributors) {
 			notes = append(notes, fmt.Sprintf(
 				"기여자 %d명 중 상위 %d명만 담았습니다. 나머지 인원의 실적은 위 집계에는 이미 들어가 있습니다.",
@@ -386,16 +513,25 @@ func (a *App) rollupForModel(view *rollupView) map[string]any {
 				"업무 %d건 중 %d건만 반환했습니다.%s 이 목록을 전체로 보고 요약하지 마세요.",
 				total, len(view.Items), reason))
 		}
+		if len(notes) == 0 {
+			delete(data, "note")
+			return
+		}
 		data["note"] = strings.Join(notes, " ")
 	}
-	writeNote()
 	// trimTimelineSeries names a fixed twenty whether or not there are twenty
 	// rows, so a rollup of three said its top twenty carried a series. Clamped
-	// here because the loop below indexes by this number.
+	// here because the loop below indexes by this number — and clamped before
+	// the note rather than after it, which is where it used to sit: a period
+	// with no reports at all came back with timelineItems 0 beside a sentence
+	// reading "업무 0건 중 주차별 진척 이력은 상위 20건에만 있습니다". The
+	// number and the prose describing it disagreed in the same payload, and the
+	// prose is the half a model reads.
 	if view.TimelineItems > len(view.Items) {
 		view.TimelineItems = len(view.Items)
 		data["timelineItems"] = view.TimelineItems
 	}
+	writeNote()
 	for view.TimelineItems > mcpRollupTimelineFloor && encodedSize(data) > mcpRollupBytes {
 		view.TimelineItems--
 		view.Items[view.TimelineItems].Weeks = nil
@@ -462,6 +598,49 @@ type mcpReportPage struct {
 	Total   int
 	Limit   int
 	Offset  int
+}
+
+// mcpReportStatuses is the status vocabulary the report tools accept, in the
+// order the workflow moves through them.
+var mcpReportStatuses = []string{"DRAFT", "SUBMITTED", "REVISION_REQUESTED", "APPROVED", "CLOSED"}
+
+// mcpDateArgument reads an optional YYYY-MM-DD argument, refusing anything a
+// calendar would not accept.
+//
+// Measured: weekly_reports_search asked for weekStart "지난주" answered
+// "분석 중 오류가 발생했습니다" and wrote an ERROR line naming the database,
+// because the text went to PostgreSQL as a date. "지난주" is exactly what a
+// model writes when it has not been told the format — so the product filed an
+// incident for every guess and told the caller nothing it could act on. An
+// argument this door can check is one the database should never see.
+func mcpDateArgument(arguments map[string]any, name string) (string, error) {
+	value := mcpArgumentString(arguments, name)
+	if value == "" {
+		return "", nil
+	}
+	if _, err := time.Parse(dateLayout, value); err != nil {
+		return "", fmt.Errorf("%s 는 2026-03-02 처럼 YYYY-MM-DD 형식이어야 합니다. 받은 값: %q", name, value)
+	}
+	return value, nil
+}
+
+// mcpStatusArgument reads the report status filter.
+//
+// The schema declares the vocabulary and nothing enforced it, so a caller
+// asking for "제출됨" or "approved" was answered {"total":0} — a false negative
+// with the full authority of a count. A model has no way to tell that empty
+// answer from the true one, and reports it as fact: 승인된 보고가 없습니다.
+// Refusing by name costs a turn; answering zero costs the truth.
+func mcpStatusArgument(arguments map[string]any) (string, error) {
+	value := strings.ToUpper(mcpArgumentString(arguments, "status"))
+	if value == "" {
+		return "", nil
+	}
+	if !contains(mcpReportStatuses, value) {
+		return "", fmt.Errorf("status 는 %s 중 하나여야 합니다. 받은 값: %q",
+			strings.Join(mcpReportStatuses, ", "), value)
+	}
+	return value, nil
 }
 
 // mcpArgumentString reads an optional tool argument as text.

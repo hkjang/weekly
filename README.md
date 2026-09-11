@@ -76,9 +76,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.296.0.tar.gz
-gzip -dc weekly-v0.296.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.296.0.tar.gz | docker load
+sha256sum weekly-v0.297.0.tar.gz
+gzip -dc weekly-v0.297.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.297.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 첫 기동에 필요한 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -618,8 +618,14 @@ Authorization: Bearer wky_...
 제공 도구:
 
 - `weekly_submission_overview`: 주차별 제출률, 상태, 이슈, 진척도 분석
+- `weekly_missing_submitters`: 그 주차에 내지 않은 사람의 **이름**, 팀장 이상
 - `weekly_reports_search`: 호출자 권한 범위의 보고서 검색
+- `weekly_report_detail`: 보고서 한 건의 업무·실적·계획·이슈 본문
+- `period_report_rollup`: 주·월·분기·반기·연 단위 취합과 경영 인사이트
+- `schedule_board_tasks`: 업무 상황판 일정, 지연·오늘·긴급 집계
 - `weekly_endpoint_analysis`: 최근 24시간 API 호출·지연·오류 분석, 관리자 전용
+
+도구는 호출자가 쓸 수 있는 것만 목록에 올라오고, 목록에 있는 도구는 기본 인자만으로도 답합니다. 인자가 규격에 맞지 않으면 무엇이 틀렸는지 문장으로 돌려주며(형식·허용값), 조건에 맞지 않는 값을 조용히 0건으로 답하지 않습니다.
 
 세부 규격은 [MCP 문서](docs/MCP.md)와 [OpenAPI 초안](docs/openapi.yaml)을 참고하십시오.
 

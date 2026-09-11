@@ -194,6 +194,90 @@ func (a *App) manageableOwners(ctx context.Context, p *principal) (map[int64]boo
 	return owners, false, rows.Err()
 }
 
+// scheduleTasksBetween is the board's rows, without the screen around them.
+//
+// Extracted because the board is no longer the only reader: the MCP surface
+// answers "무슨 일정이 있나" from the same table, and a second SELECT written
+// beside this one is a second set of visibility rules to keep in step. The
+// screen's own additions — who may tick a line, and the counts along the top —
+// stay with the screen, because a read-only key has no use for the first.
+func (a *App) scheduleTasksBetween(ctx context.Context, p *principal, from, to time.Time, team bool) ([]scheduleTaskView, error) {
+	args := []any{from, to}
+	predicate, scopeArgs := scheduleVisibility(p, team, len(args)+1)
+	args = append(args, scopeArgs...)
+	// Overlap, not containment: a task that started in August and ends on the
+	// 3rd of September belongs on September's board. Asking for rows whose
+	// start_date falls inside the month would drop exactly the long-running
+	// work a board exists to show.
+	query := `
+		SELECT s.id, s.title, s.category, s.start_date, s.end_date, s.done_at,
+		       coalesce(doner.display_name, ''), s.user_id, coalesce(u.display_name, ''),
+		       coalesce(org.name, ''), s.created_by, coalesce(author.display_name, ''),
+		       s.work_item_id, s.note, s.priority, s.sr_id
+		FROM schedule_tasks s
+		JOIN users u ON u.id = s.user_id
+		LEFT JOIN organizations org ON org.id = u.organization_id
+		LEFT JOIN users doner ON doner.id = s.done_by
+		LEFT JOIN users author ON author.id = s.created_by
+		WHERE s.start_date <= $2 AND s.end_date >= $1` + predicate + `
+		ORDER BY s.start_date, ` + priorityRank + `, s.end_date, u.display_name, s.id`
+	rows, err := a.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// One read of the link template for the whole board rather than one per
+	// row: every SR line resolves against the same setting.
+	itsm := a.loadITSMSettings(ctx)
+
+	tasks := []scheduleTaskView{}
+	for rows.Next() {
+		var task scheduleTaskView
+		var start, end time.Time
+		if err := rows.Scan(&task.ID, &task.Title, &task.Category, &start, &end, &task.DoneAt,
+			&task.DoneByName, &task.UserID, &task.DisplayName, &task.OrganizationName,
+			&task.CreatedByID, &task.CreatedByName, &task.WorkItemID, &task.Note,
+			&task.Priority, &task.SRID); err != nil {
+			return nil, err
+		}
+		task.StartDate = start.Format(dateLayout)
+		task.EndDate = end.Format(dateLayout)
+		task.Done = task.DoneAt != nil
+		task.Priority = normalizePriority(task.Priority)
+		if task.SRID != "" {
+			task.SRURL = itsm.linkFor(task.SRID)
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, rows.Err()
+}
+
+// summariseSchedule counts a set of rows the way the board's header does, so
+// the numbers cannot disagree with the rows they sit above — on the screen or
+// in a tool result.
+func summariseSchedule(tasks []scheduleTaskView, today string) scheduleSummary {
+	summary := scheduleSummary{}
+	people := map[int64]bool{}
+	for _, task := range tasks {
+		people[task.UserID] = true
+		summary.Total++
+		switch {
+		case task.Done:
+			summary.Done++
+		case task.EndDate < today:
+			summary.Overdue++
+		case task.StartDate <= today && today <= task.EndDate:
+			summary.Today++
+		}
+		if !task.Done && task.Priority == priorityUrgent {
+			summary.Urgent++
+		}
+	}
+	summary.People = len(people)
+	return summary
+}
+
 func (a *App) listScheduleTasks(w http.ResponseWriter, r *http.Request) {
 	p := currentPrincipal(r.Context())
 	location := a.serviceLocation(r.Context())
@@ -213,36 +297,12 @@ func (a *App) listScheduleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []any{from, to}
-	predicate, scopeArgs := scheduleVisibility(p, scope == scopeTeam, len(args)+1)
-	args = append(args, scopeArgs...)
-	// Overlap, not containment: a task that started in August and ends on the
-	// 3rd of September belongs on September's board. Asking for rows whose
-	// start_date falls inside the month would drop exactly the long-running
-	// work a board exists to show.
-	query := `
-		SELECT s.id, s.title, s.category, s.start_date, s.end_date, s.done_at,
-		       coalesce(doner.display_name, ''), s.user_id, coalesce(u.display_name, ''),
-		       coalesce(org.name, ''), s.created_by, coalesce(author.display_name, ''),
-		       s.work_item_id, s.note, s.priority, s.sr_id
-		FROM schedule_tasks s
-		JOIN users u ON u.id = s.user_id
-		LEFT JOIN organizations org ON org.id = u.organization_id
-		LEFT JOIN users doner ON doner.id = s.done_by
-		LEFT JOIN users author ON author.id = s.created_by
-		WHERE s.start_date <= $2 AND s.end_date >= $1` + predicate + `
-		ORDER BY s.start_date, ` + priorityRank + `, s.end_date, u.display_name, s.id`
-	rows, err := a.db.Query(r.Context(), query, args...)
+	tasks, err := a.scheduleTasksBetween(r.Context(), p, from, to, scope == scopeTeam)
 	if err != nil {
 		a.logger.Error("list schedule", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 일정을 조회할 수 없습니다.")
 		return
 	}
-	defer rows.Close()
-
-	// One read of the link template for the whole board rather than one per
-	// row: every SR line resolves against the same setting.
-	itsm := a.loadITSMSettings(r.Context())
 
 	owners, manageAll, err := a.manageableOwners(r.Context(), p)
 	if err != nil {
@@ -251,53 +311,14 @@ func (a *App) listScheduleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	todayDate := today.Format(dateLayout)
+	for index := range tasks {
+		tasks[index].CanEdit = manageAll || owners[tasks[index].UserID] || tasks[index].CreatedByID == p.ID
+	}
 	view := scheduleResponse{
 		From: from.Format(dateLayout), To: to.Format(dateLayout), Scope: scope,
-		Today: today.Format(dateLayout), Tasks: []scheduleTaskView{},
+		Today: todayDate, Tasks: tasks, Summary: summariseSchedule(tasks, todayDate),
 	}
-	people := map[int64]bool{}
-	todayDate := today.Format(dateLayout)
-	for rows.Next() {
-		var task scheduleTaskView
-		var start, end time.Time
-		if err := rows.Scan(&task.ID, &task.Title, &task.Category, &start, &end, &task.DoneAt,
-			&task.DoneByName, &task.UserID, &task.DisplayName, &task.OrganizationName,
-			&task.CreatedByID, &task.CreatedByName, &task.WorkItemID, &task.Note,
-			&task.Priority, &task.SRID); err != nil {
-			a.logger.Error("scan schedule", "error", err, "trace", traceIDFromContext(r.Context()))
-			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 일정을 조회할 수 없습니다.")
-			return
-		}
-		task.StartDate = start.Format(dateLayout)
-		task.EndDate = end.Format(dateLayout)
-		task.Done = task.DoneAt != nil
-		task.Priority = normalizePriority(task.Priority)
-		if task.SRID != "" {
-			task.SRURL = itsm.linkFor(task.SRID)
-		}
-		task.CanEdit = manageAll || owners[task.UserID] || task.CreatedByID == p.ID
-		view.Tasks = append(view.Tasks, task)
-
-		people[task.UserID] = true
-		view.Summary.Total++
-		switch {
-		case task.Done:
-			view.Summary.Done++
-		case task.EndDate < todayDate:
-			view.Summary.Overdue++
-		case task.StartDate <= todayDate && todayDate <= task.EndDate:
-			view.Summary.Today++
-		}
-		if !task.Done && task.Priority == priorityUrgent {
-			view.Summary.Urgent++
-		}
-	}
-	if err := rows.Err(); err != nil {
-		a.logger.Error("read schedule", "error", err, "trace", traceIDFromContext(r.Context()))
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "업무 일정을 조회할 수 없습니다.")
-		return
-	}
-	view.Summary.People = len(people)
 	writeData(w, http.StatusOK, view)
 }
 

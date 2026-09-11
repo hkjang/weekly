@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.296.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.297.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4230,6 +4230,25 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><strong>검증</strong></p>
 <p>실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>, 버전·OpenAPI·모달 검사를 통과했고, 프런트엔드 시험과 <code>tsc -b</code> 를 통과했습니다. 세 안내서(사용자·관리자·로드맵)의 HTML 과 PDF 를 다시 만들었습니다.</p>
 <p>제품 코드는 관리자 화면의 예시 이메일 한 줄만 바뀝니다. 마이그레이션도 새 환경변수도 API 변경도 없습니다.</p>
+<h3>v0.297.0 — MCP 가 제품이 아는 것을 답합니다</h3>
+<p>MCP 표면을 사람이 부르듯 불러 보고 돌아온 것을 읽었습니다. 세 가지가 나왔습니다: 답이 틀렸는데 틀린 줄 알 수 없는 것, 프로토콜을 프로토콜 밖에서 답하는 것, 그리고 제품이 아는데 도구가 없는 것.</p>
+<p><strong>조용한 0건과, 서비스 탓</strong></p>
+<p><code>weekly_reports_search</code> 를 <code>weekStart: "지난주"</code> 로 부르면 — 형식을 듣지 못한 모델이 정확히 그렇게 씁니다 — 그 글자가 PostgreSQL 에 날짜로 넘어가 <code>분석 중 오류가 발생했습니다</code> 가 돌아왔고, 그 옆에 데이터베이스를 지목하는 ERROR 로그가 남았습니다. 호출자는 무엇을 고쳐야 할지 알 수 없고, 로그를 보는 사람은 서비스가 죽었다고 듣습니다. <code>status: "제출됨"</code> 은 더 나빴습니다. 스키마에 허용값을 적어 두고 검사는 하지 않아 <code>{"total":0}</code> 이 돌아왔고, 건수의 권위를 그대로 두른 거짓 음성은 "그런 보고는 없습니다"로 보고됩니다.</p>
+<p>인자는 이제 데이터베이스에 닿기 전에 검사합니다. 날짜 형식, 보고서 상태, 조회 범위, 상황판 상태 필터가 규격을 벗어나면 무엇이 틀렸고 무엇이 허용되는지 문장으로 답하고(<code>isError</code>), 호출자가 만든 실수는 장애로 기록하지 않습니다(<code>mcpRefusal</code>). <code>period_report_rollup</code> 의 <code>kind</code> 는 <code>WEEK</code> 를 받으면서도 스키마에 적지 않아 아무도 주 단위를 물을 수 없었고, 빈 기간의 <code>note</code> 는 <code>timelineItems: 0</code> 옆에서 "상위 20건에만 있습니다"라고 말했습니다 — 숫자와 그것을 설명하는 문장이 같은 답 안에서 어긋났고, 모델이 읽는 쪽은 문장입니다.</p>
+<p><strong>프로토콜은 프로토콜 안에서</strong></p>
+<p>본문이 깨진 요청은 제품의 REST 봉투와 HTTP 400 으로 돌아왔습니다(<code>{"success":false,…,"INVALID_REQUEST"}</code>). MCP 클라이언트가 읽을 수 없는 모양이라, 호출자에게는 서버가 죽은 것과 구분되지 않습니다. 이제 HTTP 200 에 <code>-32700</code> 을 실어 답합니다. 같은 이유로 JSON-RPC <strong>배치</strong>를 받습니다(한 번에 20건까지, 알림만 든 배치는 본문 없이 202): 서버는 <code>2025-03-26</code> 을 지원한다고 광고하면서 그 규격의 프레임을 거절하고 있었고, 그런 구멍은 그 클라이언트가 깨질 때에만 발견됩니다. 최상위에 <code>_meta</code> 같은 필드가 실려 와도 더는 거절하지 않습니다 — 알 수 없는 필드를 거부하는 디코더를 쓰고 있었기 때문입니다.</p>
+<p><strong>세 개의 도구</strong></p>
+<p>제품이 아는데 물을 수 없던 것들입니다.</p>
+<ul>
+<li><code>weekly_report_detail</code>: 검색은 보고서를 찾아 주고 요약 한 줄을 돌려줄 뿐, 그다음 단계가 없었습니다. 무엇을 했느냐는 질문에 모델은 그 한 줄을 한 주의 일로 제시했습니다. 이제 업무·실적·계획·이슈·건의·검토 의견 본문을 읽습니다. 권한은 화면과 같고, <strong>볼 수 없는 보고서와 없는 보고서는 같은 문장으로 거부합니다</strong>. 팀원 보고서를 재료로 쓴 보고서는 재료의 본문 대신 이름과 <code>reportId</code> 만 싣습니다.</li>
+<li><code>weekly_missing_submitters</code>: 제출 현황은 몇 명인지 알려 주지만 누구인지는 아무도 물을 수 없었습니다. 주간보고 제품에 가장 자주 오는 질문입니다. 임시저장은 제출로 세지 않고, 보고서는 날짜가 아니라 그 7일을 덮는지로 찾습니다. <strong>팀장 이상만 부를 수 있고 그 밖의 계정에게는 목록에 아예 보이지 않습니다</strong> — 몇 명인지와 누구인지는 다른 일입니다.</li>
+<li><code>schedule_board_tasks</code>: 업무 상황판은 이 표면보다 네 판 뒤에 났고 아무도 이어 붙이지 않았습니다. 이번 달에 무엇이 있느냐는 질문에 모델은 주간보고로 답했습니다 — 지난주에 <strong>한 일</strong>이지, 금요일에 <strong>마감할 일</strong>이 아닙니다. 기간·범위·상태(<code>OVERDUE</code>, <code>URGENT</code> 등)로 묻고, <code>summary</code> 는 조건에 맞는 전체를 세며 목록은 100건까지입니다. 화면과 같은 행을 읽도록 상황판 조회를 <code>scheduleTasksBetween</code> 하나로 합쳤습니다.</li>
+</ul>
+<p><strong>목록이 약속이 되게</strong></p>
+<p>두 가지가 반복해서 틀렸습니다. 도구가 기본 인자만으로는 답하지 못하는 것(<code>&lt;nil&gt;</code> 사건), 그리고 개인 설정의 MCP 카드가 손으로 유지되다 뒤처지는 것 — 카드는 도구 둘을 적고 있었고 <code>period_report_rollup</code> 은 난 날부터 빠져 있었습니다. 이제 시험이 <strong>목록에 오른 모든 도구를 세 역할로 각각 불러</strong> 기본 인자만으로 답하는지 확인하고, 카드가 서버가 내놓는 모든 도구 이름을 담고 있는지 확인합니다.</p>
+<p><strong>검증</strong></p>
+<p>실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드 검사(새 시험 9개가 모두 자기가 지킨다고 적은 함수에 닿는 것을 확인), OpenAPI·모달·쪽넘김·버전 검사를 통과했고, 프런트엔드 144개 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다. 표면의 동작은 시험 전에 손으로 눌러 확인했습니다 — 위에 적은 증상은 모두 그렇게 받아 본 응답입니다.</p>
+<p>마이그레이션도 새 환경변수도 없습니다. 기존 도구 넷의 응답 모양은 그대로이고, 달라진 것은 잘못된 인자에 대한 답과 프로토콜 오류의 모양입니다.</p>
 </div>
 </body>
 </html>
