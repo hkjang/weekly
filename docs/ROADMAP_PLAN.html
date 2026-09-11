@@ -33,6 +33,8 @@ th { background: #2563eb; color: #fff; text-align: left; padding: 10px 12px; fon
 td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
 tr:nth-child(even) td { background: #f8fafc; }
 hr { border: 0; border-top: 1px solid #e2e8f0; margin: 34px 0; }
+figure { margin: 18px 0; } figure img { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; }
+figcaption { font-size: .82rem; color: #64748b; margin-top: 6px; }
 blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
   border-left: 4px solid #f59e0b; color: #78350f; border-radius: 0 8px 8px 0; }
 .print-btn { display: inline-block; margin-bottom: 20px; background: #2563eb; color: #fff;
@@ -51,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.295.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.296.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4217,6 +4219,17 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><strong>검증</strong></p>
 <p>프런트엔드는 이전 동작으로 되돌려 새 시험 3개가 모두 실패하는 것을 먼저 확인했고, Go 는 <code>UPDATE</code> 의 <code>input.WorkItemID</code> 를 nil 로 바꾼 변이가 시험에 잡히는 것을 확인했습니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드·OpenAPI·모달·페이징·버전 검사를 통과했고, 프런트엔드 144개 시험과 <code>tsc -b</code>·프로덕션 빌드를 두 시간대(<code>Asia/Seoul</code>, <code>America/New_York</code>)에서 통과했습니다. 변이 검사는 첫 회차에서 <code>&amp;&amp;</code>→<code>||</code> 변이 하나가 아무 시험에도 잡히지 않아 사례를 하나 더해 닫았습니다.</p>
 <p>마이그레이션도 새 환경변수도 없고 응답 모양도 그대로입니다. <code>PUT /schedule/{id}</code> 의 계약은 원래부터 전체 치환이었고 문서에만 없었습니다.</p>
+<h3>v0.296.0 — 사용자·관리자 가이드에 실제 화면이 들어갑니다</h3>
+<p>이번 판에는 고친 결함이 없습니다. 두 안내서를 실제 화면 캡처가 든 완성본으로 다시 쓴 것이 내용입니다. 사용자 가이드와 관리자 가이드는 있었지만 그림이 한 장도 없었고, 구성도 처음 5분 → 화면별 → 자주 하는 작업 → 막혔을 때 / 구성 요소 → 설치 → 설정 → 계정과 권한 → 운영 → 장애 대응 → 보안의 표준 순서가 아니었습니다.</p>
+<p><strong>그림은 전부 실제로 띄운 화면입니다</strong></p>
+<p>새 <code>scripts/guide-captures.py</code> 가 씨앗 데이터(<code>seed-scale.sql</code>)를 넣은 배포에 팀원·팀장·관리자로 로그인해 headless Chrome 1440×900 으로 27장을 찍어 <code>docs/assets/guide/</code> 에 놓습니다. 상황판은 팀장이 API 로 줄 몇 개를 만들어 빈 달력을 피하고 끝나면 지웁니다. 대상 주소와 계정은 <code>WEEKLY_GUIDE_*</code> 전용 변수로만 받고 루프백이 아니면 멈추며, 전역 설정은 읽기만 합니다. 화면의 이름·조직·보고 내용은 씨앗 데이터이며 실제 사람이 아닙니다. 캡처에 찍히던 제품 UI 의 예시 이메일도 <code>hong@example.com</code> 으로 바꿨습니다(관리자 화면의 Confluence 안내문, README, <code>docs/CONFLUENCE.md</code>).</p>
+<p><strong>두 안내서</strong></p>
+<p>사용자 가이드는 처음 5분(로그인 → 작성 → 제출) → 화면별 사용법(14개 화면, 그림 16장) → 자주 하는 작업(옛 문단 이관) → 막혔을 때(화면이 실제로 내는 문구 열다섯 줄) → 용어입니다. 관리자 가이드는 구성 요소 → 설치(<code>docker load</code> → compose → <code>readyz</code>) → 설정(<code>config.go</code> 의 환경 변수 다섯 개 전부와 관리자 화면 카드 열 개) → 계정과 권한 → 운영 → 장애 대응(로그 문구 그대로) → 보안이며, 문서에 적은 API 11개는 <code>app.go</code> 에서 메서드까지 확인했습니다. 옛 문서가 주장하던 "관리자 전체 키 즉시 폐기" 는 그런 라우트가 없어 뺐습니다 — 있는 것은 사용자 개인 설정의 <code>모든 키 회전</code> 입니다.</p>
+<p><strong>정본이 둘이 되지 않게</strong></p>
+<p>두 안내서의 PDF 는 프로젝트 공통 도구 <code>md2pdf.mjs</code> 가 표지·쪽번호·그림 배치를 통일해 굽고, <code>render-docs.py</code> 는 두 안내서에 대해 그림을 지원하는 HTML 만 만들고 PDF 는 건너뜁니다. 27장이 모두 문서에 쓰이고 스크립트에는 비밀번호 글자가 없습니다.</p>
+<p><strong>검증</strong></p>
+<p>실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>, 버전·OpenAPI·모달 검사를 통과했고, 프런트엔드 시험과 <code>tsc -b</code> 를 통과했습니다. 세 안내서(사용자·관리자·로드맵)의 HTML 과 PDF 를 다시 만들었습니다.</p>
+<p>제품 코드는 관리자 화면의 예시 이메일 한 줄만 바뀝니다. 마이그레이션도 새 환경변수도 API 변경도 없습니다.</p>
 </div>
 </body>
 </html>
