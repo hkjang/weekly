@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -128,8 +129,15 @@ func (a *App) mcpReportDetail(ctx context.Context, p *principal, id int64) (map[
 		return nil, errMCPReportUnreachable
 	}
 	report, err := a.loadReport(ctx, id)
-	if err != nil || report == nil {
+	if errors.Is(err, errNotFound) || (err == nil && report == nil) {
 		return nil, errMCPReportUnreachable
+	}
+	// A database that is down is not a report that does not exist. Folding the
+	// two together tells the caller a false thing it will repeat — 그 보고서는
+	// 없습니다 — and keeps the real failure out of the log, which is the same
+	// trade the screens already refuse to make.
+	if err != nil {
+		return nil, err
 	}
 	data := map[string]any{
 		"id": report.ID, "userId": report.UserID, "username": report.Username,
