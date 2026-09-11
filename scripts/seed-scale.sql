@@ -571,6 +571,66 @@ WHERE r.week_start > date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
+-- 부서 업무 상황판.
+--
+-- The board shipped four versions after this fixture was last widened, and the
+-- seed has never written a single row into it. Every measurement of it since
+-- has been a measurement of an empty month: scale-check prints 503 bytes and
+-- 7 ms for schedule_board_tasks and reports the deployment healthy, the guide
+-- captures had to create rows by hand and delete them again, and nobody has
+-- ever seen what a month of a three-hundred-person department draws like.
+--
+-- Three rows per person across the month the board opens on, which is where a
+-- reader lands. The spans and the priorities are spread for the same reason the
+-- report text is: a board where everything is 일반 and one day long cannot show
+-- the colours, the bars, or the 지연 count that the screen exists for.
+WITH subject(i, word) AS (VALUES
+ (0,'감사'),(1,'결산'),(2,'채용'),(3,'평가'),(4,'예산'),(5,'계약'),(6,'조달'),(7,'교육'),
+ (8,'점검'),(9,'이관'),(10,'출시'),(11,'정기보고')),
+ stage(i, word) AS (VALUES
+ (0,'준비'),(1,'자료 제출'),(2,'사전 협의'),(3,'실시'),(4,'결과 정리'),(5,'후속 조치'))
+INSERT INTO schedule_tasks(user_id, created_by, title, category, start_date, end_date,
+                           done_at, done_by, sr_id, priority, note)
+SELECT u.id,
+       -- One line in four is laid out by the team leader for somebody else,
+       -- which is the half of this a personal to-do list cannot do — and the
+       -- half that decides who may tick it.
+       CASE WHEN ((u.id + n) % 4) = 0 THEN coalesce(lead.id, u.id) ELSE u.id END,
+       subject.word || ' ' || stage.word,
+       (ARRAY['운영','기획','감사','인프라',''])[1 + ((u.id + n) % 5)],
+       month_start + (((u.id * 7 + n * 11) % 27)::int),
+       month_start + (((u.id * 7 + n * 11) % 27)::int) + ((ARRAY[0, 4, 9])[1 + n]::int),
+       -- Ticked only if it is over, and not all of them: 지연 is open work whose
+       -- last day has passed, and a board where everything past is ticked has
+       -- none of it.
+       CASE WHEN month_start + (((u.id * 7 + n * 11) % 27)::int) + ((ARRAY[0, 4, 9])[1 + n]::int) < (now() AT TIME ZONE 'Asia/Seoul')::date
+                 AND ((u.id + n) % 3) <> 0
+            THEN (month_start + (((u.id * 7 + n * 11) % 27)::int) + ((ARRAY[0, 4, 9])[1 + n]::int) + interval '17 hours')
+                 AT TIME ZONE 'Asia/Seoul'
+            END,
+       CASE WHEN month_start + (((u.id * 7 + n * 11) % 27)::int) + ((ARRAY[0, 4, 9])[1 + n]::int) < (now() AT TIME ZONE 'Asia/Seoul')::date
+                 AND ((u.id + n) % 3) <> 0
+            THEN u.id END,
+       -- One line in five came from a service request. The number is stored and
+       -- the address is a setting, so these stay right when the portal moves.
+       CASE WHEN ((u.id + n) % 5) = 0
+            THEN 'SR' || to_char(month_start, 'YYMM') || '-' || lpad(((u.id * 3 + n) % 9000 + 100)::text, 5, '0')
+            ELSE '' END,
+       (ARRAY['URGENT','IMPORTANT','IMPORTANT','NEEDED','NEEDED','NORMAL','NORMAL','NORMAL'])[1 + ((u.id * 5 + n) % 8)],
+       CASE WHEN ((u.id + n) % 6) = 0
+            THEN subject.word || ' ' || stage.word || ' 관련 유관 부서 협의 내용을 정리해 둡니다.'
+            ELSE '' END
+FROM users u
+CROSS JOIN generate_series(0, 2) AS n
+CROSS JOIN LATERAL (SELECT date_trunc('month', (now() AT TIME ZONE 'Asia/Seoul')::date)::date AS month_start) AS m
+JOIN subject ON subject.i = (u.id + n * 5) % 12
+JOIN stage ON stage.i = (u.id * 2 + n) % 6
+LEFT JOIN LATERAL (SELECT l.id FROM users l
+                    WHERE l.organization_id = u.organization_id AND l.role = 'TEAM_LEADER'
+                    ORDER BY l.id LIMIT 1) AS lead ON true
+WHERE u.username LIKE 'u%' AND u.active = true;
+
+-- ---------------------------------------------------------------------------
 -- What this fixture is worth, in one row.
 --
 -- Six defects in a row this cycle were hidden by a fixture where everything
@@ -618,6 +678,7 @@ DECLARE
   statuses int; issues int; plans int; blanks int; mail_states int; wk date;
   ended_4w int; ended_12w int; due_buckets int; decision_states int;
   late_reports int; thin_weeks int; gap_sizes int;
+  board_priorities int; board_overdue int; board_spans int;
 BEGIN
   wk := date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')::date)::date;
   SELECT count(DISTINCT status) INTO statuses FROM weekly_reports WHERE week_start = wk;
@@ -693,6 +754,23 @@ BEGIN
   SELECT count(DISTINCT status) INTO decision_states FROM decisions;
   IF decision_states < 3 THEN
     RAISE EXCEPTION '결정 상태가 %가지뿐입니다. 대체된 결정이 없으면 뒤집힌 결정을 다루는 코드가 실행되지 않습니다.', decision_states;
+  END IF;
+
+  -- 상황판이 비어 있으면 이 배포에서 부서 상황판은 측정도 확인도 되지 않습니다.
+  -- 색(중요도), 지연, 기간이 긴 줄 가운데 하나라도 없으면 그 화면이 무엇을
+  -- 보여 주는지 여기서는 볼 수 없습니다.
+  SELECT count(DISTINCT priority) INTO board_priorities FROM schedule_tasks;
+  IF board_priorities < 4 THEN
+    RAISE EXCEPTION '상황판 중요도가 %가지뿐입니다. 네 가지 색 가운데 그려지지 않는 것이 있습니다.', board_priorities;
+  END IF;
+  SELECT count(*) INTO board_overdue FROM schedule_tasks
+   WHERE done_at IS NULL AND end_date < (now() AT TIME ZONE 'Asia/Seoul')::date;
+  IF board_overdue < 50 THEN
+    RAISE EXCEPTION '마감이 지난 미완료가 %건뿐입니다. 상황판의 지연 칸이 굳습니다.', board_overdue;
+  END IF;
+  SELECT count(*) INTO board_spans FROM schedule_tasks WHERE end_date > start_date;
+  IF board_spans < 100 THEN
+    RAISE EXCEPTION '하루짜리가 아닌 줄이 %건뿐입니다. 여러 날에 걸친 업무를 그리는 부분이 확인되지 않습니다.', board_spans;
   END IF;
 
   SELECT count(DISTINCT status) INTO mail_states FROM report_mail_deliveries;

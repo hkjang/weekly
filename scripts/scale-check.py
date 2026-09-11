@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import http.cookiejar
 import json
+import pathlib
 import re
 import sys
 import time
@@ -144,7 +145,56 @@ PATHS = [
     "/api/v1/admin/audit",
     "/api/v1/search?q=인증",
     "/api/v1/decisions/open",
+    # 부서 업무 상황판. Added four versions after the board shipped, because it
+    # was never here: the screen that draws a month of a whole department, and
+    # the only list in the product that returns every row it finds with no cap
+    # and no total, had never been measured at any size.
+    "/api/v1/schedule?scope=TEAM",
+    "/api/v1/schedule?scope=TEAM&from={year}-01-01&to={year}-12-31",
+    # Four more the uncovered-paths report below turned up. The rule for being
+    # here is the one this file already applies: a response that grows with the
+    # deployment. The rest of that list is single objects and settings, which
+    # are the same size on a deployment of three and of three thousand.
+    "/api/v1/reports/current/included-materials",
+    "/api/v1/admin/organizations",
+    "/api/v1/admin/confluence/users/unmapped",
+    "/api/v1/import/history",
 ]
+
+
+def unmeasured_get_paths(base_paths):
+    """GET paths the product documents that this sweep never calls.
+
+    The list above is maintained by hand, and a door added later is a door
+    nobody measures — which is how the board came to be four versions old and
+    unmeasured while this file's own docstring argues that a measurer that
+    cannot see a door is the reason half its checks exist.
+
+    openapi.yaml is the right place to ask, because a separate check already
+    fails the build when it and the routes disagree. This only reports; deciding
+    that a path is not worth sweeping is a person's call, and seeing the list is
+    what makes it one.
+    """
+    document = pathlib.Path(__file__).resolve().parent.parent / "docs" / "openapi.yaml"
+    try:
+        text = document.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    # Paths in the document are relative to its own server base.
+    base = re.search(r"^servers:\n  - url: (\S+)", text, re.M)
+    prefix = base.group(1).rstrip("/") if base else ""
+    documented = []
+    for name in re.findall(r"^  (/[^\s:]+):", text, re.M):
+        block = text.split(f"\n  {name}:", 1)[1].split("\n  /", 1)[0]
+        if re.search(r"^    get:", block, re.M):
+            documented.append(prefix + name)
+    swept = {path.split("?", 1)[0] for path in base_paths}
+    # A path template with a placeholder is the same door as the one the sweep
+    # calls with a real id.
+    def shape(path):
+        return re.sub(r"\{[^}]*\}", "{}", path)
+    swept_shapes = {shape(path) for path in swept}
+    return sorted(name for name in documented if shape(name) not in swept_shapes)
 
 # Values that are supposed to change between two identical requests. Listed by
 # name: deciding at comparison time which differences are acceptable is how a
@@ -398,16 +448,72 @@ def main() -> int:
                 return error.code, error.read(), (time.time() - started) * 1000
 
         wide = "TEAM" if role != "USER" else "SELF"
+
+        # Asked, not assumed. This list used to be three names typed in here,
+        # and the surface grew to eight — so the four newest doors, including
+        # the one that reads a report's whole body, went unmeasured by the tool
+        # whose own comment above says a measurer that cannot see a door is the
+        # reason the hollow-answer check exists. The server knows what it
+        # offers; ask it.
+        def listed_tools():
+            payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                                  "params": {}}).encode()
+            request = urllib.request.Request(
+                args.base + "/mcp", data=payload, method="POST",
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+            try:
+                with urllib.request.urlopen(request) as response:
+                    return [tool["name"] for tool in json.loads(response.read())["result"]["tools"]]
+            except (urllib.error.HTTPError, KeyError, ValueError, TypeError):
+                return []
+
+        # Arguments for the tools that cannot be called with none. A tool that
+        # is listed and missing from here is reported rather than skipped: the
+        # next one added has to be given a call worth measuring, or somebody has
+        # to say why it needs none.
+        arguments_for = {
+            "period_report_rollup": {"kind": "YEAR", "period": str(args.year), "scope": wide},
+            "weekly_reports_text_search": {"q": "인증"},
+        }
+        tools = listed_tools()
+        if not tools:
+            print("\nMCP 점검을 건너뜁니다 — 도구 목록을 읽지 못했습니다.")
+            tools = []
+
+        # weekly_report_detail needs a report this account may read, and the
+        # search above is where one comes from. Measured with a real body
+        # rather than skipped: the body is the largest thing this door returns.
+        def a_readable_report():
+            status, body, _ = tool_call("weekly_reports_search", {"limit": 1})
+            try:
+                return json.loads(body)["result"]["structuredContent"]["reports"][0]["id"]
+            except (KeyError, ValueError, TypeError, IndexError):
+                return None
+
+        if "weekly_report_detail" in tools:
+            report_id = a_readable_report()
+            if report_id is not None:
+                arguments_for["weekly_report_detail"] = {"reportId": report_id}
+
         print(f"\n{'상태':>4} {'크기':>12} {'지연':>9}  MCP 도구")
-        for name, arguments in (
-                ("weekly_submission_overview", {}),
-                ("weekly_reports_search", {}),
-                ("period_report_rollup", {"kind": "YEAR", "period": str(args.year), "scope": wide}),
-        ):
+        for name in tools:
+            arguments = arguments_for.get(name, {})
             status, body, took = tool_call(name, arguments)
             notes = []
             if status != 200:
                 notes.append(str(status))
+            # A tool that refuses the call this check makes has not been
+            # measured, and a run that prints a size for it says otherwise.
+            try:
+                result = json.loads(body).get("result", {})
+            except (ValueError, AttributeError):
+                result = {}
+            if result.get("isError"):
+                refusal = ""
+                for part in result.get("content", []):
+                    refusal = part.get("text", "")
+                    break
+                notes.append(f"거부: {refusal[:60]} — 이 도구를 부를 인자를 scale-check 에 적어 주십시오")
             # The same ceiling the screens are held to. A tool result is not
             # allowed to be larger than a page just because nobody looks at it.
             if len(body) > args.max_bytes:
@@ -424,7 +530,15 @@ def main() -> int:
                 for key, value in structured.items():
                     if not isinstance(value, list) or not value:
                         continue
-                    total_key = next((k for k in (key + "Total", "total", "itemsTotal")
+                    names = [key + "Total", "total", "itemsTotal"]
+                    # When a payload carries one list, any *Total it carries is
+                    # that list's total — weekly_missing_submitters counts its
+                    # names in missingTotal, which none of the three names above
+                    # would ever find, so the cap on that list was invisible to
+                    # the one check written to see caps.
+                    if sum(1 for other in structured.values() if isinstance(other, list)) == 1:
+                        names += [k for k in structured if k.endswith("Total")]
+                    total_key = next((k for k in names
                                       if isinstance(structured.get(k), int)), None)
                     if total_key and structured[total_key] > len(value) and not structured.get("note"):
                         notes.append(f"{key} 가 {structured[total_key]}건 중 {len(value)}건인데 안내 문장이 없음")
@@ -433,6 +547,14 @@ def main() -> int:
             if notes:
                 findings.append((f"mcp:{name}", notes))
     print()
+    unmeasured = unmeasured_get_paths(PATHS)
+    if unmeasured:
+        # Informational, like the two blocks below it: a path can be absent for
+        # a good reason. What it must not be is absent unnoticed.
+        print(f"이 도구가 한 번도 부르지 않는 GET 경로 {len(unmeasured)}개")
+        for name in unmeasured:
+            print(f"  {name}")
+        print()
     if hollow:
         # Not counted against the run: the endpoint did nothing wrong. What is
         # wrong is reading the number as evidence.
