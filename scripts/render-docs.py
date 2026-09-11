@@ -17,6 +17,9 @@ from pathlib import Path
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 
+# 사용자·관리자 가이드의 PDF 는 공통 도구가 굽습니다. HTML 만 여기서 만듭니다.
+GUIDES = {"USER_GUIDE", "ADMIN_GUIDE"}
+
 STYLE = """
 * { box-sizing: border-box; }
 body { margin: 0; padding: 32px 18px 60px; background: #f1f5f9;
@@ -46,6 +49,8 @@ th { background: #2563eb; color: #fff; text-align: left; padding: 10px 12px; fon
 td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
 tr:nth-child(even) td { background: #f8fafc; }
 hr { border: 0; border-top: 1px solid #e2e8f0; margin: 34px 0; }
+figure { margin: 18px 0; } figure img { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; }
+figcaption { font-size: .82rem; color: #64748b; margin-top: 6px; }
 blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
   border-left: 4px solid #f59e0b; color: #78350f; border-radius: 0 8px 8px 0; }
 .print-btn { display: inline-block; margin-bottom: 20px; background: #2563eb; color: #fff;
@@ -166,6 +171,12 @@ def convert(markdown: str) -> tuple[str, str, list[str]]:
             close_bullets()
             out.append(f"<h2>{inline(stripped[2:])}</h2>")
             continue
+        image = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)$", stripped)
+        if image:
+            close_bullets()
+            out.append(f'<figure><img src="{html.escape(image.group(2), quote=True)}" alt="{html.escape(image.group(1), quote=True)}">'
+                       f"<figcaption>{inline(image.group(1))}</figcaption></figure>")
+            continue
         if stripped.startswith("> "):
             close_bullets()
             out.append(f"<blockquote>{inline(stripped[2:])}</blockquote>")
@@ -217,6 +228,11 @@ def build(name: str) -> None:
     target.write_text(page, encoding="utf-8")
     print(f"wrote {target.relative_to(DOCS.parent)}")
 
+    if name in GUIDES:
+        # 두 안내서의 PDF 는 프로젝트 공통 도구(aidev/tools/guide/md2pdf.mjs)가 표지·
+        # 쪽번호·그림 배치를 통일해 굽습니다. 여기서 한 벌 더 만들면 정본이 둘이 됩니다.
+        print(f"  {name}.pdf 는 md2pdf.mjs 로 만듭니다 (docs/ADMIN_GUIDE.md 머리말 참고)")
+        return
     chrome = next((path for path in (
         shutil.which("google-chrome"), shutil.which("chromium"),
         shutil.which("chromium-browser")) if path), None)
