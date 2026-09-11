@@ -39,6 +39,7 @@ CI 는 이 중 `go test`·`go vet`·`guard-check`·`modal-close-check`·`openapi
 | `fake-ai-gateway.py` | AI Gateway 자리. 요청의 JSON Schema 를 읽어 그것을 만족하는 답을 돌려줍니다 |
 | `fake-confluence.py` | Confluence Server 6.9.1 자리. 연동이 실제로 부르는 REST 두 개에 답합니다 |
 | `seed-captures.py` | 화면 캡처 첨부. 제품의 업로드 경로로 올려 행과 파일이 함께 생깁니다 |
+| `guide-captures.py` | 사용자·관리자 가이드의 그림. 씨 뿌린 배포에 로그인해 headless Chrome 이 1440×900 으로 찍고 `docs/assets/guide/` 에 놓습니다. 대상·계정은 `WEEKLY_GUIDE_*` 전용 변수로만 받고, 상황판에 만든 줄은 끝나면 지웁니다 |
 
 AI 를 쓰는 기능 셋 — **초안 작성 · 결정 제안 · PPTX 가져오기** — 은 씨앗으로 켤 수 없습니다. 그래서 씨를 뿌린 배포에서 그 화면들은 언제나 *"AI Gateway가 비활성화되어 있습니다"* 만 보여 주고, 뒤의 경로는 단위 시험 말고는 아무도 걷지 않습니다.
 

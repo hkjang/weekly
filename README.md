@@ -584,7 +584,7 @@ Background Worker는 CQL `lastmodified` 조건과 Pagination으로 마지막 성
 2. Keycloak/Weekly 이메일의 `@` 앞부분
 3. Weekly 로그인 아이디
 
-예를 들어 Keycloak 이메일 `hkjang@koreacb.com`은 Confluence 사용자 `hkjang`과 자동 연결됩니다. 후보 화면에서는 출처 Page를 확인하고 제목·실적·계획·이슈를 수정하거나 제외할 수 있습니다. 사용자 수정본은 재동기화로 덮어쓰지 않으며, 제외한 같은 Page는 같은 주차에 다시 생성되지 않습니다. 보고서에 반영해 저장한 항목은 `CONFLUENCE_AI` 출처가 기록됩니다.
+예를 들어 Keycloak 이메일 `hong@example.com`은 Confluence 사용자 `hong`과 자동 연결됩니다. 후보 화면에서는 출처 Page를 확인하고 제목·실적·계획·이슈를 수정하거나 제외할 수 있습니다. 사용자 수정본은 재동기화로 덮어쓰지 않으며, 제외한 같은 Page는 같은 주차에 다시 생성되지 않습니다. 보고서에 반영해 저장한 항목은 `CONFLUENCE_AI` 출처가 기록됩니다.
 
 구체적인 설정값, 동기화·장애 처리와 데이터 모델은 [Confluence 연동 문서](docs/CONFLUENCE.md)를 참고하십시오.
 
