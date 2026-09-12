@@ -152,6 +152,7 @@ type evidenceUseView struct {
 	Uses      []evidenceUse `json:"uses"`
 	Total     int           `json:"total"`
 	Limit     int           `json:"limit"`
+	Offset    int           `json:"offset"`
 }
 
 const evidenceUseLimit = 50
@@ -174,6 +175,13 @@ func (a *App) evidenceUses(w http.ResponseWriter, r *http.Request) {
 	}
 	p := currentPrincipal(r.Context())
 	limit := clampQueryInt(r, "limit", evidenceUseLimit, 1, evidenceUseLimit)
+	// The way to the rest. This list said "50건 중 12건만 보여 줍니다" and had
+	// nowhere to go from there — which the paging check's own opening argument
+	// names as the answer that is not an answer: a screen that knows it is
+	// incomplete and leaves the reader standing there. Whoever owns a page
+	// being cited is reading this precisely to find everyone affected before
+	// changing it, so the tail is the part they came for.
+	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
 
 	// The scope predicate names w and u. The report itself is aliased as w
 	// because it carries user_id, and its author as u.
@@ -198,7 +206,7 @@ func (a *App) evidenceUses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "근거 사용처를 조회할 수 없습니다.")
 		return
 	}
-	args = append(args, limit)
+	args = append(args, limit, offset)
 	rows, err := a.db.Query(r.Context(), `SELECT w.id, i.id, w.week_start::text, i.title, i.category,
 			coalesce(u.display_name,''), coalesce(o.name,''), s.detail, s.title
 		FROM report_item_sources s
@@ -208,14 +216,14 @@ func (a *App) evidenceUses(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN organizations o ON o.id = u.organization_id
 		WHERE s.kind = $1 AND s.reference = $2`+where+`
 		ORDER BY w.week_start DESC, i.id
-		LIMIT $`+strconv.Itoa(len(args)), args...)
+		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
 		a.logger.Error("evidence uses", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "근거 사용처를 조회할 수 없습니다.")
 		return
 	}
 	defer rows.Close()
-	view := evidenceUseView{Kind: kind, Reference: reference, Uses: []evidenceUse{}, Total: total, Limit: limit}
+	view := evidenceUseView{Kind: kind, Reference: reference, Uses: []evidenceUse{}, Total: total, Limit: limit, Offset: offset}
 	for rows.Next() {
 		var use evidenceUse
 		var sourceTitle string

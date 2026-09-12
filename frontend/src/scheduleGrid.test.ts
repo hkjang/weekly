@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, boardAfterFailure, byAssignee, compareTasks, doneRatio, draftOf, emptyDraft, gridRange,
+  addDays, boardAfterFailure, boardTruncation, byAssignee, compareTasks, doneRatio, donePercent, draftOf, emptyDraft, gridRange,
   monthGrid, monthLabel, monthStart, scheduleBody, shiftMonths, taskState, tasksOnDay, weekDays,
   withAssignee,
 } from './scheduleGrid'
@@ -157,10 +157,41 @@ describe('편집 창이 들고 가는 것', () => {
   })
 })
 
+describe('다 그리지 못한 달', () => {
+  const board = (total: number, drawn: number): ScheduleBoard => ({
+    from: '2026-09-01', to: '2026-09-30', scope: 'TEAM', today: '2026-09-11',
+    tasks: Array.from({ length: drawn }, (_, index) => task({ id: index + 1, startDate: '2026-09-11' })),
+    total,
+    summary: { total, done: 0, overdue: 0, today: 0, people: 1, urgent: 0 },
+  })
+
+  it('다 그렸으면 아무 말도 하지 않는다', () => {
+    expect(boardTruncation(board(3, 3))).toBe('')
+    expect(boardTruncation(undefined)).toBe('')
+  })
+
+  it('잘렸으면 몇 건 중 몇 건인지와 무엇을 하면 되는지 말한다', () => {
+    const notice = boardTruncation(board(2400, 2000))
+    expect(notice).toContain('2,400')
+    expect(notice).toContain('2,000')
+    // 위 요약은 전체를 센 것이므로, 문장이 숫자를 부정하지 않아야 합니다.
+    expect(notice).toContain('전체를 센 것')
+  })
+})
+
+describe('완료율은 요약과 같은 모집단을 말한다', () => {
+  it('그려진 줄이 아니라 세어 둔 수로 구한다', () => {
+    // 2,400건 가운데 1,200건이 완료인데 2,000건만 그려진 판.
+    expect(donePercent(1200, 2400)).toBe(50)
+    expect(donePercent(0, 0)).toBe(0)
+  })
+})
+
 describe('읽기가 실패했을 때 화면에 남는 것', () => {
   const board = (over: Partial<ScheduleBoard> = {}): ScheduleBoard => ({
     from: '2026-08-30', to: '2026-10-03', scope: 'TEAM', today: '2026-09-11',
     tasks: [task({ id: 1, startDate: '2026-09-11' })],
+    total: 1,
     summary: { total: 1, done: 0, overdue: 0, today: 1, people: 1, urgent: 0 },
     ...over,
   })

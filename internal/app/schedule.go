@@ -129,13 +129,30 @@ type scheduleSummary struct {
 }
 
 type scheduleResponse struct {
-	From    string             `json:"from"`
-	To      string             `json:"to"`
-	Scope   string             `json:"scope"`
-	Today   string             `json:"today"`
-	Tasks   []scheduleTaskView `json:"tasks"`
-	Summary scheduleSummary    `json:"summary"`
+	From  string             `json:"from"`
+	To    string             `json:"to"`
+	Scope string             `json:"scope"`
+	Today string             `json:"today"`
+	Tasks []scheduleTaskView `json:"tasks"`
+	// Total is how many rows the window holds, which is not always how many
+	// were sent. Measured on a 300 person department: one month is 900 rows and
+	// 274 KB, and the window may be a year — so this list, alone among the
+	// product's lists, answered with everything it found and no way for anyone
+	// to know whether that was everything. The summary above is counted over
+	// all of them, so the strip stays true even when the grid is not.
+	Total   int             `json:"total"`
+	Summary scheduleSummary `json:"summary"`
 }
+
+// scheduleTaskLimit is how many rows one board read sends.
+//
+// Above a month of a three-hundred-person department, which measured 900, and
+// below the size at which this stops being a board and becomes a data dump:
+// 2,000 rows is about 610 KB. The rows kept are the first in the board's own
+// order, so what survives is the start of the window rather than an arbitrary
+// slice — and the screen says it happened, because a wall board that quietly
+// omits work is worse than one that admits it cannot show it all.
+const scheduleTaskLimit = 2000
 
 // scheduleVisibility is who sees which rows.
 //
@@ -315,9 +332,17 @@ func (a *App) listScheduleTasks(w http.ResponseWriter, r *http.Request) {
 	for index := range tasks {
 		tasks[index].CanEdit = manageAll || owners[tasks[index].UserID] || tasks[index].CreatedByID == p.ID
 	}
+	// Counted before the cap, so 지연·오늘·긴급 describe the window and not the
+	// page. A header that agreed with a truncated grid would be the quieter
+	// half of the same lie.
+	summary := summariseSchedule(tasks, todayDate)
+	total := len(tasks)
+	if len(tasks) > scheduleTaskLimit {
+		tasks = tasks[:scheduleTaskLimit]
+	}
 	view := scheduleResponse{
 		From: from.Format(dateLayout), To: to.Format(dateLayout), Scope: scope,
-		Today: todayDate, Tasks: tasks, Summary: summariseSchedule(tasks, todayDate),
+		Today: todayDate, Tasks: tasks, Total: total, Summary: summary,
 	}
 	writeData(w, http.StatusOK, view)
 }

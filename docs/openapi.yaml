@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.297.0
+  version: 0.298.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -1345,6 +1345,9 @@ paths:
 
         `today`는 **서비스 시간대**의 오늘이다. 지연·오늘 판정이 브라우저 시간대에 따라
         달라지면 벽에 걸린 상황판이 보는 사람마다 다른 색이 된다.
+
+        한 번에 보내는 행은 **최대 2,000건**이고 `total`이 기간 전체의 건수다. 잘렸을 때
+        화면은 몇 건 중 몇 건인지 말하며, 요약 수치는 잘리기 전 전체를 센 값이다.
       parameters:
         - { in: query, name: from, schema: { type: string, format: date } }
         - { in: query, name: to, schema: { type: string, format: date } }
@@ -1367,6 +1370,13 @@ paths:
                       tasks:
                         type: array
                         items: { $ref: "#/components/schemas/ScheduleTask" }
+                      total:
+                        type: integer
+                        description: |
+                          기간에 걸쳐 있는 전체 건수. 한 번에 보내는 행은 최대 2,000건이므로
+                          이 값이 `tasks` 길이보다 크면 나머지는 오지 않았다. 300명 부서의 한
+                          달이 900행·274 KB이고 기간은 한 해까지 넓힐 수 있다. 아래 `summary`는
+                          잘리기 전 **전체**를 센 값이므로, 잘린 목록과 집계가 어긋나지 않는다.
                       summary:
                         type: object
                         properties:
@@ -1760,11 +1770,14 @@ paths:
         **조회 범위 안의 인용만 나열한다.** 범위 밖 보고가 같은 근거를 쓰고 있어도
         이름은 나오지 않는다. `total`도 같은 범위 안의 수다.
 
-        최대 50건.
+        한 번에 최대 50건이며 `offset`으로 나머지를 이어서 가져온다. 응답의 `total`이
+        받은 수보다 크면 뒤가 남아 있다는 뜻이다 — 이 패널을 여는 사람은 자기 페이지를
+        고치기 전에 영향받는 곳을 빠짐없이 찾으려고 열므로, 뒤쪽이 찾으러 온 것이다.
       parameters:
         - { name: kind, in: query, required: true, schema: { type: string, enum: [MANUAL, CONFLUENCE, PPTX, AI_TEXT, JIRA, GIT, CI, ITSM, API] } }
         - { name: reference, in: query, required: true, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }

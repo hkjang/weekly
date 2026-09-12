@@ -33,6 +33,15 @@ ALLOWED = {
     ("ImportPage.tsx", "ImportJobListView"):
         "Import 이력은 최근 50건이며 한 번짜리 이관 작업의 기록입니다. 오래된 작업은 "
         "다시 열 대상이 아니라 지난 일이고, 상세는 작업 번호로 직접 엽니다.",
+    ("DependencyPanel.tsx", "WorkLookupResponse"):
+        "고를 것을 찾는 자동완성입니다 — 두 글자부터 찾고, 결과가 많으면 뒤로 가는 것이 "
+        "아니라 더 적어 좁힙니다. 여기서 고르는 것은 목록이 아니라 한 건이고, 쪽을 넘겨 "
+        "서른 번째를 보는 것은 그 한 건을 찾는 방법이 아닙니다.",
+    ("SchedulePage.tsx", "ScheduleBoard"):
+        "달력에는 뒤쪽이 없습니다 — 한 달을 그리는 판에서 2,001번째 줄은 '다음 쪽' 이 "
+        "아니라 그 달의 다른 날에 있습니다. 잘렸을 때 화면이 몇 건 중 몇 건인지 말하고 "
+        "기간을 좁히거나 범위를 내 일정으로 바꾸라고 적으며, 위 집계는 잘리기 전 전체를 "
+        "센 값이라 판이 덜 그려져도 숫자는 부서 전체를 말합니다.",
     ("CommandPalette.tsx", "ReportListView"):
         "빠른 이동은 8건짜리 미리보기입니다. 목록이 아니라 지름길이고, 뒤는 히스토리 "
         "화면이 이어 받습니다.",
@@ -40,11 +49,20 @@ ALLOWED = {
 
 
 def paged_types(text):
-    """items 와 total 을 함께 가진 형(型) 이름."""
+    """잘릴 수 있는 목록을 담은 형(型) 이름 — 배열 한 칸과 total 을 함께 가진 것.
+
+    처음에는 `items` 라는 이름만 찾았습니다. 그 이름을 쓰지 않는 목록은 이
+    검사에 존재하지 않았고, 상황판이 정확히 그랬습니다: 배열의 이름이 `tasks`
+    라서, 서버가 한 번에 2,000건까지만 보내게 된 뒤에도 이 검사는 그 화면을 한
+    번도 본 적이 없었습니다. 자를 수 있는 목록인지를 이름으로 판정하면 다음에
+    생기는 목록도 이름이 다르다는 이유로 조용히 빠집니다.
+    """
     names = set()
     for match in re.finditer(r"(?:interface|type)\s+(\w+)\s*=?\s*\{(.*?)\}", text, re.S):
         name, body = match.group(1), match.group(2)
-        if "items" in body and re.search(r"\btotal\s*:", body):
+        if not re.search(r"\btotal\s*:", body):
+            continue
+        if re.search(r"\w+\s*:\s*\w+\[\]", body) or "items" in body:
             names.add(name)
     return names
 

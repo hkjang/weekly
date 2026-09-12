@@ -3,7 +3,7 @@ import { api, del, errorText, post, put } from '../api'
 import { Button, Card, Empty, Modal, PageHeader } from '../components'
 import { todayLocal } from '../localdate'
 import {
-  addDays, boardAfterFailure, byAssignee, doneRatio, draftOf, emptyDraft, gridRange, monthGrid,
+  addDays, boardAfterFailure, boardTruncation, byAssignee, doneRatio, donePercent, draftOf, emptyDraft, gridRange, monthGrid,
   monthLabel, monthStart, priorityLabels, priorityOrder, scheduleBody, shiftMonths, taskState,
   tasksOnDay, weekDays, weekdayNames, withAssignee,
 } from '../scheduleGrid'
@@ -160,6 +160,7 @@ export default function SchedulePage({ session, notify }: {
     setAnchor(view === 'week' ? addDays(anchor, direction * 7) : shiftMonths(anchor, direction))
 
   const summary = board?.summary
+  const truncation = boardTruncation(board)
   const heading = view === 'week'
     ? `${weekDays(anchor)[0]} ~ ${weekDays(anchor)[6]}`
     : monthLabel(anchor)
@@ -192,7 +193,7 @@ export default function SchedulePage({ session, notify }: {
 
       {summary && <div className="board-summary">
         <span><b>{summary.total}</b>건</span>
-        <span className="done"><b>{summary.done}</b> 완료 · {doneRatio(board?.tasks ?? [])}%</span>
+        <span className="done"><b>{summary.done}</b> 완료 · {donePercent(summary.done, summary.total)}%</span>
         <span className="today"><b>{summary.today}</b> 오늘</span>
         <span className="overdue"><b>{summary.overdue}</b> 지연</span>
         <span className="urgent"><b>{summary.urgent}</b> 긴급</span>
@@ -202,6 +203,7 @@ export default function SchedulePage({ session, notify }: {
         </span>
       </div>}
 
+      {truncation && <div className="edit-notice">{truncation}</div>}
       {failed && <div className="edit-notice" role="alert">{failed}</div>}
 
       {/* Every view below is drawn only from a board that was read. A grid of

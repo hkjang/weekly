@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.297.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.298.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4250,6 +4250,17 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><strong>검증</strong></p>
 <p>실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드 검사(새 시험 11개가 모두 자기가 지킨다고 적은 함수에 닿는 것을 확인), 새로 쓴 함수에 대한 변이 검사(살아남은 변이 없음), OpenAPI·모달·쪽넘김·버전 검사를 통과했고, 프런트엔드 144개 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다. 표면의 동작은 시험 전에 손으로 눌러 확인했습니다 — 위에 적은 증상은 모두 그렇게 받아 본 응답입니다.</p>
 <p>마이그레이션도 새 환경변수도 없습니다. 기존 도구 넷의 응답 모양은 그대로이고, 달라진 것은 잘못된 인자에 대한 답과 프로토콜 오류의 모양입니다.</p>
+<h3>v0.298.0 — 목록이 잘렸다는 사실과, 나머지로 가는 길</h3>
+<p>씨앗을 넣은 배포(305명·15,086건 보고·101,999개 항목)에 붙여 규모 점검을 돌리는 데서 시작했습니다. 먼저 계측기 자체가 문을 못 보고 있었습니다.</p>
+<p><strong>계측기가 못 보던 문들</strong></p>
+<p>규모 점검의 MCP 도구 목록은 손으로 적은 셋이었고 표면은 여덟이 되어 있었습니다 — 보고서 본문을 통째로 돌려주는 문을 포함해 넷이 한 번도 측정되지 않았습니다. 이제 <code>tools/list</code> 로 물어 전부 재고, 인자가 필요한데 표에 없어 거부당한 도구는 크기를 찍는 대신 지적합니다. <code>/api/v1/schedule</code> 은 목록에 아예 없었습니다: 부서 한 달을 그리는 화면이자 상한도 총계도 없이 찾은 것을 전부 돌려주는 유일한 목록인데, 어떤 규모에서도 잰 적이 없었습니다. <code>openapi.yaml</code> 의 GET 경로와 대조해 한 번도 부르지 않는 문을 매 실행마다 적게 했고, 그 목록을 보고 배포 크기에 따라 자라는 넷을 더 넣었습니다. 목록 상한 점검이 아는 총계 이름이 셋뿐이라 <code>missingTotal</code> 로 세는 미제출자 명단의 상한은 보이지 않았던 것도 함께 고쳤습니다. <code>seed-scale.sql</code> 은 상황판에 한 줄도 쓴 적이 없어서, 300명 한 달 900줄을 중요도 네 가지·지연 66건·여러 날 600건·SR 180건으로 씁니다.</p>
+<p><strong>상황판이 몇 건인지 말합니다</strong></p>
+<p>재 보니 300명 한 달이 <strong>900행 274 KB</strong> 였고, 기간은 한 해까지 넓힐 수 있습니다. 한 번에 2,000행까지 보내고 <code>total</code> 로 기간 전체 건수를 말합니다. 요약(지연·오늘·긴급)은 <strong>잘리기 전 전체</strong>를 센 값이라 판이 덜 그려져도 숫자는 부서 전체를 말하며, 화면은 몇 건 중 몇 건인지와 무엇을 하면 다 보이는지를 적습니다. 같은 줄에 있던 완료율이 그려진 줄만 세고 있던 것도 요약과 같은 모집단으로 맞췄습니다. 범위를 생략한 링크가 부서 판을 여는 기본값은 시험이 하나도 없었고, 이번에 생겼습니다.</p>
+<p><strong>"잘렸다" 는 답이 아닙니다</strong></p>
+<p>쪽 넘김 검사는 <code>items</code> 라는 이름의 배열만 목록으로 알아봤습니다. 이름이 다르면 검사에 존재하지 않았고, 상황판(<code>tasks</code>)이 정확히 그랬습니다. 배열 한 칸과 <code>total</code> 을 함께 가진 형이면 목록으로 보게 고치자 두 곳이 더 나왔습니다. 근거 사용처 패널은 "50건 중 12건만 보여 줍니다" 라고 말하고 거기서 끝나 있었는데 — 이 검사의 첫 문단이 그것을 답이 아니라고 적어 둔 바로 그 형태입니다 — 자기 페이지를 고치기 전에 영향받는 곳을 빠짐없이 찾으려고 여는 패널이므로 <code>offset</code> 과 <code>더 보기</code> 를 붙였습니다. 자동완성(선행 관계 찾기)은 뒤로 가는 것이 아니라 더 적어 좁히는 자리라 이유를 적었습니다. 시험이 하나도 없던 <code>evidenceUses</code> 에 조회 범위와 쪽 넘김 시험이 생겼습니다.</p>
+<p><strong>검증</strong></p>
+<p>실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드 검사, 새 함수의 변이 검사, OpenAPI·모달·쪽넘김·버전 검사를 통과했고, 프런트엔드 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다. 규모 점검은 씨앗을 넣은 배포에서 34개 경로·MCP 도구 여덟 개 모두 지적 사항 없음입니다.</p>
+<p>마이그레이션도 새 환경변수도 없습니다. <code>/api/v1/schedule</code> 응답에 <code>total</code> 이, <code>/api/v1/evidence/uses</code> 에 <code>offset</code> 이 생깁니다.</p>
 </div>
 </body>
 </html>

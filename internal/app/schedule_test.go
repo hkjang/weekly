@@ -374,3 +374,75 @@ func TestAnUnknownPriorityBecomesTheOrdinaryOne(t *testing.T) {
 		}
 	}
 }
+
+// 벽에 걸린 판이 다 그리지 못했을 때.
+//
+// This list returned everything it found, with no cap and no count — alone
+// among the product's lists. Measured on a three-hundred-person department, one
+// month is 900 rows and 274 KB, and the window may be a year. The number is not
+// the point: a board that silently shows some of the month says the department
+// has less work than it does, which is the exact opposite of what it is hung on
+// the wall for.
+//
+// guards: listScheduleTasks
+func TestTheBoardSaysHowMuchOfTheMonthItCouldNotDraw(t *testing.T) {
+	server := newTestServer(t)
+	org := server.createOrganization("큰 부서", "BIGBOARD")
+	leader := server.createUser("bigboard_lead", "TEAM_LEADER", &org)
+	memberID := server.meID(server.createUser("bigboard_mate", "USER", &org))
+
+	// One past the cap, written straight to the table: two thousand and one
+	// requests would measure the test harness rather than the board.
+	const rows = scheduleTaskLimit + 1
+	if _, err := server.app.db.Exec(server.ctx(), `
+		INSERT INTO schedule_tasks(user_id, created_by, title, start_date, end_date, priority)
+		SELECT $1, $1, '큰 부서 업무 ' || n, DATE '2026-05-01' + (n % 28), DATE '2026-05-01' + (n % 28),
+		       CASE WHEN n % 97 = 0 THEN 'URGENT' ELSE 'NORMAL' END
+		FROM generate_series(1, $2) AS n`, memberID, rows); err != nil {
+		t.Fatalf("fill the board: %v", err)
+	}
+
+	payload := server.board(leader, "2026-05-01", "2026-05-31", scopeTeam)
+	tasks := boardTasks(payload)
+	if len(tasks) != scheduleTaskLimit {
+		t.Fatalf("the board drew %d rows, want the cap of %d", len(tasks), scheduleTaskLimit)
+	}
+	total, _ := payload["total"].(float64)
+	if int(total) != rows {
+		t.Fatalf("the board says the window holds %v rows, want %d", payload["total"], rows)
+	}
+
+	// The strip above the grid counts the window, not the page. A header that
+	// agreed with a truncated grid would be the quieter half of the same lie —
+	// and 지연 is the number somebody acts on.
+	summary, _ := payload["summary"].(map[string]any)
+	if got, _ := summary["total"].(float64); int(got) != rows {
+		t.Errorf("요약 %v건, want %d", summary["total"], rows)
+	}
+	if got, _ := summary["urgent"].(float64); int(got) != rows/97 {
+		t.Errorf("긴급 %v건, want %d — counted over the page instead of the window", summary["urgent"], rows/97)
+	}
+
+	// A month that fits says nothing about a cap.
+	small := server.board(leader, "2026-07-01", "2026-07-31", scopeTeam)
+	if got, _ := small["total"].(float64); got != 0 {
+		t.Errorf("an empty month reports %v rows", small["total"])
+	}
+
+	// And a link with no 범위 opens the department's board, not the reader's own
+	// empty one. Every test here had always sent a scope, so the default the
+	// documentation states was kept by nothing — and a bookmarked board that
+	// quietly narrows to one person is the same wrong sentence about a
+	// department as a truncated one.
+	bare := server.request(http.MethodGet, "/api/v1/schedule?from=2026-05-01&to=2026-05-31", nil, leader)
+	if bare.Code != http.StatusOK {
+		t.Fatalf("a board link with no scope: %d %s", bare.Code, bare.Body.String())
+	}
+	payload = decodeData(t, bare)
+	if payload["scope"] != scopeTeam {
+		t.Errorf("the default scope is %v, want %s", payload["scope"], scopeTeam)
+	}
+	if got, _ := payload["total"].(float64); int(got) != rows {
+		t.Errorf("the default scope drew %v rows of the department's %d", payload["total"], rows)
+	}
+}

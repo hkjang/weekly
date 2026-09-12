@@ -11,7 +11,7 @@ export interface EvidenceUse {
   reportId: number; reportItemId: number; weekStart: string; title: string
   category: string; displayName: string; organizationName: string; detail?: string
 }
-export interface EvidenceUseView { kind: string; reference: string; title?: string; uses: EvidenceUse[]; total: number; limit: number }
+export interface EvidenceUseView { kind: string; reference: string; title?: string; uses: EvidenceUse[]; total: number; limit: number; offset: number }
 /** What happened to last week's issue, answered once when this week's is blank. */
 export type IssueOutcome = 'RESOLVED'
 export interface ReportItem { id?: number; workItemId?: number; candidateId?: number; category: string; title: string; currentResult: string; nextPlan: string; issue: string; managementAsk: string; progress: number; sortOrder: number; sources?: ItemSource[]; issueOutcome?: IssueOutcome }
@@ -398,6 +398,9 @@ export interface ScheduleTask {
 export interface ScheduleSummary { total: number; done: number; overdue: number; today: number; people: number; urgent: number }
 export interface ScheduleBoard {
   from: string; to: string; scope: 'SELF' | 'TEAM'; today: string
-  tasks: ScheduleTask[]; summary: ScheduleSummary
+  tasks: ScheduleTask[]
+  /** How many rows the window holds. Larger than tasks.length when the read hit its cap. */
+  total: number
+  summary: ScheduleSummary
 }
 export interface ITSMLookup { id: string; title: string; url?: string }

@@ -171,6 +171,23 @@ export function boardAfterFailure(
 }
 
 /**
+ * 화면이 이번 달을 다 그리지 못했을 때 할 말.
+ *
+ * 서버는 한 번에 2,000줄까지 보냅니다 — 300명 부서의 한 달이 900줄이고, 기간은
+ * 한 해까지 넓힐 수 있기 때문입니다. 잘린 것을 말하지 않으면 벽에 걸린 판은
+ * 남은 일이 없다고 말하는 셈이고, 그것은 판이 있는 이유를 정확히 뒤집습니다.
+ *
+ * 위쪽 요약(지연·오늘·긴급)은 잘리기 전 전체를 센 것이라 문장과 숫자가 어긋나지
+ * 않습니다. 그래서 여기서는 "무엇을 하면 다 볼 수 있는지" 만 말합니다.
+ */
+export function boardTruncation(board: ScheduleBoard | undefined): string {
+  if (!board || typeof board.total !== 'number') return ''
+  if (board.total <= board.tasks.length) return ''
+  return `이 기간에 ${board.total.toLocaleString()}건이 있고 ${board.tasks.length.toLocaleString()}건만 그렸습니다. `
+    + '위 집계는 전체를 센 것입니다. 기간을 좁히거나 범위를 내 일정으로 바꾸면 전부 보입니다.'
+}
+
+/**
  * 편집 창이 들고 있는 한 줄.
  *
  * 저장은 PUT 이고 PUT 은 줄 전체를 보낸 것으로 갈아 끼웁니다 — 그래서 창이 들고
@@ -232,8 +249,18 @@ export function withAssignee(draft: ScheduleDraft, assigneeId: number): Schedule
 
 /** How many of a set are finished, for the progress strip. */
 export function doneRatio(tasks: ScheduleTask[]): number {
-  if (tasks.length === 0) return 0
-  return Math.round((tasks.filter(task => task.done).length / tasks.length) * 100)
+  return donePercent(tasks.filter(task => task.done).length, tasks.length)
+}
+
+/**
+ * 완료율을 이미 세어 둔 수로 구합니다.
+ *
+ * 위쪽 요약은 잘리기 전 전체를 센 것이고 그려진 줄은 그 일부일 수 있으므로,
+ * 같은 줄에 있는 "N 완료" 와 "M%" 가 서로 다른 모집단을 말하면 안 됩니다.
+ */
+export function donePercent(done: number, total: number): number {
+  if (total <= 0) return 0
+  return Math.round((done / total) * 100)
 }
 
 export const weekdayNames = ['일', '월', '화', '수', '목', '금', '토']
