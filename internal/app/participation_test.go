@@ -78,6 +78,46 @@ func TestMyRecordCountsTheWeeksTheArrearsListCounts(t *testing.T) {
 		t.Errorf("아직 마감 전인 이번 주가 연속 기록을 %d에서 %d로 바꿨습니다", record.Streak, after.Streak)
 	}
 
+	// 끊긴 기록. 최근 세 주를 이어 냈지만 그 앞에 빠뜨린 주가 있고, 그보다 더
+	// 앞은 넉 주를 이어 냈습니다 — 연속은 3, 최고는 4, 마지막으로 빠뜨린 주는
+	// 그 사이의 한 주입니다. 최고 기록이 없으면 11주를 이어 가다 한 번 놓친
+	// 사람에게 남는 것이 "1주" 뿐이고, 그것은 스트릭이 격려가 아니라 벌이 되는
+	// 지점입니다.
+	keeper := server.createUser("recordkeeper", "USER", nil)
+	fileFor := func(cookie *http.Cookie, weekStart string) {
+		id, version := server.draft(cookie, weekStart, weekStart+" 보고")
+		if w := server.request(http.MethodPut, fmt.Sprintf("/api/v1/reports/%d", id), map[string]any{
+			"summary": weekStart + " 보고", "version": version,
+			"items": []map[string]any{{"category": "개발", "title": "한 일", "currentResult": "했습니다", "progress": 100}},
+		}, cookie); w.Code != http.StatusOK {
+			t.Fatalf("write %s: %d %s", weekStart, w.Code, w.Body.String())
+		}
+		if w := server.request(http.MethodPost, fmt.Sprintf("/api/v1/reports/%d/submit", id), nil, cookie); w.Code != http.StatusOK {
+			t.Fatalf("submit %s: %d %s", weekStart, w.Code, w.Body.String())
+		}
+	}
+	for _, back := range []int{8, 7, 6, 5, 3, 2, 1} {
+		fileFor(keeper, week(back))
+	}
+	keeperResponse := server.request(http.MethodGet, "/api/v1/me/participation", nil, keeper)
+	var keeperPayload struct {
+		Data participationView `json:"data"`
+	}
+	if err := json.Unmarshal(keeperResponse.Body.Bytes(), &keeperPayload); err != nil {
+		t.Fatalf("decode %s: %v", keeperResponse.Body.String(), err)
+	}
+	broken := keeperPayload.Data
+	if broken.Streak != 3 {
+		t.Errorf("연속 %d주, want 3 (%+v)", broken.Streak, broken)
+	}
+	if broken.Best != 4 {
+		t.Errorf("최고 %d주, want 4 — 끊기기 전의 기록이 남지 않습니다 (%+v)", broken.Best, broken)
+	}
+	if broken.LastMissed != week(4) {
+		t.Errorf("마지막으로 빠뜨린 주가 %q, want %q — 가장 최근이 아니라 가장 오래된 것을 말하면 이어 쓸 곳을 잘못 가리킵니다",
+			broken.LastMissed, week(4))
+	}
+
 	// 빠뜨린 주가 있으면 끊기고, 그 주가 어디였는지 말합니다.
 	newcomer := server.createUser("breaker", "USER", nil)
 	brokenID, brokenVersion := server.draft(newcomer, week(1), "최근 한 주만")
