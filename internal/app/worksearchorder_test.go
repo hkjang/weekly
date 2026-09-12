@@ -121,14 +121,18 @@ func TestWorkSearchSaysWhichPieceOfTheMeaningSearchIsMissing(t *testing.T) {
 
 	// Extension present, model unconfigured: the answer names the setting, and
 	// says it is something that can be turned on.
-	if capabilities.Vector {
-		server.app.capabilities = capabilities
-		text := reason()
-		if !strings.Contains(text, "임베딩") {
-			t.Errorf("with pgvector present and no embedding configured the reason is %q", text)
-		}
-		if strings.Contains(text, "pgvector") {
-			t.Errorf("an installed extension was reported as missing: %q", text)
-		}
+	//
+	// Claimed rather than detected, so this half runs on a database without the
+	// extension too. It is a test of which sentence the code chooses, not of
+	// pgvector — and gated on the real capability it silently did nothing on
+	// CI's plain PostgreSQL, where the mutation that collapses the two
+	// conditions into one survived while passing locally.
+	server.app.capabilities = databaseCapabilities{Vector: true}
+	text := reason()
+	if !strings.Contains(text, "임베딩") {
+		t.Errorf("with pgvector present and no embedding configured the reason is %q", text)
+	}
+	if strings.Contains(text, "pgvector") {
+		t.Errorf("an installed extension was reported as missing: %q", text)
 	}
 }
