@@ -31,10 +31,18 @@ has no captures, which is a different thing from not knowing."* 그 규칙이 �
 "불러오는 중…" 이었습니다 — 과거 보고·팀 주간보고·기간 업무보고·보고 분석.
 둘은 목록 요청에 `catch` 가 아예 없어서 처리되지 않은 거부까지 남겼습니다.
 
-만들면서 검사 자신이 두 번 틀렸습니다. 처음에는 "불러오지 못했습니다"를 찾는
+만들면서 검사 자신이 세 번 틀렸습니다. 처음에는 "불러오지 못했습니다"를 찾는
 정규식에 그 표현이 빠져 있어 대시보드를 거짓 양성으로 잡았고, 다음에는 화면이
 서버가 준 문구를 그대로 보여 준다는 것을 몰라 고쳐진 화면을 못 봤습니다. 그래서
 지금은 **직접 주입한 표시 문구**를 찾습니다.
+
+세 번째는 한국어입니다. "없습니다" 는 두 가지로 쓰입니다 — "발급된 API 키가
+없습니다" 는 **없다는 주장**이고, "…할 수 없습니다" 는 **못 한다는 말**입니다.
+둘을 같이 세는 바람에 개인 설정("메일 서버를 준비하기 전에는 지금 발송할 수
+없습니다")과 Import("AI Gateway가 비활성화되어 있어 새 파일을 분석할 수
+없습니다")를 지적했습니다. 둘 다 요청 실패와 무관하게 참인 설정 안내이고,
+지적받은 사람이 할 수 있는 일은 옳은 동작을 허용 목록에 적는 것뿐이었습니다 —
+그것은 이 파일이 예외에 대해 적어 둔 것과 정반대입니다.
 
 Run: python3 scripts/failstate-check.py --password ... [--user hq1]
 """
@@ -95,9 +103,18 @@ for (const [route, pattern] of SCREENS) {{
   await page.evaluate(() => document.querySelectorAll('.toast, [role=alert]').forEach(n => n.remove()))
   const text = (await page.locator('body').innerText()).replace(/[ \\t\\n]+/g, ' ')
   const spinners = await page.locator('.spinner, [class*=spinner], [class*=Spinner]').count()
+  // "없습니다" 가 두 가지 뜻으로 쓰입니다. 이 검사가 찾는 것은 **없다는 주장**
+  // ("발급된 API 키가 없습니다") 이고, "…할 수 없습니다" 는 못 한다는 말입니다
+  // — 메일 서버가 준비되지 않았다거나 AI 게이트웨이가 꺼져 있다는, 실패와
+  // 무관하게 참인 문장입니다. 그 둘을 같이 세는 바람에 검사가 멀쩡한 화면 둘을
+  // 지적했고, 지적당한 사람이 할 수 있는 일은 옳은 동작을 ALLOWED 에 적는 것
+  // 뿐이었습니다. 예외는 갚는 것이지 쌓는 것이 아니라고 이 파일이 먼저
+  // 적어 두었습니다.
+  const claims = (text.match(/[^.]{{0,44}}(?:아직[^.]{{0,34}})?없습니다/g) || [])
+    .filter(claim => !/수 없습니다$/.test(claim))
   out.push({{ route, said: text.includes({json.dumps(MARKER)}), spinners,
               loading: /불러오는 중|로딩/.test(text),
-              claims: (text.match(/[^.]{{0,44}}(?:아직[^.]{{0,34}})?없습니다/g) || []) }})
+              claims }})
 }}
 await browser.close()
 console.log(JSON.stringify(out))
