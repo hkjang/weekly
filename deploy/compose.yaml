@@ -1,6 +1,6 @@
 services:
   weekly:
-    image: weekly:v${WEEKLY_VERSION:-0.298.0}
+    image: weekly:v${WEEKLY_VERSION:-0.299.0}
     container_name: weekly
     restart: unless-stopped
     ports:

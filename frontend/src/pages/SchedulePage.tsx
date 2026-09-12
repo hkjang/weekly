@@ -3,7 +3,7 @@ import { api, del, errorText, post, put } from '../api'
 import { Button, Card, Empty, Modal, PageHeader } from '../components'
 import { todayLocal } from '../localdate'
 import {
-  addDays, boardAfterFailure, boardTruncation, byAssignee, doneRatio, donePercent, draftOf, emptyDraft, gridRange, monthGrid,
+  addDays, boardAfterFailure, boardTruncation, byAssignee, chipsForDay, doneRatio, donePercent, draftOf, emptyDraft, gridRange, monthGrid,
   monthLabel, monthStart, priorityLabels, priorityOrder, scheduleBody, shiftMonths, taskState,
   tasksOnDay, weekDays, weekdayNames, withAssignee,
 } from '../scheduleGrid'
@@ -215,7 +215,7 @@ export default function SchedulePage({ session, notify }: {
           className={`month-head${index === 0 ? ' sunday' : index === 6 ? ' saturday' : ''}`}>{name}</div>)}
         {weeks.flat().map(day => {
           const outside = day.slice(0, 7) !== anchor.slice(0, 7)
-          const dayTasks = tasksOnDay(tasks, day)
+          const { shown, hidden } = chipsForDay(tasks, day)
           return <div key={day} className={`month-cell${outside ? ' outside' : ''}${day === today ? ' is-today' : ''}`}
             onDoubleClick={() => openDay(day)}>
             <div className="month-date">
@@ -223,8 +223,13 @@ export default function SchedulePage({ session, notify }: {
               <button className="month-add" onClick={() => openDay(day)} aria-label={`${day} 일정 추가`}>＋</button>
             </div>
             <div className="month-tasks">
-              {dayTasks.map(task => <TaskChip key={task.id} task={task} today={today}
+              {shown.map(task => <TaskChip key={task.id} task={task} today={today}
                 onToggle={setDone} onOpen={openTask} compact/>)}
+              {/* 남은 줄은 수로만 말하고, 누르면 그 날이 든 주로 갑니다 — 주 보기는
+                  하루를 한 칸이 아니라 한 열로 그리므로 스무 줄도 읽힙니다. */}
+              {hidden > 0 && <button className="month-more"
+                onClick={() => { setAnchor(day); setView('week') }}
+                aria-label={`${day} 일정 ${hidden}건 더 보기`}>+{hidden}건 더</button>}
             </div>
           </div>
         })}

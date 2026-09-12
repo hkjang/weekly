@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.298.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.299.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4261,6 +4261,18 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><strong>검증</strong></p>
 <p>실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드 검사, 새 함수의 변이 검사, OpenAPI·모달·쪽넘김·버전 검사를 통과했고, 프런트엔드 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다. 규모 점검은 씨앗을 넣은 배포에서 34개 경로·MCP 도구 여덟 개 모두 지적 사항 없음입니다.</p>
 <p>마이그레이션도 새 환경변수도 없습니다. <code>/api/v1/schedule</code> 응답에 <code>total</code> 이, <code>/api/v1/evidence/uses</code> 에 <code>offset</code> 이 생깁니다.</p>
+<h3>v0.299.0 — 달력이 다시 달력이 됩니다</h3>
+<p>부서 규모의 씨앗을 넣은 배포에 팀장·조직장으로 로그인해 화면을 하나씩 열어 보는 데서 나왔습니다. 75명 조직의 9월 상황판은 <strong>225건</strong>이고, 그 화면은 이렇게 보였습니다: 첫 주 한 줄이 화면을 다 차지하고, 나머지 넉 주는 스크롤 아래에 있습니다.</p>
+<p><strong>한 칸은 네 줄까지</strong></p>
+<p>달력 칸이 내용만큼 늘어났기 때문입니다. 바쁜 하루가 스무 줄이면 그 주의 행 전체가 그만큼 커지고, "부서의 한 달을 한 화면에 두고" 라고 적어 둔 화면에서 한 달이 보이지 않습니다. 벽에 걸고 3미터 뒤에서 읽는 판이라면 스무 줄은 읽히지도 않습니다.</p>
+<p>이제 한 칸은 <strong>네 줄까지</strong> 그리고 나머지는 <code>+N건 더</code> 로 말합니다. 누르면 그 날이 든 <strong>주 보기</strong>로 갑니다 — 주 보기는 하루를 한 칸이 아니라 한 열로 그리므로 마흔 줄도 읽힙니다. 다섯 주가 한 화면에 들어오고, 행의 키가 모두 같아집니다.</p>
+<p><strong>끝난 줄은 뒤로</strong></p>
+<p>칸에 상한이 생기자 순서가 문제가 됐습니다. 정렬은 중요도만 보고 있어서 <strong>끝난 긴급 네 줄이 남은 일을 전부 <code>+N건 더</code> 뒤로 밀어냈습니다.</strong> 늘어나는 칸에서는 아무것도 숨기지 않던 순서가, 상한이 생긴 순간 가장 중요한 것을 숨기는 순서가 된 것입니다. 벽에 걸린 판에서 읽어야 하는 것은 지운 줄이 아니라 남은 줄이고 — 화면에 <code>완료 숨기기</code> 가 따로 있는 것도 같은 이유입니다 — 그래서 완료는 언제나 뒤로 갑니다. 월·주·담당자 보기가 모두 같은 함수를 쓰므로 세 곳이 함께 바뀝니다.</p>
+<p><strong>"못 한다" 를 "없다" 로 세지 않습니다</strong></p>
+<p>실패 상태 검사가 멀쩡한 화면 둘을 지적하고 있었습니다. 개인 설정의 "메일 서버를 준비하기 전에는 지금 발송할 수 없습니다" 와 Import 의 "AI Gateway가 비활성화되어 있어 새 파일을 분석할 수 없습니다" 입니다. 한국어에서 "…할 수 없습니다" 는 못 한다는 말이지 없다는 말이 아닌데, "없습니다" 로 끝난다는 이유로 없다는 주장으로 세였습니다. 지적받은 사람이 할 수 있는 일은 옳은 동작을 허용 목록에 적는 것뿐이었고, 그것은 그 파일이 예외에 대해 적어 둔 것과 정반대입니다.</p>
+<p><strong>검증</strong></p>
+<p>씨앗을 넣은 배포(305명·15,086건 보고·상황판 900줄)에서 접근성 검사(조작 지점 537개 전부 이름·키보드), 실패 상태 검사(화면 14곳), 규모 점검을 통과했고 화면을 직접 열어 눈으로 확인했습니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드·OpenAPI·모달·쪽넘김·버전 검사, 프런트엔드 153개 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다.</p>
+<p>마이그레이션도 새 환경변수도 API 변경도 없습니다.</p>
 </div>
 </body>
 </html>

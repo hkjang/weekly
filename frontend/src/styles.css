@@ -412,6 +412,8 @@ a.sr-tag:hover{background:#cbd5e1;text-decoration:underline}
 .board-fullscreen .board-summary b{font-size:1.35rem}
 .board-fullscreen .month-grid{flex:1}
 .board-fullscreen .month-cell{min-height:120px}
+.month-more{border:0;background:transparent;color:#2563eb;font-size:.76rem;font-weight:600;text-align:left;padding:1px 5px;border-radius:5px;cursor:pointer}
+.month-more:hover{background:#eff6ff}
 .board-fullscreen .task-chip,.board-fullscreen .task-chip.compact{font-size:1rem;padding:4px 6px}
 .board-fullscreen .month-head{font-size:1rem}
 

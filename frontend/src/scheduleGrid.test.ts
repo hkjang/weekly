@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, boardAfterFailure, boardTruncation, byAssignee, compareTasks, doneRatio, donePercent, draftOf, emptyDraft, gridRange,
+  addDays, boardAfterFailure, boardTruncation, byAssignee, chipsForDay, compareTasks, doneRatio, donePercent, draftOf, emptyDraft, gridRange,
   monthGrid, monthLabel, monthStart, scheduleBody, shiftMonths, taskState, tasksOnDay, weekDays,
   withAssignee,
 } from './scheduleGrid'
@@ -211,5 +211,59 @@ describe('읽기가 실패했을 때 화면에 남는 것', () => {
 
   it('한 번도 읽지 못했으면 남길 것이 없다', () => {
     expect(boardAfterFailure(undefined, '2026-08-30', '2026-10-03', 'TEAM')).toBeUndefined()
+  })
+})
+
+describe('바쁜 하루가 든 달력 칸', () => {
+  const day = '2026-09-11'
+  const many = (count: number) => Array.from({ length: count }, (_, index) => task({
+    id: index + 1, startDate: day, endDate: day,
+    priority: index === 9 ? 'URGENT' : 'NORMAL',
+  }))
+
+  it('한가한 날은 그대로 다 그린다', () => {
+    const { shown, hidden } = chipsForDay(many(3), day)
+    expect(shown).toHaveLength(3)
+    expect(hidden).toBe(0)
+  })
+
+  it('넘치면 앞의 몇 줄만 그리고 나머지는 수로 말한다', () => {
+    const { shown, hidden } = chipsForDay(many(20), day)
+    expect(shown.length + hidden).toBe(20)
+    expect(hidden).toBe(20 - shown.length)
+    // 한 칸이 스무 줄이면 그 주의 행이 화면을 다 차지합니다. 남는 줄은 적어야
+    // 달이 달로 보입니다.
+    expect(shown.length).toBeLessThanOrEqual(6)
+  })
+
+  it('잘리는 쪽은 언제나 덜 급한 쪽이다', () => {
+    // 열 번째가 긴급입니다 — 줄 수가 넘쳐도 그 줄은 남아야 합니다.
+    const { shown } = chipsForDay(many(20), day)
+    expect(shown.some(item => item.priority === 'URGENT')).toBe(true)
+  })
+
+  it('그 날에 걸치지 않는 줄은 세지 않는다', () => {
+    const elsewhere = task({ id: 99, startDate: '2026-10-01', endDate: '2026-10-01' })
+    const { shown, hidden } = chipsForDay([...many(2), elsewhere], day)
+    expect(shown).toHaveLength(2)
+    expect(hidden).toBe(0)
+  })
+})
+
+describe('끝난 줄은 뒤로', () => {
+  const day = '2026-09-11'
+  it('남은 일이 지운 일보다 먼저 그려진다', () => {
+    const finishedUrgent = task({ id: 1, startDate: day, endDate: day, priority: 'URGENT', done: true })
+    const openNormal = task({ id: 2, startDate: day, endDate: day, priority: 'NORMAL' })
+    expect([finishedUrgent, openNormal].sort(compareTasks).map(item => item.id)).toEqual([2, 1])
+  })
+
+  it('칸이 넘칠 때 끝난 줄이 남은 줄을 밀어내지 않는다', () => {
+    const done = Array.from({ length: 8 }, (_, index) => task({
+      id: index + 1, startDate: day, endDate: day, priority: 'URGENT', done: true,
+    }))
+    const open = task({ id: 99, startDate: day, endDate: day, priority: 'NORMAL' })
+    const { shown } = chipsForDay([...done, open], day)
+    expect(shown.map(item => item.id)).toContain(99)
   })
 })

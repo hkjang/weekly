@@ -107,6 +107,12 @@ export function tasksOnDay(tasks: ScheduleTask[], day: string): ScheduleTask[] {
 }
 
 export function compareTasks(left: ScheduleTask, right: ScheduleTask): number {
+  // 끝난 것은 뒤로. 중요도만 보던 순서는 칸이 늘어나는 대로 늘어나는 동안에는
+  // 아무것도 숨기지 않았지만, 칸에 상한이 생긴 지금은 **끝난 긴급 네 줄이 남은
+  // 일을 전부 "+N건 더" 뒤로 밀어냅니다**. 벽에 걸린 판에서 읽어야 하는 것은
+  // 지운 줄이 아니라 남은 줄이고, 화면에 '완료 숨기기' 가 따로 있는 것도 같은
+  // 이유입니다.
+  if (left.done !== right.done) return left.done ? 1 : -1
   const rank = priorityOrder.indexOf(left.priority) - priorityOrder.indexOf(right.priority)
   if (rank !== 0) return rank
   if (left.startDate !== right.startDate) return left.startDate < right.startDate ? -1 : 1
@@ -168,6 +174,28 @@ export function boardAfterFailure(
 ): ScheduleBoard | undefined {
   if (!board) return undefined
   return board.from === from && board.to === to && board.scope === scope ? board : undefined
+}
+
+/**
+ * 한 칸에 그릴 줄과, 그리지 못한 줄의 수.
+ *
+ * 달력 칸은 늘어나는 대로 늘어났습니다. 75명 조직의 9월은 225건이고, 바쁜 하루가
+ * 스무 줄이면 그 주의 행 전체가 그만큼 키가 커져서 **한 주가 화면을 다 차지합니다**
+ * — "부서의 한 달을 한 화면에 두고" 라고 적어 둔 화면에서 첫 주밖에 보이지
+ * 않습니다. 벽에 걸고 3미터 뒤에서 읽는 판이라면 스무 줄은 읽히지도 않습니다.
+ *
+ * 그래서 중요도 순으로 앞의 몇 줄만 그리고 나머지는 수로 말합니다. 어느 줄이
+ * 남는지는 compareTasks 가 이미 정한 순서 — 긴급이 먼저, 지연이 먼저 — 라서
+ * 잘리는 쪽은 언제나 덜 급한 쪽입니다.
+ */
+export const monthCellChips = 4
+
+export function chipsForDay(tasks: ScheduleTask[], day: string, limit = monthCellChips): {
+  shown: ScheduleTask[]; hidden: number
+} {
+  const all = tasksOnDay(tasks, day)
+  if (all.length <= limit) return { shown: all, hidden: 0 }
+  return { shown: all.slice(0, limit), hidden: all.length - limit }
 }
 
 /**
