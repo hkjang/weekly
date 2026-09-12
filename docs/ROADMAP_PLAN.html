@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.299.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.300.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4273,6 +4273,20 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><strong>검증</strong></p>
 <p>씨앗을 넣은 배포(305명·15,086건 보고·상황판 900줄)에서 접근성 검사(조작 지점 537개 전부 이름·키보드), 실패 상태 검사(화면 14곳), 규모 점검을 통과했고 화면을 직접 열어 눈으로 확인했습니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드·OpenAPI·모달·쪽넘김·버전 검사, 프런트엔드 153개 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다.</p>
 <p>마이그레이션도 새 환경변수도 API 변경도 없습니다.</p>
+<h3>v0.300.0 — 달력에서 끌어다 놓고, 자기 기록을 봅니다</h3>
+<p>이번 판은 같은 종류의 제품들이 무엇을 갖추고 있는지 찾아보고 그중 이 제품에 맞는 것을 고른 결과입니다. 참고한 것은 상태보고 도구들의 기능 비교(Range·Geekbot·ClickUp·Taskade), 달력 UI 관례(드래그 이동, 뷰 전환 단축키, 사이드 패널), 그리고 스트릭(연속 기록) 설계에 관한 글들입니다.</p>
+<p><strong>끌어다 놓기</strong></p>
+<p>달력에서 가장 자주 꼽히는 조작인데 상황판에는 없었습니다 — 하루를 미루려면 창을 열고 날짜 두 칸을 고쳐야 했습니다. 월 보기에서 줄을 끌어 다른 날에 놓으면 옮겨집니다. <strong>기간은 보존합니다</strong>: 9/7~9/11 짜리 닷새 업무를 9/9 에 놓으면 9/9~9/13 이지 9/9 하루짜리가 되지 않습니다. 체크박스와 같은 방식으로 먼저 그린 뒤 서버가 거절하면 되돌립니다. 보내는 것은 편집 창이 보내는 것과 <strong>같습니다</strong> — PUT 이 줄 전체를 갈아 끼우므로, 화면에 그려지지 않는 업무 링크를 빠뜨리면 끌어 놓기 한 번에 그 연결이 조용히 끊깁니다(v0.295 가 편집 창에서 고친 것과 같은 함정). 마우스를 쓰지 않는 사람에게는 편집 창이 그대로 남아 있고, 접근성 검사는 조작 지점 456개가 모두 이름을 말하고 키보드로 닿는 것을 확인합니다.</p>
+<p><strong>단축키와 기억</strong></p>
+<p><code>M</code> 월 · <code>W</code> 주 · <code>L</code> 목록 · <code>P</code> 담당자 · <code>T</code> 오늘 · <code>←</code> <code>→</code> 앞뒤. Google Calendar 를 쓰는 사람이 이미 손에 익힌 키이고, 벽 앞에서 노트북 하나로 판을 넘기는 사람에게는 이것이 가장 빠릅니다. 글을 쓰는 중이거나 창이 열려 있을 때는 듣지 않습니다 — 제목에 <code>w</code> 를 적다가 보기가 바뀌면 그 편이 더 나쁩니다. 마지막으로 고른 보기·범위·완료 숨기기는 이 브라우저에 기억됩니다(발표 모드의 테마와 같은 방식).</p>
+<p><strong>나의 제출 기록</strong></p>
+<p>습관이 제품입니다. 누가 밀렸는지는 관리자가 늘 볼 수 있었고, 정작 이번 주에 무언가 할 수 있는 <strong>본인</strong>은 자기 기록을 볼 자리가 없었습니다. 대시보드에 연속 제출 주차·최고 기록·최근 52주 중 낸 주가 나옵니다.</p>
+<p>세는 주는 미제출 명단이 세는 주와 <strong>같습니다</strong> — 마감이 지난 주만, 계정이 생긴 뒤부터, 보고서는 날짜가 아니라 그 7일을 덮는지로. 그리고 <strong>아직 열려 있는 이번 주는 기록에 넣지 않습니다</strong>: 넣으면 월요일 아침마다 모두의 기록이 끊기고 금요일에 되살아나며, 그것은 사람에 대한 거짓말입니다. 이번 주는 "이미 냈습니다 / 아직입니다" 로 따로 말하고, 마지막으로 빠뜨린 주를 적어 어디부터 이어 쓰면 되는지 알려 줍니다.</p>
+<p><strong>고르지 않은 것</strong></p>
+<p>찾아본 것 가운데 넣지 않은 것도 적어 둡니다. 기분·사기 체크(mood pulse)는 사내 보고 체계에서 수집 주체와 용도가 분명하지 않으면 감시로 읽히기 쉬워 제품이 먼저 제안할 것이 아니라고 보았고, 칭찬(kudos)은 새 데이터 모델과 권한 규칙이 필요해 한 판에 끼워 넣을 크기가 아닙니다. 경영진 정기 다이제스트 메일은 이미 있는 메일 흐름(제출·권고·마감 임박) 위에 올리는 것이 맞아 다음 판의 후보로 둡니다.</p>
+<p><strong>검증</strong></p>
+<p>씨앗을 넣은 배포(305명·15,086건 보고·상황판 900줄)에서 브라우저로 직접 확인했습니다: 단축키로 주·월 전환과 앞뒤 이동, 9/1~9/10 짜리 아흐레 업무를 23일 칸에 끌어 놓아 <strong>9/23~10/2</strong> 로 옮겨지는 것, 대시보드의 22주 연속·최근 52주 중 49주. 접근성 검사와 실패 상태 검사(화면 14곳)를 통과했고, 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드·OpenAPI·모달·쪽넘김·버전 검사, 프런트엔드 159개 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다.</p>
+<p>마이그레이션도 새 환경변수도 없습니다. <code>GET /api/v1/me/participation</code> 이 생깁니다.</p>
 </div>
 </body>
 </html>

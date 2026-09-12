@@ -4,8 +4,8 @@ import { Button, Card, Empty, Modal, PageHeader } from '../components'
 import { todayLocal } from '../localdate'
 import {
   addDays, boardAfterFailure, boardTruncation, byAssignee, chipsForDay, doneRatio, donePercent, draftOf, emptyDraft, gridRange, monthGrid,
-  monthLabel, monthStart, priorityLabels, priorityOrder, scheduleBody, shiftMonths, taskState,
-  tasksOnDay, weekDays, weekdayNames, withAssignee,
+  monthLabel, monthStart, movedDates, priorityLabels, priorityOrder, readBoardPreference, scheduleBody, shiftMonths, taskState,
+  tasksOnDay, weekDays, weekdayNames, withAssignee, writeBoardPreference,
 } from '../scheduleGrid'
 import type { ScheduleDraft } from '../scheduleGrid'
 import type {
@@ -27,9 +27,9 @@ import type {
 
 type ViewName = 'month' | 'week' | 'list' | 'people'
 
-const views: { id: ViewName; label: string }[] = [
-  { id: 'month', label: '월' }, { id: 'week', label: '주' },
-  { id: 'list', label: '목록' }, { id: 'people', label: '담당자' },
+const views: { id: ViewName; label: string; key: string }[] = [
+  { id: 'month', label: '월', key: 'M' }, { id: 'week', label: '주', key: 'W' },
+  { id: 'list', label: '목록', key: 'L' }, { id: 'people', label: '담당자', key: 'P' },
 ]
 
 export default function SchedulePage({ session, notify }: {
@@ -37,14 +37,22 @@ export default function SchedulePage({ session, notify }: {
   notify: (message: string, kind?: 'success' | 'error') => void
 }) {
   const [anchor, setAnchor] = useState(todayLocal())
-  const [view, setView] = useState<ViewName>('month')
-  const [scope, setScope] = useState<'SELF' | 'TEAM'>('TEAM')
-  const [hideDone, setHideDone] = useState(false)
+  // 보기·범위·완료 숨기기는 사람마다 거의 고정돼 있습니다. 담당자 보기로 일하는
+  // 사람이 매번 담당자 보기를 다시 고르게 하지 않습니다 — 저장되는 곳은 이
+  // 브라우저뿐이고, 읽지 못하면 기본값입니다.
+  const [view, setView] = useState<ViewName>(() =>
+    readBoardPreference<ViewName>('view', ['month', 'week', 'list', 'people'], 'month'))
+  const [scope, setScope] = useState<'SELF' | 'TEAM'>(() =>
+    readBoardPreference<'SELF' | 'TEAM'>('scope', ['SELF', 'TEAM'], 'TEAM'))
+  const [hideDone, setHideDone] = useState(() =>
+    readBoardPreference('hideDone', ['true', 'false'], 'false') === 'true')
   const [board, setBoard] = useState<ScheduleBoard>()
   const [failed, setFailed] = useState('')
   const [draft, setDraft] = useState<ScheduleDraft>()
   const [members, setMembers] = useState<{ id: number; displayName: string; organizationName: string }[]>([])
   const [fullscreen, setFullscreen] = useState(false)
+  /** 끌고 있는 줄이 지금 어느 칸 위에 있는지. 놓을 자리를 보여 주기 위해서만 씁니다. */
+  const [dropDay, setDropDay] = useState('')
   const boardRef = useRef<HTMLDivElement>(null)
 
   // The week view walks by weeks and everything else by months, so the range
@@ -74,6 +82,9 @@ export default function SchedulePage({ session, notify }: {
   }, [range.from, range.to, scope])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => { writeBoardPreference('view', view) }, [view])
+  useEffect(() => { writeBoardPreference('scope', scope) }, [scope])
+  useEffect(() => { writeBoardPreference('hideDone', String(hideDone)) }, [hideDone])
   useEffect(() => {
     api<ReportInclusionPreference>('/api/v1/me/report-inclusions')
       .then(value => setMembers(value.members ?? []))
@@ -127,6 +138,39 @@ export default function SchedulePage({ session, notify }: {
     }
   }
 
+  /**
+   * 줄을 다른 날로 끌어다 놓기.
+   *
+   * 달력에서 가장 자주 쓰이는 조작인데 이 판에는 없었습니다 — 하루를 미루려면
+   * 창을 열고 날짜 두 칸을 고쳐야 했습니다. 기간은 보존되고(닷새짜리는 닷새로
+   * 옮겨집니다), 체크박스와 같은 방식으로 먼저 그린 뒤 서버가 거절하면 되돌립니다.
+   *
+   * 보내는 것은 창이 보내는 것과 같습니다. PUT 이 줄 전체를 갈아 끼우므로,
+   * 화면에 그려지지 않는 업무 링크를 빠뜨리면 끌어 놓기 한 번에 그 연결이
+   * 조용히 끊깁니다 — v0.295 가 편집 창에서 고친 것과 같은 함정입니다.
+   */
+  const moveTask = async (task: ScheduleTask, day: string) => {
+    if (!task.canEdit) {
+      notify('이 줄을 옮길 권한이 없습니다.', 'error')
+      return
+    }
+    const moved = movedDates(task, day)
+    if (moved.startDate === task.startDate && moved.endDate === task.endDate) return
+    const before = { startDate: task.startDate, endDate: task.endDate }
+    const paint = (dates: { startDate: string; endDate: string }) => setBoard(current => current && ({
+      ...current,
+      tasks: current.tasks.map(item => item.id === task.id ? { ...item, ...dates } : item),
+    }))
+    paint(moved)
+    try {
+      await put(`/api/v1/schedule/${task.id}`, scheduleBody({ ...draftOf(task), ...moved }))
+      await load()
+    } catch (error) {
+      paint(before)
+      notify(errorText(error, '일정을 옮기지 못했습니다.'), 'error')
+    }
+  }
+
   const save = async (value: ScheduleDraft) => {
     // 수정은 줄 전체를 갈아 끼웁니다 — 보내지 않은 것은 지워지므로 창이 든 것을
     // 전부 보냅니다. scheduleBody 를 참조하십시오.
@@ -159,6 +203,34 @@ export default function SchedulePage({ session, notify }: {
   const step = (direction: number) =>
     setAnchor(view === 'week' ? addDays(anchor, direction * 7) : shiftMonths(anchor, direction))
 
+  /**
+   * 달력의 관습을 그대로 씁니다 — M 월, W 주, L 목록, P 담당자, T 오늘,
+   * 화살표로 앞뒤. Google Calendar 를 쓰는 사람이 이미 손에 익힌 키이고,
+   * 벽 앞에서 노트북 하나로 판을 넘기는 사람에게는 이것이 가장 빠릅니다.
+   *
+   * 글을 쓰는 중에는 듣지 않습니다. 창이 열려 있을 때도 마찬가지입니다 —
+   * 제목에 'w' 를 적다가 보기가 바뀌면 그 편이 더 나쁩니다.
+   */
+  useEffect(() => {
+    const keys: Record<string, () => void> = {
+      m: () => setView('month'), w: () => setView('week'),
+      l: () => setView('list'), p: () => setView('people'),
+      t: () => setAnchor(todayLocal()),
+      arrowleft: () => step(-1), arrowright: () => step(1),
+    }
+    const listen = (event: KeyboardEvent) => {
+      if (draft || event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+      const run = keys[event.key.toLowerCase()]
+      if (!run) return
+      event.preventDefault()
+      run()
+    }
+    document.addEventListener('keydown', listen)
+    return () => document.removeEventListener('keydown', listen)
+  }, [draft, view, anchor])
+
   const summary = board?.summary
   const truncation = boardTruncation(board)
   const heading = view === 'week'
@@ -171,14 +243,15 @@ export default function SchedulePage({ session, notify }: {
     <div className={`board-shell${fullscreen ? ' board-fullscreen' : ''}`} ref={boardRef}>
       <div className="board-bar">
         <div className="board-move">
-          <button className="board-step" onClick={() => step(-1)} aria-label="이전">‹</button>
+          <button className="board-step" onClick={() => step(-1)} aria-label="이전" title="이전 (←)">‹</button>
           <strong className="board-heading">{heading}</strong>
-          <button className="board-step" onClick={() => step(1)} aria-label="다음">›</button>
-          <Button variant="ghost" onClick={() => setAnchor(todayLocal())}>오늘</Button>
+          <button className="board-step" onClick={() => step(1)} aria-label="다음" title="다음 (→)">›</button>
+          <Button variant="ghost" onClick={() => setAnchor(todayLocal())} title="오늘 (T)">오늘</Button>
         </div>
         <div className="board-views" role="tablist" aria-label="보기 방식">
           {views.map(item => <button key={item.id} role="tab" aria-selected={view === item.id}
             className={`board-view${view === item.id ? ' active' : ''}`}
+            title={`${item.label} 보기 (${item.key})`}
             onClick={() => setView(item.id)}>{item.label}</button>)}
         </div>
         <div className="board-tools">
@@ -216,15 +289,29 @@ export default function SchedulePage({ session, notify }: {
         {weeks.flat().map(day => {
           const outside = day.slice(0, 7) !== anchor.slice(0, 7)
           const { shown, hidden } = chipsForDay(tasks, day)
-          return <div key={day} className={`month-cell${outside ? ' outside' : ''}${day === today ? ' is-today' : ''}`}
-            onDoubleClick={() => openDay(day)}>
+          return <div key={day} className={`month-cell${outside ? ' outside' : ''}${day === today ? ' is-today' : ''}${dropDay === day ? ' drop-target' : ''}`}
+            onDoubleClick={() => openDay(day)}
+            onDragOver={event => {
+              if (!event.dataTransfer.types.includes('text/weekly-task')) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              if (dropDay !== day) setDropDay(day)
+            }}
+            onDragLeave={() => setDropDay(current => current === day ? '' : current)}
+            onDrop={event => {
+              event.preventDefault()
+              setDropDay('')
+              const id = Number(event.dataTransfer.getData('text/weekly-task'))
+              const moved = (board?.tasks ?? []).find(item => item.id === id)
+              if (moved) void moveTask(moved, day)
+            }}>
             <div className="month-date">
               <span>{Number(day.slice(8, 10))}</span>
               <button className="month-add" onClick={() => openDay(day)} aria-label={`${day} 일정 추가`}>＋</button>
             </div>
             <div className="month-tasks">
               {shown.map(task => <TaskChip key={task.id} task={task} today={today}
-                onToggle={setDone} onOpen={openTask} compact/>)}
+                onToggle={setDone} onOpen={openTask} compact draggable/>)}
               {/* 남은 줄은 수로만 말하고, 누르면 그 날이 든 주로 갑니다 — 주 보기는
                   하루를 한 칸이 아니라 한 열로 그리므로 스무 줄도 읽힙니다. */}
               {hidden > 0 && <button className="month-more"
@@ -288,13 +375,22 @@ export default function SchedulePage({ session, notify }: {
 }
 
 /** One line on the board: the checkbox, the colour, and what it says. */
-function TaskChip({ task, today, onToggle, onOpen, compact, showOwner, showDate }: {
+function TaskChip({ task, today, onToggle, onOpen, compact, showOwner, showDate, draggable }: {
   task: ScheduleTask; today: string; compact?: boolean; showOwner?: boolean; showDate?: boolean
+  /** 끌어다 놓을 수 있는 자리에서만. 격자가 아닌 보기에서는 놓을 날이 없습니다. */
+  draggable?: boolean
   onToggle: (task: ScheduleTask, done: boolean) => void
   onOpen: (task: ScheduleTask) => void
 }) {
   const state = taskState(task, today)
-  return <div className={`task-chip pri-${task.priority.toLowerCase()} state-${state}${compact ? ' compact' : ''}`}>
+  const movable = Boolean(draggable && task.canEdit)
+  return <div className={`task-chip pri-${task.priority.toLowerCase()} state-${state}${compact ? ' compact' : ''}${movable ? ' movable' : ''}`}
+    draggable={movable}
+    onDragStart={event => {
+      if (!movable) return
+      event.dataTransfer.setData('text/weekly-task', String(task.id))
+      event.dataTransfer.effectAllowed = 'move'
+    }}>
     <input type="checkbox" checked={task.done} disabled={!task.canEdit}
       onChange={event => onToggle(task, event.target.checked)}
       aria-label={`${task.title} 완료`}/>

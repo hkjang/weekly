@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, boardAfterFailure, boardTruncation, byAssignee, chipsForDay, compareTasks, doneRatio, donePercent, draftOf, emptyDraft, gridRange,
-  monthGrid, monthLabel, monthStart, scheduleBody, shiftMonths, taskState, tasksOnDay, weekDays,
+  addDays, boardAfterFailure, boardTruncation, byAssignee, chipsForDay, compareTasks, doneRatio, donePercent, draftOf, emptyDraft, gridRange, movedDates, readBoardPreference,
+  monthGrid, monthLabel, monthStart, scheduleBody, shiftMonths, taskState, tasksOnDay, weekDays, writeBoardPreference,
   withAssignee,
 } from './scheduleGrid'
 import type { ScheduleBoard, ScheduleTask } from './types'
@@ -14,6 +14,7 @@ function task(partial: Partial<ScheduleTask> & { id: number; startDate: string }
     displayName: partial.displayName ?? '사용자', createdById: partial.createdById ?? 1,
     priority: partial.priority ?? 'NORMAL', canEdit: partial.canEdit ?? true,
     srId: partial.srId, srUrl: partial.srUrl, doneByName: partial.doneByName,
+    workItemId: partial.workItemId, note: partial.note,
   }
 }
 
@@ -265,5 +266,59 @@ describe('끝난 줄은 뒤로', () => {
     const open = task({ id: 99, startDate: day, endDate: day, priority: 'NORMAL' })
     const { shown } = chipsForDay([...done, open], day)
     expect(shown.map(item => item.id)).toContain(99)
+  })
+})
+
+describe('줄을 다른 날로 옮기면', () => {
+  it('하루짜리는 그 하루로 간다', () => {
+    const one = task({ id: 1, startDate: '2026-09-07', endDate: '2026-09-07' })
+    expect(movedDates(one, '2026-09-10')).toEqual({ startDate: '2026-09-10', endDate: '2026-09-10' })
+  })
+
+  it('여러 날짜리는 기간을 그대로 들고 간다', () => {
+    // 9/7~9/11 은 닷새입니다. 9/9 에 놓으면 9/9~9/13 이지 9/9 하루가 아닙니다.
+    const span = task({ id: 2, startDate: '2026-09-07', endDate: '2026-09-11' })
+    expect(movedDates(span, '2026-09-09')).toEqual({ startDate: '2026-09-09', endDate: '2026-09-13' })
+  })
+
+  it('달을 건너뛰어도 기간이 유지된다', () => {
+    const span = task({ id: 3, startDate: '2026-09-28', endDate: '2026-10-02' })
+    expect(movedDates(span, '2026-12-30')).toEqual({ startDate: '2026-12-30', endDate: '2027-01-03' })
+  })
+
+  it('옮긴 줄은 옮기기 전 값을 하나도 잃지 않는다', () => {
+    // PUT 은 줄 전체를 갈아 끼웁니다 — 끌어 놓기가 보내는 것도 창이 보내는 것과
+    // 같아야 화면에 그려지지 않는 업무 링크가 조용히 끊기지 않습니다.
+    const linked = task({ id: 4, startDate: '2026-09-07', endDate: '2026-09-08', workItemId: 42, srId: 'SR2609-00001', note: '비고' })
+    const moved = { ...draftOf(linked), ...movedDates(linked, '2026-09-14') }
+    const body = scheduleBody(moved)
+    expect(body.workItemId).toBe(42)
+    expect(body.srId).toBe('SR2609-00001')
+    expect(body.note).toBe('비고')
+    expect(body.startDate).toBe('2026-09-14')
+    expect(body.endDate).toBe('2026-09-15')
+  })
+})
+
+describe('화면이 기억하는 것', () => {
+  it('저장소를 읽을 수 없으면 기본값으로 돌아간다', () => {
+    // 사생활 모드처럼 localStorage 가 막힌 브라우저에서도 판은 열려야 합니다.
+    expect(readBoardPreference('view', ['month', 'week'] as const, 'month')).toBe('month')
+    expect(() => writeBoardPreference('view', 'week')).not.toThrow()
+  })
+
+  it('저장된 적 없는 값이나 모르는 값은 기본값이다', () => {
+    const store: Record<string, string> = { 'weekly.board.view': '사람' }
+    const original = (globalThis as { window?: unknown }).window
+    ;(globalThis as { window?: unknown }).window = {
+      localStorage: { getItem: (key: string) => store[key] ?? null, setItem: () => undefined },
+    }
+    try {
+      expect(readBoardPreference('view', ['month', 'week'] as const, 'week')).toBe('week')
+      store['weekly.board.view'] = 'month'
+      expect(readBoardPreference('view', ['month', 'week'] as const, 'week')).toBe('month')
+    } finally {
+      ;(globalThis as { window?: unknown }).window = original
+    }
   })
 })

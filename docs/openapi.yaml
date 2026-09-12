@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.299.0
+  version: 0.300.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -116,6 +116,22 @@ paths:
         `accountNotice` 는 이 계정이 제품을 정확하지만 쓸모없게 만드는 상태에 있을 때만
         채워진다. 소속 조직이 없는 계정이 그렇다 — 그 사람의 주간보고는 어느 팀장에게도
         보이지 않는다.
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /me/participation:
+    get:
+      summary: 내 제출 기록
+      description: |
+        본인의 연속 제출 주차와 최근 기록이다. **세는 주는 미제출 명단이 세는 주와 같다** —
+        마감이 지난 주만, 그 사람의 계정이 생긴(또는 처음 제출한) 뒤부터, 그리고 보고서는
+        날짜가 아니라 그 7일을 덮는지로 찾는다. 임시저장은 제출로 세지 않는다.
+
+        **아직 열려 있는 이번 주는 기록에 넣지 않는다.** 넣으면 월요일 아침마다 모두의
+        연속 기록이 끊기고 금요일에 되살아난다. 이번 주는 `thisWeekFiled`로 따로 답한다.
+
+        `streak`은 가장 최근 마감된 주부터 거슬러 센 연속 제출 주차, `best`는 창(최근 52주)
+        안의 최장 기록, `owed`/`filed`는 그 창에서 내야 했던 주와 실제로 낸 주다. `lastMissed`
+        는 창 안에서 마지막으로 빠뜨린 주이며, 없으면 생략된다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /me/report-inclusions:

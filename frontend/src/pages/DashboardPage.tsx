@@ -2,18 +2,19 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Button, Card, Empty, PageHeader, Spinner, StatusBadge } from '../components'
 import { ChangeFlow, changeColors } from '../charts'
-import type { AnalyticsOverview, ChangeSummary, Report, SessionInfo } from '../types'
+import type { AnalyticsOverview, ChangeSummary, ParticipationRecord, Report, SessionInfo } from '../types'
 
 export default function DashboardPage({ session, navigate }: { session: SessionInfo; navigate: (page: 'current' | 'team') => void }) {
   const [report, setReport] = useState<Report | null>()
   const [analytics, setAnalytics] = useState<AnalyticsOverview>()
   const [changes, setChanges] = useState<ChangeSummary>()
+  const [record, setRecord] = useState<ParticipationRecord>()
   // This is the screen every session opens on, and `report` stays undefined
   // until the request answers — so a failure left it spinning for ever, with an
   // uncaught rejection and nothing on screen. Measured on a large deployment:
   // the exception fired before the writer had clicked anything.
   const [loadFailed, setLoadFailed] = useState(false)
-  useEffect(() => { api<Report | null>('/api/v1/reports/current').then(value => { setReport(value); setLoadFailed(false) }).catch(() => setLoadFailed(true)); api<ChangeSummary>('/api/v1/changes').then(setChanges).catch(() => setChanges(undefined)); if (session.user.role !== 'USER') api<AnalyticsOverview>('/api/v1/analytics/overview').then(setAnalytics) }, [session.user.role])
+  useEffect(() => { api<Report | null>('/api/v1/reports/current').then(value => { setReport(value); setLoadFailed(false) }).catch(() => setLoadFailed(true)); api<ChangeSummary>('/api/v1/changes').then(setChanges).catch(() => setChanges(undefined)); api<ParticipationRecord>('/api/v1/me/participation').then(setRecord).catch(() => setRecord(undefined)); if (session.user.role !== 'USER') api<AnalyticsOverview>('/api/v1/analytics/overview').then(setAnalytics) }, [session.user.role])
   if (loadFailed) return <Empty>이번 주 현황을 불러오지 못했습니다. 화면을 다시 열어 보십시오.</Empty>
   if (report === undefined) return <Spinner />
   const now = new Date(); const greeting = now.getHours() < 12 ? '좋은 아침입니다' : now.getHours() < 18 ? '좋은 오후입니다' : '수고 많으셨습니다'
@@ -29,6 +30,22 @@ export default function DashboardPage({ session, navigate }: { session: SessionI
           {group.count > 0 && <i className="change-swatch" style={{ background: changeColors[group.kind] }} />}
           <strong>{group.count}</strong><span>{group.title}</span>
         </li>)}</ul>
+      </Card>}
+      {/* 습관이 제품입니다. 누가 밀렸는지는 관리자가 늘 볼 수 있었고, 정작 이번
+          주에 무언가 할 수 있는 본인은 자기 기록을 볼 자리가 없었습니다. 세는 주는
+          미제출 명단이 세는 주와 같고(마감이 지난 주만, 계정이 생긴 뒤부터),
+          아직 열려 있는 이번 주는 기록에 넣지 않고 따로 말합니다 — 넣으면 월요일
+          아침마다 모두의 기록이 끊깁니다. */}
+      {record && record.owed > 0 && <Card title="나의 제출 기록">
+        <div className="mini-stats">
+          <div><strong>{record.streak}주</strong><span>연속 제출</span></div>
+          <div><strong>{record.best}주</strong><span>최고 기록</span></div>
+          <div><strong>{record.filed}/{record.owed}</strong><span>최근 {record.window}주 중</span></div>
+        </div>
+        <p className="muted">{record.thisWeekFiled
+          ? `이번 주(${record.thisWeekStart})는 이미 제출했습니다. 마감이 지나면 기록에 더해집니다.`
+          : `이번 주(${record.thisWeekStart})는 아직입니다. 마감 전까지는 기록이 끊기지 않습니다.`}
+          {record.lastMissed && ` 마지막으로 빠뜨린 주는 ${record.lastMissed}입니다.`}</p>
       </Card>}
       <Card title="이번 주 이슈">{report && report.items.some(i => i.issue.trim()) ? <ul className="issue-list">{report.items.filter(i => i.issue.trim()).map((item, index) => <li key={index}><span>{item.title}</span><p>{item.issue}</p></li>)}</ul> : <Empty>이번 주 보고서에 적은 이슈가 없습니다.</Empty>}</Card>
     </div>

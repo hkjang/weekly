@@ -403,4 +403,9 @@ export interface ScheduleBoard {
   total: number
   summary: ScheduleSummary
 }
+/** 내 제출 기록. 조직이 보는 것과 같은 주를 셉니다. */
+export interface ParticipationRecord {
+  streak: number; best: number; owed: number; filed: number; window: number
+  thisWeekStart: string; thisWeekFiled: boolean; lastMissed?: string
+}
 export interface ITSMLookup { id: string; title: string; url?: string }

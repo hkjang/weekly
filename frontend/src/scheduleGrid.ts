@@ -177,6 +177,41 @@ export function boardAfterFailure(
 }
 
 /**
+ * 줄을 다른 날로 옮겼을 때의 새 기간.
+ *
+ * 달력에서 줄을 끌어다 놓는 것은 이 종류의 화면에서 가장 자주 꼽히는 조작이고
+ * (ClickUp·Google Calendar), 상황판에는 없었습니다 — 하루를 미루려면 창을 열고
+ * 날짜 두 칸을 고쳐야 했습니다.
+ *
+ * **기간은 보존합니다.** 9/7~9/11 짜리 닷새 업무를 9/9 에 놓으면 9/9~9/13 이지
+ * 9/9 하루짜리가 아닙니다. 끌어 놓은 날은 그 줄이 **시작하는** 날입니다.
+ */
+export function movedDates(task: ScheduleTask, day: string): { startDate: string; endDate: string } {
+  const span = Math.round(
+    (parseDay(task.endDate).getTime() - parseDay(task.startDate).getTime()) / 86_400_000)
+  return { startDate: day, endDate: addDays(day, Math.max(0, span)) }
+}
+
+/**
+ * 화면이 기억하는 것.
+ *
+ * 보기(월·주·목록·담당자), 완료 숨기기, 범위는 사람마다 거의 고정돼 있습니다 —
+ * 담당자 보기로 일하는 사람은 매번 담당자 보기를 다시 고르고, 벽에 거는 계정은
+ * 매번 월 보기를 다시 고릅니다. 저장하는 곳은 이 브라우저뿐이며(발표 모드의
+ * 테마와 같은 방식), 읽지 못하면 기본값으로 돌아갑니다.
+ */
+export function readBoardPreference<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const saved = window.localStorage.getItem(`weekly.board.${key}`)
+    return allowed.includes(saved as T) ? saved as T : fallback
+  } catch { return fallback }
+}
+
+export function writeBoardPreference(key: string, value: string): void {
+  try { window.localStorage.setItem(`weekly.board.${key}`, value) } catch { /* 사생활 모드 등 */ }
+}
+
+/**
  * 한 칸에 그릴 줄과, 그리지 못한 줄의 수.
  *
  * 달력 칸은 늘어나는 대로 늘어났습니다. 75명 조직의 9월은 225건이고, 바쁜 하루가
