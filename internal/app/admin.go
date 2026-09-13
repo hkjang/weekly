@@ -141,6 +141,22 @@ var settingDefinitions = map[string]settingDefinition{
 	"itsm.auth_token":      {Secret: true, Validate: bounded(0, 4096)},
 	"itsm.label":           {Validate: bounded(0, 40)},
 	"itsm.timeout_seconds": {Validate: integerRange(1, 60)},
+	// 방문 추적. Off by default; nothing about a page changes until an
+	// administrator picks a tracker and turns this on. Momento first because it
+	// is the in-house collector, and through /momento/* (the default endpoint)
+	// no outside origin enters the policy. See tracking.go.
+	"tracking.enabled":          {Validate: booleanValue},
+	"tracking.provider":         {Validate: oneOf("none", "momento", "ga4", "gtm", "matomo", "custom")},
+	"tracking.momento_url":      {Validate: validOptionalURL},
+	"tracking.momento_site_id":  {Validate: bounded(0, 120)},
+	"tracking.momento_endpoint": {Validate: oneOf("PROXY", "DIRECT")},
+	"tracking.measurement_id":   {Validate: bounded(0, 120)},
+	"tracking.matomo_url":       {Validate: validOptionalURL},
+	"tracking.matomo_site_id":   {Validate: bounded(0, 120)},
+	// Bytes, not runes: this is what goes on the wire with every page.
+	"tracking.custom_snippet": {Validate: func(v string) bool { return len(v) <= trackingMaxSnippetBytes }},
+	"tracking.allowed_hosts":  {Validate: bounded(0, 4000)},
+	"tracking.placement":      {Validate: oneOf("head", "body")},
 }
 
 type settingView struct {
@@ -271,6 +287,25 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if authMode == "BASIC" && (strings.TrimSpace(username) == "" || password == "") {
 			writeError(w, 400, "CONFLUENCE_CREDENTIAL_REQUIRED", "Basic Auth 계정과 비밀번호를 입력한 뒤 연동을 활성화하세요.")
+			return
+		}
+	}
+	// Turning tracking on with a provider that has nothing to load would put an
+	// empty policy widening on every page for nothing; say what is missing.
+	if enabled, ok := input.Settings["tracking.enabled"]; ok && enabled == "true" {
+		merged := map[string]string{}
+		for key := range settingDefinitions {
+			if strings.HasPrefix(key, "tracking.") {
+				merged[key] = a.setting(r.Context(), key, "")
+			}
+		}
+		for key, value := range input.Settings {
+			if strings.HasPrefix(key, "tracking.") {
+				merged[key] = value
+			}
+		}
+		if err := readTrackingConfig(merged).validate(); err != nil {
+			writeError(w, 400, "TRACKING_CONFIGURATION_REQUIRED", err.Error())
 			return
 		}
 	}

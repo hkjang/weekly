@@ -59,6 +59,9 @@ type App struct {
 	// mailTests holds each writer down to one test mail at a time; see
 	// sendCooldown.
 	mailTests *sendCooldown
+	// violations is what browsers reported the page policy refused while a
+	// tracking snippet was on. See tracking.go.
+	violations *violationLog
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
@@ -130,7 +133,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 	} else if defaultPPTXName == "" {
 		defaultPPTXName = "1월5주간업무보고_AI엔지니어링.pptx"
 	}
-	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), automationWake: make(chan struct{}, 1), mailTests: newSendCooldown()}
+	a := &App{db: db, logger: logger, web: options.Web, build: options.Build, box: box, keySource: keySource, mux: http.NewServeMux(), defaultPPTX: defaultPPTX, defaultPPTXName: defaultPPTXName, importWake: make(chan struct{}, 1), confluenceWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), automationWake: make(chan struct{}, 1), mailTests: newSendCooldown(), violations: newViolationLog()}
 	a.conditions = newConditionLog(logger)
 	// Required only when there is nobody to let in. A first install must say who
 	// the administrator is; a deployment that already has one can take the
@@ -302,6 +305,14 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/analytics/endpoints", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsEndpoints)))
 	a.mux.Handle("POST /mcp", a.requireAuth(http.HandlerFunc(a.mcp)))
 	a.mux.Handle("GET /mcp", a.requireAuth(http.HandlerFunc(a.mcpGet)))
+	// 방문 추적. The report is posted by the browser itself, without a session,
+	// so it is open; what it can do is add one origin to a bounded in-memory
+	// list. The Momento proxy answers 404 unless an administrator chose it.
+	a.mux.HandleFunc("POST /api/v1/tracking/csp-report", a.receiveCSPReport) // cspReportPath; spelled out so openapi-check can see it
+	a.mux.Handle("GET /api/v1/admin/tracking/violations", a.requireRole("ADMIN")(http.HandlerFunc(a.trackingViolations)))
+	a.mux.Handle("DELETE /api/v1/admin/tracking/violations", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.clearTrackingViolations))))
+	a.mux.Handle("POST /api/v1/admin/tracking/allow", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.allowTrackingHost))))
+	a.mux.HandleFunc(momentoProxyPrefix, a.momentoProxy)
 	a.mux.HandleFunc("/", a.serveSPA)
 }
 
@@ -349,6 +360,16 @@ func (a *App) serveSPA(w http.ResponseWriter, r *http.Request) {
 	}
 	if name == "index.html" {
 		w.Header().Set("Cache-Control", "no-cache")
+		// The shell is the one answer a tracker can ride on. The policy set by
+		// securityHeaders is replaced here with one that names this request's
+		// nonce, and the same nonce goes on every script tag injected — the
+		// two are decided together so they cannot disagree. Off, this writes
+		// the same policy and the same bytes a fresh install serves.
+		if config := a.trackingConfig(r.Context()); config.active() {
+			nonce := newNonce()
+			w.Header().Set("Content-Security-Policy", trackingPolicy(config, nonce))
+			body = injectTrackingSnippet(body, config.snippet(nonce), config.Placement)
+		}
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}

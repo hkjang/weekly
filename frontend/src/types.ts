@@ -38,6 +38,8 @@ export interface AdminUser extends User { managerId?: number; active: boolean; l
 export interface AdminUserPage { items: AdminUser[]; total: number; limit: number; offset: number; query?: string; roles?: string[]; unassigned: number; organization?: string }
 export interface Organization { id: number; parentId?: number; name: string; code: string; userCount: number }
 export interface Setting { key: string; value?: string; secret: boolean; configured: boolean; available: boolean; updatedAt: string }
+// One origin the page policy refused while a tracking snippet was on; see tracking.go.
+export interface TrackingViolation { origin: string; directive: string; page: string; count: number; firstSeen: string; lastSeen: string; allowed: boolean }
 export type AIReportItem = {
   category: string; title: string; currentResult: string; nextPlan: string; issue: string; progress: number
   confidence: number; categoryConfidence?: number; sourceSlides?: number[]

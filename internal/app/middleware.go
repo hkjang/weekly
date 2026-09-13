@@ -66,7 +66,14 @@ func (a *App) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		// Pages get the strict policy (serveSPA widens it by exactly one nonce
+		// when a tracking snippet is on); everything that is not a page gets a
+		// narrower one, because there is nothing in a JSON answer to allow.
+		if isAPIPath(r.URL.Path) || r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || strings.HasPrefix(r.URL.Path, momentoProxyPrefix) {
+			w.Header().Set("Content-Security-Policy", apiPolicy)
+		} else {
+			w.Header().Set("Content-Security-Policy", basePagePolicy)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
