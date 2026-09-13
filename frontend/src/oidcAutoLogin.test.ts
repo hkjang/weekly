@@ -14,16 +14,23 @@ class MemoryStorage {
 }
 
 describe('Keycloak 기존 세션 자동 로그인', () => {
+  const eligible = { oidc: true, autoLogin: true, anonymous: true, signedOut: false, attempted: false, skipped: false }
+
   it('OIDC가 켜져 있고 최초 세션 확인이 401일 때만 시도한다', () => {
-    expect(shouldAttemptOIDCAutoLogin({ oidc: true, anonymous: true, signedOut: false, attempted: false, skipped: false })).toBe(true)
-    expect(shouldAttemptOIDCAutoLogin({ oidc: true, anonymous: false, signedOut: false, attempted: false, skipped: false })).toBe(false)
-    expect(shouldAttemptOIDCAutoLogin({ oidc: false, anonymous: true, signedOut: false, attempted: false, skipped: false })).toBe(false)
+    expect(shouldAttemptOIDCAutoLogin(eligible)).toBe(true)
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, anonymous: false })).toBe(false)
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, oidc: false })).toBe(false)
+  })
+
+  it('관리자가 자동 로그인을 켜지 않았으면 시도하지 않는다 — 기본값은 꺼짐이고, 서버가 그 값을 주지 않아도 꺼짐이다', () => {
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, autoLogin: false })).toBe(false)
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, autoLogin: undefined })).toBe(false)
   })
 
   it('실패한 시도와 명시적 로그아웃은 리다이렉트 반복을 막는다', () => {
-    expect(shouldAttemptOIDCAutoLogin({ oidc: true, anonymous: true, signedOut: false, attempted: true, skipped: false })).toBe(false)
-    expect(shouldAttemptOIDCAutoLogin({ oidc: true, anonymous: true, signedOut: false, attempted: false, skipped: true })).toBe(false)
-    expect(shouldAttemptOIDCAutoLogin({ oidc: true, anonymous: true, signedOut: true, attempted: false, skipped: false })).toBe(false)
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, attempted: true })).toBe(false)
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, skipped: true })).toBe(false)
+    expect(shouldAttemptOIDCAutoLogin({ ...eligible, signedOut: true })).toBe(false)
   })
 
   it('현재 SPA hash를 query로 인코딩해 IdP 왕복 뒤에도 보존한다', () => {

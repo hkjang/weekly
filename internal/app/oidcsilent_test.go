@@ -12,7 +12,7 @@ import (
 func TestPromptNoneIsUsedOnlyForSilentOIDCStarts(t *testing.T) {
 	server := newTestServer(t)
 	idp := newIDP(t, "weekly", "unused-for-start", map[string]any{})
-	server.useIDP(t, idp, "weekly", map[string]string{"oidc.auto_provision": "true"})
+	server.useIDP(t, idp, "weekly", map[string]string{"oidc.auto_provision": "true", "oidc.auto_login": "true"})
 
 	for _, attempt := range []struct {
 		name         string
@@ -58,6 +58,143 @@ func TestPromptNoneIsUsedOnlyForSilentOIDCStarts(t *testing.T) {
 			if storedSilent != attempt.silent || storedReturnTo != attempt.wantReturnTo {
 				t.Errorf("stored silent/return = %v %q, want %v %q",
 					storedSilent, storedReturnTo, attempt.silent, attempt.wantReturnTo)
+			}
+		})
+	}
+}
+
+// The silent attempt is asked for in a URL, so anyone can ask. Whether it
+// happens belongs to the administrator: with oidc.auto_login off — the
+// default — ?silent=1 is an ordinary login, in the redirect it produces and
+// in how its failures are reported. Otherwise a visitor could add one query
+// parameter and turn an error page into a redirect back to the SPA.
+//
+// guards: oidcStart, oidcAutoLogin=100, authProviders=100
+func TestSilentOIDCStartRequiresTheAutoLoginSetting(t *testing.T) {
+	server := newTestServer(t)
+	idp := newIDP(t, "weekly", "unused-for-start", map[string]any{})
+	server.useIDP(t, idp, "weekly", map[string]string{"oidc.auto_provision": "true"})
+
+	providers := func() map[string]any {
+		w := server.request(http.MethodGet, "/api/v1/auth/providers", nil, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("providers = %d %s", w.Code, w.Body.String())
+		}
+		return decodeData(t, w)
+	}
+	silentStart := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/start?silent=1&returnTo=%23%2Fcurrent", nil)
+		recorder := httptest.NewRecorder()
+		server.app.mux.ServeHTTP(recorder, request)
+		return recorder
+	}
+	storedSilent := func(recorder *httptest.ResponseRecorder) bool {
+		t.Helper()
+		target, err := url.Parse(recorder.Header().Get("Location"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var silent bool
+		if err := server.app.db.QueryRow(server.ctx(), `SELECT silent FROM oidc_login_states WHERE state_hash=$1`,
+			tokenHash(target.Query().Get("state"))).Scan(&silent); err != nil {
+			t.Fatal(err)
+		}
+		return silent
+	}
+
+	// Never saved: the default is off, and the browser is told so.
+	if got := providers(); got["oidc"] != true || got["autoLogin"] != false {
+		t.Fatalf("default providers = %v, want oidc on and autoLogin off", got)
+	}
+	recorder := silentStart()
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("start = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Header().Get("Location"), "prompt=none") {
+		t.Errorf("auto_login off, yet the provider is asked with prompt=none: %s", recorder.Header().Get("Location"))
+	}
+	if storedSilent(recorder) {
+		t.Error("auto_login off, yet the state row is marked silent — its callback would return to the SPA instead of reporting")
+	}
+
+	// Switched on by the administrator, the same URL becomes the silent attempt.
+	server.useIDP(t, idp, "weekly", map[string]string{"oidc.auto_login": "true"})
+	if got := providers(); got["autoLogin"] != true {
+		t.Fatalf("auto_login on, providers = %v", got)
+	}
+	recorder = silentStart()
+	if recorder.Code != http.StatusFound || !strings.Contains(recorder.Header().Get("Location"), "prompt=none") {
+		t.Fatalf("auto_login on, start = %d %s", recorder.Code, recorder.Header().Get("Location"))
+	}
+	if !storedSilent(recorder) {
+		t.Error("auto_login on, yet the state row is not marked silent")
+	}
+
+	// With OIDC off altogether, autoLogin is off no matter what was saved,
+	// and a silent start reports the missing configuration like any other
+	// caller instead of bouncing the browser back to the SPA.
+	if off := server.request(http.MethodPut, "/api/v1/admin/settings",
+		map[string]any{"settings": map[string]string{"oidc.enabled": "false"}}, server.admin); off.Code != http.StatusOK {
+		t.Fatalf("OIDC 를 끄지 못했습니다: %d %s", off.Code, off.Body.String())
+	}
+	if got := providers(); got["oidc"] != false || got["autoLogin"] != false {
+		t.Fatalf("OIDC off, providers = %v", got)
+	}
+	// The saved auto_login=true must not make ?silent=1 a redirect either.
+	if recorder = silentStart(); recorder.Code != http.StatusServiceUnavailable || errorCode(recorder) != "OIDC_UNAVAILABLE" {
+		t.Fatalf("OIDC off with auto_login saved on: start = %d %s %s", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+}
+
+// The start half of what oidclogin_test.go checks for the callback: with no
+// oidc.redirect_url saved, the callback address the provider is told comes
+// from the request — its host, and https only when the proxy says so — and
+// the state cookie is marked Secure on the same evidence. A cookie the browser
+// refuses to send back is a login that always fails at the callback.
+//
+// guards: oidcStart
+func TestOIDCStartDerivesTheCallbackAndCookieFromTheRequest(t *testing.T) {
+	server := newTestServer(t)
+	idp := newIDP(t, "weekly", "unused-for-start", map[string]any{})
+	server.useIDP(t, idp, "weekly", map[string]string{"oidc.redirect_url": ""})
+
+	for _, arrival := range []struct {
+		name       string
+		forwarded  string
+		wantSecure bool
+		wantPrefix string
+	}{
+		{"평문으로 들어옴", "", false, "http://weekly.test/"},
+		{"프록시가 https라고 알림", "https", true, "https://weekly.test/"},
+	} {
+		t.Run(arrival.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://weekly.test/api/v1/auth/oidc/start", nil)
+			if arrival.forwarded != "" {
+				request.Header.Set("X-Forwarded-Proto", arrival.forwarded)
+			}
+			recorder := httptest.NewRecorder()
+			server.app.mux.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusFound {
+				t.Fatalf("start = %d %s", recorder.Code, recorder.Body.String())
+			}
+			target, err := url.Parse(recorder.Header().Get("Location"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := target.Query().Get("redirect_uri"); !strings.HasPrefix(got, arrival.wantPrefix) || !strings.HasSuffix(got, "/api/v1/auth/oidc/callback") {
+				t.Errorf("제공자에게 알린 주소가 %q 입니다, %q 로 시작해 callback 으로 끝나야 합니다", got, arrival.wantPrefix)
+			}
+			var stateCookie *http.Cookie
+			for _, cookie := range recorder.Result().Cookies() {
+				if cookie.Name == "weekly_oidc_state" {
+					stateCookie = cookie
+				}
+			}
+			if stateCookie == nil {
+				t.Fatal("state cookie 가 없습니다")
+			}
+			if stateCookie.Secure != arrival.wantSecure {
+				t.Errorf("state cookie Secure = %v, want %v", stateCookie.Secure, arrival.wantSecure)
 			}
 		})
 	}

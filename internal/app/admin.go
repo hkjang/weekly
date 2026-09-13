@@ -48,8 +48,12 @@ var settingDefinitions = map[string]settingDefinition{
 	"oidc.groups_claim":              {Validate: bounded(1, 120)},
 	"oidc.admin_group":               {Validate: bounded(0, 255)},
 	"oidc.auto_provision":            {Validate: booleanValue},
-	"security.api_key_max_days":      {Validate: integerRange(1, 3650)},
-	"analytics.retention_days":       {Validate: integerRange(1, 3650)},
+	// Off by default: the silent prompt=none attempt sends every anonymous
+	// visitor's browser to the provider before the login screen is drawn, and
+	// only the administrator decides whether that redirect exists at all.
+	"oidc.auto_login":           {Validate: booleanValue},
+	"security.api_key_max_days": {Validate: integerRange(1, 3650)},
+	"analytics.retention_days":  {Validate: integerRange(1, 3650)},
 	// Zero keeps everything. An operator whose policy demands indefinite
 	// retention should be able to say so rather than discover the trail was
 	// trimmed for them.

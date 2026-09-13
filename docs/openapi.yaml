@@ -62,9 +62,11 @@ paths:
       security: []
       summary: 로그인 방식과 공개 서비스 정보
       description: |
-        로컬 로그인과 OIDC 사용 가능 여부를 공개한다. SPA는 처음 연 탭에서 `/me`가 401이고
-        OIDC가 사용 가능한 경우에만 브라우저 전용 OIDC 시작 경로로 한 번 이동해
-        `prompt=none` 로그인을 시도한다. Keycloak 세션이 없거나 상호작용이 필요하면 일반
+        로컬 로그인과 OIDC 사용 가능 여부, 그리고 관리자가 `oidc.auto_login`(기본 꺼짐)을
+        켰는지(`autoLogin`, OIDC 자체가 꺼져 있으면 항상 false)를 공개한다. SPA는 처음 연
+        탭에서 `/me`가 401이고 `autoLogin`이 true 인 경우에만 브라우저 전용 OIDC 시작 경로로
+        한 번 이동해 `prompt=none` 로그인을 시도한다. 그 설정은 서버도 지킨다 — 꺼져 있으면
+        시작 경로의 `silent=1`은 무시되고 평범한 로그인이 된다. Keycloak 세션이 없거나 상호작용이 필요하면 일반
         로그인 화면으로 돌아오며 반복하지 않는다. 네트워크·DB 오류와 작성 중 세션 만료는
         이 자동 이동의 조건이 아니다.
       responses:
