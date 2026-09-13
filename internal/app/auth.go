@@ -316,12 +316,18 @@ func accountNotice(p *principal, workflowEnabled bool) string {
 	return ""
 }
 func (a *App) authProviders(w http.ResponseWriter, r *http.Request) {
+	oidcEnabled := a.settingBool(r.Context(), "oidc.enabled", false)
 	writeData(w, http.StatusOK, map[string]any{
-		"local":  a.settingBool(r.Context(), "auth.local_enabled", true),
-		"oidc":   a.settingBool(r.Context(), "oidc.enabled", false),
-		"name":   a.setting(r.Context(), "service.name", "Weekly"),
-		"notice": a.setting(r.Context(), "service.notice", ""),
-		"build":  a.build,
+		"local": a.settingBool(r.Context(), "auth.local_enabled", true),
+		"oidc":  oidcEnabled,
+		// Published so the browser knows whether to try prompt=none before it
+		// draws the login screen. The server enforces the same setting in
+		// oidcStart; this only spares the visitor a redirect that would be
+		// turned into an interactive login anyway.
+		"autoLogin": oidcEnabled && a.oidcAutoLogin(r.Context()),
+		"name":      a.setting(r.Context(), "service.name", "Weekly"),
+		"notice":    a.setting(r.Context(), "service.notice", ""),
+		"build":     a.build,
 	})
 }
 
@@ -354,8 +360,19 @@ func (a *App) oidcConfig(ctx context.Context) (oidcConfiguration, error) {
 	return cfg, nil
 }
 
+// oidcAutoLogin reports whether the administrator has allowed the silent
+// prompt=none attempt. Off by default, and never on without OIDC itself: a
+// saved auto_login must not outlive the provider it was saved for.
+func (a *App) oidcAutoLogin(ctx context.Context) bool {
+	return a.settingBool(ctx, "oidc.enabled", false) && a.settingBool(ctx, "oidc.auto_login", false)
+}
+
 func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
-	silent := r.URL.Query().Get("silent") == "1"
+	// A silent start is asked for in the URL, so anyone can ask. Whether the
+	// answer is prompt=none — and whether a failure returns to the SPA instead
+	// of reporting an error — is the administrator's oidc.auto_login setting,
+	// not the caller's. With it off, ?silent=1 is an ordinary login.
+	silent := r.URL.Query().Get("silent") == "1" && a.oidcAutoLogin(r.Context())
 	returnTo := safeOIDCReturnTo(r.URL.Query().Get("returnTo"))
 	cfg, err := a.oidcConfig(r.Context())
 	if err != nil {

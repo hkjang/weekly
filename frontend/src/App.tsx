@@ -113,7 +113,7 @@ export default function App() {
     if (!markers) return
     let { attempted, skipped } = markers
     attempted ||= oidcAutoReturned
-    if (!shouldAttemptOIDCAutoLogin({ oidc: providers.oidc, anonymous: initiallyAnonymous, signedOut, attempted, skipped })) return
+    if (!shouldAttemptOIDCAutoLogin({ oidc: providers.oidc, autoLogin: providers.autoLogin, anonymous: initiallyAnonymous, signedOut, attempted, skipped })) return
     if (!beginOIDCAutoLogin()) return
     setAutoLoginStarted(true)
     window.location.replace(oidcStartURL(window.location.hash, true))

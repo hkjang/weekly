@@ -9,10 +9,16 @@ function sessionMarkerStorage(storage?: MarkerStorage): MarkerStorage {
   return storage ?? window.sessionStorage
 }
 
+/**
+ * `autoLogin` is the administrator's oidc.auto_login as the server publishes
+ * it (off by default). A server that does not publish it leaves the field
+ * undefined, which is read as off: the silent redirect exists only where it
+ * was switched on.
+ */
 export function shouldAttemptOIDCAutoLogin(input: {
-  oidc: boolean; anonymous: boolean; signedOut: boolean; attempted: boolean; skipped: boolean
+  oidc: boolean; autoLogin: boolean | undefined; anonymous: boolean; signedOut: boolean; attempted: boolean; skipped: boolean
 }): boolean {
-  return input.oidc && input.anonymous && !input.signedOut && !input.attempted && !input.skipped
+  return input.oidc && input.autoLogin === true && input.anonymous && !input.signedOut && !input.attempted && !input.skipped
 }
 
 /** Only a verified 401 means that asking Keycloak for an existing session is valid. */
