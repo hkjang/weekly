@@ -54,6 +54,9 @@ type importFileView struct {
 	CreatedAt           time.Time       `json:"createdAt"`
 	AnalyzedAt          *time.Time      `json:"analyzedAt"`
 	ConfirmedAt         *time.Time      `json:"confirmedAt"`
+	// The origin of the service that handed this file over, when it did not
+	// arrive by upload. Kept so the deck can be traced back to where it began.
+	HandoffSource string `json:"handoffSource,omitempty"`
 }
 
 func (a *App) uploadImportPPTX(w http.ResponseWriter, r *http.Request) {
@@ -84,15 +87,8 @@ func (a *App) uploadImportPPTX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "IMPORT_FILES_REQUIRED", fmt.Sprintf("PPTX 파일을 1~%d개 선택하세요.", maximumFiles))
 		return
 	}
-	var jobID int64
-	if err := a.db.QueryRow(r.Context(), `INSERT INTO import_jobs(user_id,total_files) VALUES($1,$2) RETURNING id`, p.ID, len(headers)).Scan(&jobID); err != nil {
-		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "Import 작업을 만들 수 없습니다.")
-		return
-	}
-	jobDirectory := filepath.Join(importDirectory, strconv.FormatInt(jobID, 10))
-	if err := os.MkdirAll(jobDirectory, 0o700); err != nil {
-		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET status='FAILED',failed_files=total_files,completed_at=now() WHERE id=$1`, jobID)
-		writeError(w, http.StatusInternalServerError, "IMPORT_STORAGE_ERROR", "Import 저장소를 만들 수 없습니다.")
+	jobID, jobDirectory, ok := a.openImportJob(w, r, p, len(headers))
+	if !ok {
 		return
 	}
 	queued := 0
@@ -140,57 +136,100 @@ func (a *App) uploadImportPPTX(w http.ResponseWriter, r *http.Request) {
 			failed++
 			continue
 		}
-		sum := sha256.Sum256(body)
-		hash := fmt.Sprintf("%x", sum)
-		var duplicateID int64
-		duplicateErr := a.db.QueryRow(r.Context(), `SELECT f.id FROM import_files f JOIN import_jobs j ON j.id=f.import_job_id
-			WHERE j.user_id=$1 AND f.file_hash=$2 AND f.status NOT IN ('FAILED','SKIPPED') ORDER BY f.id LIMIT 1`, p.ID, hash).Scan(&duplicateID)
-		if duplicateErr == nil {
-			_, _ = a.db.Exec(r.Context(), `INSERT INTO import_files(import_job_id,original_filename,file_hash,size_bytes,status,duplicate_of,error_message)
-				VALUES($1,$2,$3,$4,'DUPLICATE',$5,'동일한 SHA-256 파일이 이미 등록되어 있습니다.')`, jobID, name, hash, len(body), duplicateID)
-			continue
-		}
-		if !errors.Is(duplicateErr, pgx.ErrNoRows) {
-			a.insertFailedImportFile(r.Context(), jobID, name, int64(len(body)), "중복 파일을 검사할 수 없습니다.")
+		switch a.stageImportBody(r.Context(), p, jobID, jobDirectory, name, body, "") {
+		case importStaged:
+			queued++
+		case importStageFailed:
 			failed++
-			continue
 		}
-		var fileID int64
-		if err := a.db.QueryRow(r.Context(), `INSERT INTO import_files(import_job_id,original_filename,file_hash,size_bytes) VALUES($1,$2,$3,$4) RETURNING id`, jobID, name, hash, len(body)).Scan(&fileID); err != nil {
-			failed++
-			continue
-		}
-		path := filepath.Join(jobDirectory, strconv.FormatInt(fileID, 10)+".pptx")
-		if err := writeImportFile(path, body); err != nil {
-			_, _ = a.db.Exec(r.Context(), `UPDATE import_files SET status='FAILED',error_message=$1 WHERE id=$2`, "파일을 안전하게 저장할 수 없습니다.", fileID)
-			failed++
-			continue
-		}
-		if _, err := a.db.Exec(r.Context(), `UPDATE import_files SET stored_path=$1 WHERE id=$2`, path, fileID); err != nil {
-			_ = os.Remove(path)
-			_, _ = a.db.Exec(r.Context(), `UPDATE import_files SET status='FAILED',error_message='Import 원본 경로를 저장할 수 없습니다.' WHERE id=$1`, fileID)
-			failed++
-			continue
-		}
-		queued++
 	}
-	// The answer to an upload has to be the state that was just written. It used
-	// to be derived a second time from whether anything was queued, and the two
-	// disagreed in the case that matters most: an import where every file was
-	// rejected stored FAILED and replied READY. The person who uploaded it was
-	// told one of the success words and had to go and open the job to find out
-	// otherwise.
+	status := a.finishImportIntake(r, p, jobID, len(headers), queued, failed, "import.upload")
+	writeData(w, http.StatusAccepted, map[string]any{"id": jobID, "status": status})
+}
+
+// openImportJob creates the job row and its directory. The two intakes — the
+// multipart upload and a handoff from another service — start the same way
+// and must end up as the same kind of job, so they share this.
+func (a *App) openImportJob(w http.ResponseWriter, r *http.Request, p *principal, totalFiles int) (int64, string, bool) {
+	var jobID int64
+	if err := a.db.QueryRow(r.Context(), `INSERT INTO import_jobs(user_id,total_files) VALUES($1,$2) RETURNING id`, p.ID, totalFiles).Scan(&jobID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "Import 작업을 만들 수 없습니다.")
+		return 0, "", false
+	}
+	jobDirectory := filepath.Join(importDirectory, strconv.FormatInt(jobID, 10))
+	if err := os.MkdirAll(jobDirectory, 0o700); err != nil {
+		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET status='FAILED',failed_files=total_files,completed_at=now() WHERE id=$1`, jobID)
+		writeError(w, http.StatusInternalServerError, "IMPORT_STORAGE_ERROR", "Import 저장소를 만들 수 없습니다.")
+		return 0, "", false
+	}
+	return jobID, jobDirectory, true
+}
+
+type importStageOutcome int
+
+const (
+	importStaged importStageOutcome = iota
+	importStageDuplicate
+	importStageFailed
+)
+
+// stageImportBody records one PPTX body under a job: the duplicate check, the
+// file row and the file on disk. handoffSource is the origin the body came
+// from when another service handed it over, and empty for a direct upload.
+func (a *App) stageImportBody(ctx context.Context, p *principal, jobID int64, jobDirectory, name string, body []byte, handoffSource string) importStageOutcome {
+	sum := sha256.Sum256(body)
+	hash := fmt.Sprintf("%x", sum)
+	var duplicateID int64
+	duplicateErr := a.db.QueryRow(ctx, `SELECT f.id FROM import_files f JOIN import_jobs j ON j.id=f.import_job_id
+		WHERE j.user_id=$1 AND f.file_hash=$2 AND f.status NOT IN ('FAILED','SKIPPED') ORDER BY f.id LIMIT 1`, p.ID, hash).Scan(&duplicateID)
+	if duplicateErr == nil {
+		_, _ = a.db.Exec(ctx, `INSERT INTO import_files(import_job_id,original_filename,file_hash,size_bytes,status,duplicate_of,error_message,handoff_source)
+			VALUES($1,$2,$3,$4,'DUPLICATE',$5,'동일한 SHA-256 파일이 이미 등록되어 있습니다.',nullif($6,''))`, jobID, name, hash, len(body), duplicateID, handoffSource)
+		return importStageDuplicate
+	}
+	if !errors.Is(duplicateErr, pgx.ErrNoRows) {
+		a.insertFailedImportFile(ctx, jobID, name, int64(len(body)), "중복 파일을 검사할 수 없습니다.")
+		return importStageFailed
+	}
+	var fileID int64
+	if err := a.db.QueryRow(ctx, `INSERT INTO import_files(import_job_id,original_filename,file_hash,size_bytes,handoff_source) VALUES($1,$2,$3,$4,nullif($5,'')) RETURNING id`,
+		jobID, name, hash, len(body), handoffSource).Scan(&fileID); err != nil {
+		return importStageFailed
+	}
+	path := filepath.Join(jobDirectory, strconv.FormatInt(fileID, 10)+".pptx")
+	if err := writeImportFile(path, body); err != nil {
+		_, _ = a.db.Exec(ctx, `UPDATE import_files SET status='FAILED',error_message=$1 WHERE id=$2`, "파일을 안전하게 저장할 수 없습니다.", fileID)
+		return importStageFailed
+	}
+	if _, err := a.db.Exec(ctx, `UPDATE import_files SET stored_path=$1 WHERE id=$2`, path, fileID); err != nil {
+		_ = os.Remove(path)
+		_, _ = a.db.Exec(ctx, `UPDATE import_files SET status='FAILED',error_message='Import 원본 경로를 저장할 수 없습니다.' WHERE id=$1`, fileID)
+		return importStageFailed
+	}
+	return importStaged
+}
+
+// finishImportIntake closes or wakes the job and returns the status the caller
+// answers with.
+//
+// The answer to an upload has to be the state that was just written. It used
+// to be derived a second time from whether anything was queued, and the two
+// disagreed in the case that matters most: an import where every file was
+// rejected stored FAILED and replied READY. The person who uploaded it was
+// told one of the success words and had to go and open the job to find out
+// otherwise.
+func (a *App) finishImportIntake(r *http.Request, p *principal, jobID int64, total, queued, failed int, action string) string {
 	status := "PENDING"
 	if queued == 0 {
-		status = importJobStatus(len(headers), failed, 0)
+		status = importJobStatus(total, failed, 0)
 		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET status=$2,processed_files=total_files,failed_files=$3,completed_at=now() WHERE id=$1`,
 			jobID, status, failed)
 	} else {
 		_, _ = a.db.Exec(r.Context(), `UPDATE import_jobs SET failed_files=$2 WHERE id=$1`, jobID, failed)
 		a.wakeImportWorker()
 	}
-	a.audit(r, p, "import.upload", "import_job", strconv.FormatInt(jobID, 10), map[string]any{"files": len(headers), "queued": queued, "failed": failed})
-	writeData(w, http.StatusAccepted, map[string]any{"id": jobID, "status": status})
+	a.audit(r, p, action, "import_job", strconv.FormatInt(jobID, 10), map[string]any{"files": total, "queued": queued, "failed": failed})
+	return status
 }
 
 func (a *App) insertFailedImportFile(ctx context.Context, jobID int64, name string, size int64, message string) {
@@ -292,7 +331,7 @@ func (a *App) loadImportJob(ctx context.Context, userID, jobID int64) (importJob
 	}
 	rows, err := a.db.Query(ctx, `SELECT f.id,f.original_filename,f.file_hash,f.size_bytes,f.status,f.detected_week_start,f.detected_week_end,
 		coalesce(f.confidence,0),coalesce(f.date_source,''),f.parsed_result,f.error_message,f.duplicate_of,f.report_id,f.created_at,f.analyzed_at,f.confirmed_at,
-		r.id,coalesce(r.status,'')
+		coalesce(f.handoff_source,''),r.id,coalesce(r.status,'')
 		FROM import_files f JOIN import_jobs j ON j.id=f.import_job_id
 		LEFT JOIN weekly_reports r ON r.user_id=j.user_id AND r.week_start=f.detected_week_start
 			AND (f.report_id IS NULL OR r.id<>f.report_id)
@@ -308,7 +347,7 @@ func (a *App) loadImportJob(ctx context.Context, userID, jobID int64) (importJob
 		var parsed []byte
 		if err := rows.Scan(&item.ID, &item.OriginalFilename, &item.FileHash, &item.SizeBytes, &item.Status, &weekStart, &weekEnd,
 			&item.Confidence, &item.DateSource, &parsed, &item.ErrorMessage, &item.DuplicateOf, &item.ReportID, &item.CreatedAt, &item.AnalyzedAt, &item.ConfirmedAt,
-			&item.ConflictReportID, &item.ConflictReportState); err != nil {
+			&item.HandoffSource, &item.ConflictReportID, &item.ConflictReportState); err != nil {
 			return result, err
 		}
 		if weekStart != nil {

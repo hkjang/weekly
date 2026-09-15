@@ -11,6 +11,7 @@ decisions.go  updateDecision  FORBIDDEN  조회 권한 범위 밖의 업무입�
 decisions.go  deleteDecision  FORBIDDEN  기록한 사람과 관리자만 결정 기록을 삭제할 수 있습니다.
 decisionsuggest.go  suggestDecisions  FORBIDDEN  조회 권한 범위 밖의 업무입니다.
 duedate.go  setWorkItemDueDate  FORBIDDEN  본인 업무의 마감일만 설정할 수 있습니다.
+handoff.go  receiveHandoff  HANDOFF_SOURCE_NOT_ALLOWED  관리자가 허용한 서비스에서만 문서를 넘겨받을 수 있습니다.
 handover.go  handover  FORBIDDEN  조회 권한 범위 밖의 담당자입니다.
 handover.go  workGraph  FORBIDDEN  업무 인사이트는 팀장 이상만 조회할 수 있습니다.
 mcp.go  mcp  MCP_ORIGIN_REJECTED  MCP 요청 출처를 확인할 수 없습니다.
