@@ -692,6 +692,38 @@ paths:
       responses:
         "202": { $ref: "#/components/responses/Success" }
         "503": { $ref: "#/components/responses/Error" }
+  /handoff/receive:
+    post:
+      summary: 다른 사내 서비스가 발급한 표(claim)로 PPTX 를 넘겨받아 Import 작업으로 올림
+      description: |
+        서비스 간 문서 넘기기 표준의 받는 쪽. 브라우저는 `GET /handoff?source&claim`
+        으로 들어와 `#/import?source&claim` 으로 보내지고, 화면이 이 경로를 부른다.
+        `source` 는 관리자가 `handoff.allowed_origins` 에 적은 오리진이어야 하며,
+        목록에 없으면 **요청을 보내지 않고** `403 HANDOFF_SOURCE_NOT_ALLOWED` 로
+        거절한다(기본값은 빈 목록). 원본의 `GET {source}/api/v1/handoff/claims/{claim}`
+        을 30초 상한으로 받되 리다이렉트를 따라가지 않고(`502 HANDOFF_REDIRECTED`),
+        `Content-Type` 이 PPTX 가 아니면 버리며(`415`), `import.max_file_mb` 를 넘으면
+        중간에 끊는다(`413`). 원본의 404 는 만료·사용을 구분하지 않고
+        `404 HANDOFF_CLAIM_REJECTED`. 표는 감사 로그·서버 로그·응답 어디에도 적지 않는다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, claim]
+              properties:
+                source: { type: string, format: uri, example: "https://ptium.intra" }
+                claim: { type: string, maxLength: 512 }
+      responses:
+        "202": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /import/history:
     get:
       summary: 본인의 PPTX Import 작업 이력
@@ -2736,6 +2768,9 @@ components:
         duplicateOf: { type: integer, format: int64 }
         reportId: { type: integer, format: int64 }
         conflictReportId: { type: integer, format: int64 }
+        handoffSource:
+          type: string
+          description: 다른 서비스가 넘겨준 파일이면 그 서비스의 오리진. 직접 올린 파일에는 없다.
     ImportJob:
       type: object
       required: [id, status, totalFiles, processedFiles, failedFiles, createdAt]

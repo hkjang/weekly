@@ -360,7 +360,7 @@ export default function App() {
         {page === 'handover' && <HandoverPage session={session} notify={notify} />}
         {page === 'digest' && canTeam && <DigestPage notify={notify} navigate={navigate} />}
         {page === 'insights' && canTeam && <InsightsPage notify={notify} />}
-        {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
+        {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} route={params} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage isAdmin={session.user.role === 'ADMIN'} />}
         {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}

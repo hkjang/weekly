@@ -227,6 +227,11 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/ai/reports/parse-text", a.requireAuth(a.csrf(http.HandlerFunc(a.parseAIText))))
 	a.mux.Handle("POST /api/v1/import/pptx", a.requireAuth(a.csrf(http.HandlerFunc(a.uploadImportPPTX))))
 	a.mux.Handle("GET /api/v1/import/history", a.requireAuth(http.HandlerFunc(a.listImportJobs)))
+	// 서비스 간 문서 넘기기. /handoff is the browser entry point the standard
+	// names; it only forwards to the import screen, which then calls receive
+	// with a session and a CSRF check behind it.
+	a.mux.HandleFunc("GET /handoff", a.handoffEntry)
+	a.mux.Handle("POST /api/v1/handoff/receive", a.requireAuth(a.csrf(http.HandlerFunc(a.receiveHandoff))))
 	a.mux.Handle("GET /api/v1/import/{id}", a.requireAuth(http.HandlerFunc(a.getImportJob)))
 	a.mux.Handle("POST /api/v1/import/{id}/analyze", a.requireAuth(a.csrf(http.HandlerFunc(a.retryImportJob))))
 	a.mux.Handle("POST /api/v1/import/{id}/confirm", a.requireAuth(a.csrf(http.HandlerFunc(a.confirmImportJob))))

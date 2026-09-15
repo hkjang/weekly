@@ -50,6 +50,7 @@ export interface ImportFile {
   detectedWeekStart: string; detectedWeekEnd: string; confidence: number; dateSource: string
   result?: AIWeeklyResult; errorMessage?: string; duplicateOf?: number; reportId?: number
   conflictReportId?: number; conflictReportStatus?: string; createdAt: string; analyzedAt?: string; confirmedAt?: string
+  handoffSource?: string
 }
 export interface ImportJob {
   id: number; status: ImportJobStatus; totalFiles: number; processedFiles: number; failedFiles: number
