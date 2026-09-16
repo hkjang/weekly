@@ -16,7 +16,7 @@ import (
 // it has to do the right thing against both relays these networks have: the
 // plain one on port 25, and the one that offers STARTTLS.
 
-// guards: sendMail, mailSettings.unusable, mailSettings.tlsConfig
+// guards: sendMail, unusable, tlsConfig
 func TestAutoSecurityTakesTheEncryptedRoadOnlyWhenTheRelayOffersIt(t *testing.T) {
 	app := &App{}
 	base := mailSettings{Enabled: true, Security: "AUTO", From: "weekly@internal.test", FromName: "주간보고",
