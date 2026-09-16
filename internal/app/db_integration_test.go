@@ -32,9 +32,17 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The highest number among the files, not their count: numbers are taken
+	// by branches that have not merged yet, and a gap is not a missing file.
+	want := 0
+	for _, entry := range entries {
+		if number, err := strconv.Atoi(strings.SplitN(entry.Name(), "_", 2)[0]); err == nil && number > want {
+			want = number
+		}
+	}
 	var version int
-	if err := db.QueryRow(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != len(entries) {
-		t.Fatalf("migration version: got=%d want=%d err=%v", version, len(entries), err)
+	if err := db.QueryRow(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != want {
+		t.Fatalf("migration version: got=%d want=%d err=%v", version, want, err)
 	}
 	// The status history references the actor without a cascade, so the user row
 	// cannot go first. Without this the test passes once and fails on every rerun

@@ -111,13 +111,18 @@ var settingDefinitions = map[string]settingDefinition{
 	// fallback — but a username without encryption is refused, because Go's
 	// SMTP client will not put a password on a plaintext connection and saying
 	// so here beats failing at send time.
+	//
+	// The keys are the company mail standard's (MAIL-STANDARD.md), so an
+	// operator who has configured one service recognises this one. `auto`
+	// upgrades to STARTTLS when the relay offers it and stays plain otherwise.
 	"mail.enabled":         {Validate: booleanValue},
-	"mail.host":            {Validate: bounded(0, 255)},
-	"mail.port":            {Validate: integerRange(1, 65535)},
-	"mail.security":        {Validate: oneOf("NONE", "STARTTLS", "TLS")},
+	"mail.smtp_host":       {Validate: bounded(0, 255)},
+	"mail.smtp_port":       {Validate: integerRange(1, 65535)},
+	"mail.security":        {Validate: oneOf("auto", "none", "starttls", "tls")},
+	"mail.skip_tls_verify": {Validate: booleanValue},
 	"mail.username":        {Validate: bounded(0, 255)},
 	"mail.password":        {Secret: true, Validate: bounded(0, 4096)},
-	"mail.from":            {Validate: validOptionalMailAddress},
+	"mail.from_address":    {Validate: validOptionalMailAddress},
 	"mail.from_name":       {Validate: bounded(0, 120)},
 	"mail.timeout_seconds": {Validate: integerRange(5, 300)},
 	// How many times one report is retried before it is given up on. The queue
