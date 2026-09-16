@@ -467,8 +467,8 @@ func (s *testServer) configureRelay(relay *fakeRelay) {
 	s.t.Helper()
 	host, port := relay.hostPort()
 	w := s.request(http.MethodPut, "/api/v1/admin/settings", map[string]any{"settings": map[string]string{
-		"mail.enabled": "true", "mail.host": host, "mail.port": fmt.Sprint(port),
-		"mail.security": "NONE", "mail.from": "weekly@internal.test", "mail.from_name": "주간보고",
+		"mail.enabled": "true", "mail.smtp_host": host, "mail.smtp_port": fmt.Sprint(port),
+		"mail.security": "none", "mail.from_address": "weekly@internal.test", "mail.from_name": "주간보고",
 	}}, s.admin)
 	if w.Code != http.StatusOK {
 		s.t.Fatalf("configure the relay: %d %s", w.Code, w.Body.String())

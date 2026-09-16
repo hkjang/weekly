@@ -29,16 +29,19 @@ import (
 
 // mailSettings is the relay as an operator configured it.
 type mailSettings struct {
-	Enabled     bool
-	Host        string
-	Port        int
-	Security    string // NONE, STARTTLS, TLS
-	Username    string
-	Password    string
-	From        string
-	FromName    string
-	Timeout     time.Duration
-	MaxAttempts int
+	Enabled  bool
+	Host     string
+	Port     int
+	Security string // AUTO, NONE, STARTTLS, TLS
+	// SkipTLSVerify accepts the relay's certificate unchecked. Internal relays
+	// with a private CA are common; this is the opt-in for them, nothing else.
+	SkipTLSVerify bool
+	Username      string
+	Password      string
+	From          string
+	FromName      string
+	Timeout       time.Duration
+	MaxAttempts   int
 	// PasswordUnreadable says the stored password is ciphertext this key cannot
 	// open. It is a configuration state, not a transport failure, so it belongs
 	// with the other things unusable() names.
@@ -66,12 +69,13 @@ func (a *App) loadMailSettings(ctx context.Context) (mailSettings, error) {
 	return mailSettings{
 		PasswordUnreadable: unreadable,
 		Enabled:            a.settingBool(ctx, "mail.enabled", false),
-		Host:               strings.TrimSpace(a.setting(ctx, "mail.host", "")),
-		Port:               a.settingInt(ctx, "mail.port", 25),
-		Security:           strings.ToUpper(strings.TrimSpace(a.setting(ctx, "mail.security", "NONE"))),
+		Host:               strings.TrimSpace(a.setting(ctx, "mail.smtp_host", "")),
+		Port:               a.settingInt(ctx, "mail.smtp_port", 25),
+		Security:           strings.ToUpper(strings.TrimSpace(a.setting(ctx, "mail.security", "auto"))),
+		SkipTLSVerify:      a.settingBool(ctx, "mail.skip_tls_verify", false),
 		Username:           strings.TrimSpace(a.setting(ctx, "mail.username", "")),
 		Password:           password,
-		From:               strings.TrimSpace(a.setting(ctx, "mail.from", "")),
+		From:               strings.TrimSpace(a.setting(ctx, "mail.from_address", "")),
 		FromName:           strings.TrimSpace(a.setting(ctx, "mail.from_name", "Weekly")),
 		Timeout:            time.Duration(a.settingInt(ctx, "mail.timeout_seconds", 20)) * time.Second,
 		MaxAttempts:        a.settingInt(ctx, "mail.max_attempts", 5),
@@ -98,10 +102,12 @@ func (settings mailSettings) unusable() string {
 	if !validMailAddress(settings.From) {
 		return "보내는 주소 형식이 올바르지 않습니다."
 	}
-	if settings.Username != "" && !settings.encrypted() {
+	if settings.Username != "" && !settings.encrypted() && settings.Security != "AUTO" {
 		// Go's SMTP client refuses to hand a password to an unencrypted
 		// connection, so this combination cannot work however the relay is set
-		// up. Saying it here names the two settings that disagree.
+		// up. Saying it here names the two settings that disagree. AUTO is
+		// allowed through: whether it encrypts is the relay's answer, and
+		// sendMail refuses the password if that answer is no.
 		return "계정을 쓰려면 보안 연결이 필요합니다. 보안을 STARTTLS 또는 TLS로 바꾸거나, 계정을 비우십시오."
 	}
 	return ""
@@ -403,6 +409,15 @@ func rfc2231Value(value string) string {
 // authentication that follows were unguarded. Production never replaces this.
 var mailTLSConfig = func(host string) *tls.Config { return &tls.Config{ServerName: host} }
 
+// tlsConfig is what the relay's certificate is checked against.
+func (settings mailSettings) tlsConfig() *tls.Config {
+	config := mailTLSConfig(settings.Host)
+	if settings.SkipTLSVerify {
+		config.InsecureSkipVerify = true //nolint:gosec // an operator's explicit choice for a relay with a private certificate
+	}
+	return config
+}
+
 // sendMail delivers one message and returns the relay's own refusal on failure.
 func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, body string, attachments ...mailAttachment) error {
 	if reason := settings.unusable(); reason != "" {
@@ -417,7 +432,7 @@ func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, 
 	var connection net.Conn
 	var err error
 	if settings.Security == "TLS" {
-		connection, err = tls.DialWithDialer(dialer, "tcp", address, mailTLSConfig(settings.Host))
+		connection, err = tls.DialWithDialer(dialer, "tcp", address, settings.tlsConfig())
 	} else {
 		connection, err = dialer.DialContext(ctx, "tcp", address)
 	}
@@ -435,10 +450,18 @@ func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, 
 	}
 	defer client.Close()
 
-	if settings.Security == "STARTTLS" {
-		if err := client.StartTLS(mailTLSConfig(settings.Host)); err != nil {
+	// AUTO takes the encrypted road only when the relay offers it. The plain
+	// relay on port 25 that these deployments usually have offers nothing and
+	// gets a plain session, which is exactly what NONE would have done.
+	offered, _ := client.Extension("STARTTLS")
+	if settings.Security == "STARTTLS" || (settings.Security == "AUTO" && offered) {
+		if err := client.StartTLS(settings.tlsConfig()); err != nil {
 			return fmt.Errorf("STARTTLS에 실패했습니다: %w", err)
 		}
+	} else if settings.Security == "AUTO" && settings.Username != "" {
+		// The relay never offered encryption, so the password has nowhere safe
+		// to go. Said in this deployment's words, before Go says it in its own.
+		return errors.New("릴레이가 STARTTLS를 제공하지 않아 계정을 보낼 수 없습니다. 보안을 TLS로 바꾸거나, 계정을 비우십시오.")
 	}
 	if settings.Username != "" {
 		auth := smtp.PlainAuth("", settings.Username, settings.Password, settings.Host)
