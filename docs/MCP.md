@@ -10,6 +10,37 @@ Weekly는 별도 프로세스 없이 `/mcp`에서 인증된 읽기 전용 MCP �
 
 세션 쿠키도 웹 화면에서는 동작하지만 자동화/MCP 클라이언트에는 개인 키를 사용한다. 키에는 `mcp:read` 범위가 필요하다.
 
+## SSO(OAuth)로 연결하기 — 키 없이
+
+MCP 인가 규격(2025-06-18 이후)은 OAuth 2.1 이다. 관리자가 `MCP SSO (OAuth)` 를 켜면 이 서버는
+**리소스 서버**가 되고, 로그인은 Keycloak 이 한다. 클라이언트에 URL 만 주면 된다.
+
+1. 클라이언트가 `POST /mcp` 를 토큰 없이 부르면 `401` 과 함께
+   `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource/mcp"` 를 받는다.
+2. 그 문서(RFC 9728)는 이 리소스의 식별자와 인증 서버를 알린다:
+   ```json
+   {"resource":"https://<host>/mcp","authorization_servers":["https://keycloak/realms/<realm>"],
+    "bearer_methods_supported":["header"],"scopes_supported":["mcp:read","reports:read","analytics:read"]}
+   ```
+3. 클라이언트는 Keycloak 의 `/.well-known/openid-configuration` 을 읽어 PKCE 로그인을 거치고(필요하면
+   동적 클라이언트 등록), 받은 **액세스 토큰**을 `Authorization: Bearer` 로 보낸다.
+4. 서버는 토큰의 **서명·발급자·만료**를 Keycloak 의 JWKS 로 검사하고, 토큰이 **이 서버를 위해
+   발급된 것인지** 본다: `aud` 나 `azp`(발급받은 클라이언트) 가운데 하나가 리소스 식별자(기본
+   `https://<host>/mcp`)·웹 로그인의 `Client ID`·관리자가 적은 허용 대상 중 하나여야 한다. 실제
+   Keycloak 액세스 토큰은 `aud` 에 `account` 만 싣고 클라이언트는 `azp` 에 담으므로, 매퍼 없이도
+   **허용 대상에 MCP 클라이언트 ID 를 적으면** 된다. 그런 다음 `sub` 또는 사용자명 claim 으로
+   **이미 등록된** Weekly 계정을 찾는다.
+
+거부는 이유를 말한다 — 대상이 다르면 어느 값을 Audience 매퍼에 더해야 하는지, 계정이 없으면 웹으로
+먼저 로그인하라고, 꺼져 있으면 관리자가 켜야 한다고.
+
+**토큰은 개인 키와 같은 규칙을 따른다.** 읽기 전용이고, 열리는 경로는 키와 같으며, 범위는 토큰이 아니라
+관리자 설정(`SSO 토큰에 주는 범위`, 기본 `mcp:read reports:read analytics:read`)이 정한다. Keycloak 에
+Weekly 의 범위 어휘를 가르치지 않아도 되게 하기 위해서다. 계정은 **만들지 않는다** — 웹으로 한 번
+로그인하는 것이 등록이고, 프로그램이 토큰을 내미는 순간은 누군가를 등록할 자리가 아니다.
+
+**Keycloak 쪽에서 할 일**은 [관리자 안내서](ADMIN_GUIDE.md)의 MCP SSO 절에 있다.
+
 ## 프로토콜
 
 - JSON-RPC 2.0

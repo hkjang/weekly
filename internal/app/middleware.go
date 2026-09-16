@@ -187,10 +187,18 @@ func (a *App) requireAuth(next http.Handler) http.Handler {
 			if reason := refusalMessage(err); reason != "" {
 				message = reason
 			}
+			// An MCP client refused here is meant to find its way to the
+			// authorization server from this header, not to read the message.
+			if r.URL.Path == "/mcp" {
+				a.wwwAuthenticate(w, r)
+			}
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", message)
 			return
 		}
-		if p.AuthType == "api_key" {
+		// A key and an SSO token are held to the same rule: read only, only the
+		// paths a key may touch. The token is a person's identity, but it is
+		// carried by a program, and the program is what this rule is about.
+		if p.AuthType == "api_key" || p.AuthType == "oauth" {
 			if allowed, reason := apiKeyRequestAllowed(p, r); !allowed {
 				writeError(w, http.StatusForbidden, "API_KEY_SCOPE_DENIED", reason)
 				return

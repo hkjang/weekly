@@ -59,6 +59,8 @@ type App struct {
 	// mailTests holds each writer down to one test mail at a time; see
 	// sendCooldown.
 	mailTests *sendCooldown
+	// oauth caches Keycloak discovery for MCP SSO tokens; see oauthProviders.
+	oauth oauthProviders
 }
 
 func New(ctx context.Context, options Options) (*App, error) {
@@ -300,6 +302,10 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/admin/analytics/organizations", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsOrganizations)))
 	a.mux.Handle("GET /api/v1/admin/analytics/participation", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsParticipation)))
 	a.mux.Handle("GET /api/v1/analytics/endpoints", a.requireRole("ADMIN")(http.HandlerFunc(a.analyticsEndpoints)))
+	// RFC 9728, both the root form and the path-suffixed form the MCP
+	// authorization specification tells clients to try for a resource at /mcp.
+	a.mux.HandleFunc("GET /.well-known/oauth-protected-resource", a.protectedResourceMetadata)
+	a.mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", a.protectedResourceMetadata)
 	a.mux.Handle("POST /mcp", a.requireAuth(http.HandlerFunc(a.mcp)))
 	a.mux.Handle("GET /mcp", a.requireAuth(http.HandlerFunc(a.mcpGet)))
 	a.mux.HandleFunc("/", a.serveSPA)

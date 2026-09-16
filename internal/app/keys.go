@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -61,12 +62,11 @@ func (a *App) createKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "INVALID_EXPIRY", "API 키 유효기간이 관리자 제한을 초과합니다.")
 		return
 	}
-	allowed := map[string]bool{"reports:read": true, "analytics:read": true, "mcp:read": true}
 	if len(input.Scopes) == 0 {
-		input.Scopes = []string{"reports:read", "analytics:read", "mcp:read"}
+		input.Scopes = slices.Clone(keyScopes)
 	}
 	for _, scope := range input.Scopes {
-		if !allowed[scope] {
+		if !slices.Contains(keyScopes, scope) {
 			writeError(w, 400, "INVALID_SCOPE", "허용되지 않은 API 키 범위입니다.")
 			return
 		}

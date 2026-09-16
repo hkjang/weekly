@@ -65,7 +65,7 @@ func (a *App) mcp(w http.ResponseWriter, r *http.Request) {
 	// It is written down here because a sweep that removes each refusal to see
 	// whether a test notices reports this one as unguarded, correctly and every
 	// time. That is not a hole; it is the shape of a check that cannot fire.
-	if p.AuthType == "api_key" && !contains(p.Scopes, "mcp:read") {
+	if (p.AuthType == "api_key" || p.AuthType == "oauth") && !contains(p.Scopes, "mcp:read") {
 		writeError(w, 403, "MCP_SCOPE_REQUIRED", "mcp:read 범위가 필요합니다.")
 		return
 	}

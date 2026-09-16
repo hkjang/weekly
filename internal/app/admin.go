@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,7 +52,13 @@ var settingDefinitions = map[string]settingDefinition{
 	// Off by default: the silent prompt=none attempt sends every anonymous
 	// visitor's browser to the provider before the login screen is drawn, and
 	// only the administrator decides whether that redirect exists at all.
-	"oidc.auto_login":           {Validate: booleanValue},
+	"oidc.auto_login": {Validate: booleanValue},
+	// MCP 를 개인 키 없이 Keycloak 토큰으로. The issuer is oidc.issuer_url; these
+	// only say whether, for whom (aud) and how much (scopes).
+	"mcp.oauth.enabled":         {Validate: booleanValue},
+	"mcp.oauth.resource":        {Validate: validOptionalURL},
+	"mcp.oauth.audience":        {Validate: bounded(0, 1000)},
+	"mcp.oauth.scopes":          {Validate: validScopeList},
 	"security.api_key_max_days": {Validate: integerRange(1, 3650)},
 	"analytics.retention_days":  {Validate: integerRange(1, 3650)},
 	// Zero keeps everything. An operator whose policy demands indefinite
@@ -1023,6 +1030,26 @@ func validOptionalRegex(v string) bool {
 	}
 	_, err := regexp.Compile(v)
 	return err == nil
+}
+
+// keyScopes is the whole vocabulary a bearer — personal key or SSO token — can
+// carry. One list, because the MCP SSO setting names scopes by the same words
+// a key is issued with, and two lists would let an administrator type one the
+// key screen has never heard of.
+var keyScopes = []string{"reports:read", "analytics:read", "mcp:read"}
+
+// validScopeList accepts a space-separated subset of keyScopes, non-empty.
+func validScopeList(v string) bool {
+	fields := strings.Fields(v)
+	if len(fields) == 0 {
+		return false
+	}
+	for _, field := range fields {
+		if !slices.Contains(keyScopes, field) {
+			return false
+		}
+	}
+	return true
 }
 
 func validOptionalURL(v string) bool {

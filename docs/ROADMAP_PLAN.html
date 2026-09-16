@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.301.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.302.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4296,6 +4296,19 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><strong>검증</strong></p>
 <p><code>oidcStart</code> 의 남은 변이 넷 — 프록시가 https 라고 알릴 때의 Secure 쿠키와 <code>redirect_url</code> 이 비었을 때 요청에서 만드는 콜백 주소 — 을 콜백 쪽과 같은 모양의 시험으로 닫았습니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>, 가드·OpenAPI·모달·버전 검사, 프런트엔드 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다.</p>
 <p>마이그레이션도 새 환경변수도 없습니다. 관리자 설정 <code>oidc.auto_login</code> 이 늘고 <code>/auth/providers</code> 응답에 <code>autoLogin</code> 이 생깁니다. 이미 자동 로그인에 기대던 배포는 업그레이드 뒤 이 설정을 켜야 합니다 — 기본이 꺼짐이기 때문입니다.</p>
+<h3>v0.302.0 — MCP 를 개인 키 없이 Keycloak 로그인으로</h3>
+<p>MCP 인가 규격(2025-06-18 이후)은 OAuth 2.1 입니다. 지금까지 이 제품의 MCP 는 개인 키(<code>wky_…</code>)로만 열렸고, 규격이 말하는 "URL 만 주면 로그인 창이 열리는" 연결은 없었습니다. 이번 판에서 Weekly 는 <strong>리소스 서버</strong>가 되고, 로그인은 이미 있는 Keycloak 이 합니다. 토큰을 발급하는 쪽은 여기가 아니며, 이 서버가 답해야 하는 것은 둘뿐입니다 — 인증 서버가 어디인지, 그리고 이 토큰이 그 서버가 우리를 위해 발급한 것인지.</p>
+<p><strong>어디로 가면 되는지</strong></p>
+<p><code>GET /.well-known/oauth-protected-resource</code> 와 <code>…/mcp</code>(RFC 9728)가 리소스 식별자(기본 <code>https://&lt;host&gt;/mcp</code>), 인증 서버(<code>oidc.issuer_url</code>), 지원 범위를 <strong>봉투 없는 문서</strong>로 돌려줍니다 — 읽는 쪽은 OAuth 라이브러리이지 이 제품의 SPA 가 아닙니다. 토큰 없이 <code>/mcp</code> 를 부르면 <code>401</code> 에 <code>WWW-Authenticate: Bearer resource_metadata="…"</code> 가 실립니다. 이 헤더가 없으면 거부는 막다른 길이고, 있으면 클라이언트가 스스로 길을 찾습니다. 꺼져 있으면 문서는 404 이고 헤더도 없습니다 — 설정되지 않은 인증 서버를 가리키는 것은 없는 것보다 나쁩니다.</p>
+<p><strong>이 토큰이 우리 것인지</strong></p>
+<p><code>wky_</code> 로 시작하지 않는 Bearer 는 JWT 로 봅니다. 서명·발급자·만료는 Keycloak 의 JWKS 로 검사하고(발급자 정보는 한 번 읽어 두고 키가 바뀌면 다시 읽음), 토큰이 <strong>이 서버를 위해 발급된 것인지</strong>는 <code>aud</code> 또는 발급받은 클라이언트(<code>azp</code>)로 봅니다 — 리소스 식별자·웹 로그인의 <code>Client ID</code>·관리자가 적은 허용 대상 가운데 하나여야 합니다. 실제 Keycloak 26 을 띄워 재 보니 액세스 토큰의 <code>aud</code> 는 <code>account</code> 뿐이고 클라이언트는 <code>azp</code> 에 있었습니다(ID 토큰과 다릅니다). 그래서 <strong>허용 대상에 MCP 클라이언트 ID 를 적으면 매퍼 없이 연결</strong>되고, Audience 매퍼를 더한 규격의 길도 같은 Keycloak 에서 확인했습니다. 거부는 이유를 말합니다 — 대상이 다르면 어느 값을 더해야 하는지, 계정이 없으면 웹으로 먼저 로그인하라고, 꺼져 있으면 관리자가 켜야 한다고, JWT 도 키도 아니면 그렇다고.</p>
+<p><strong>같은 방, 두 번째 문</strong></p>
+<p>토큰은 <strong>이미 등록된</strong> 계정만 인증합니다. 웹 로그인은 계정을 만들지만, 프로그램이 토큰을 내미는 순간은 누군가를 등록할 자리가 아닙니다. 범위는 토큰이 아니라 관리자 설정(<code>SSO 토큰에 주는 범위</code>)이 정합니다 — Keycloak 에 Weekly 의 범위 어휘를 가르치지 않아도 되게 하기 위해서이고, 그 어휘는 키 발급 화면과 <strong>한 목록</strong>(<code>keyScopes</code>)을 씁니다. 그리고 토큰은 개인 키와 같은 읽기 전용 규칙을 따릅니다: 사람의 신원이지만 프로그램이 들고 다니는 것이고, 규칙은 프로그램에 대한 것입니다.</p>
+<p><strong>설정과 안내</strong></p>
+<p>관리자 화면에 <code>MCP SSO (OAuth)</code> 카드가 생깁니다(스위치, 리소스 식별자, 추가 허용 대상, 토큰 범위). 관리자 안내서에 Keycloak 쪽 할 일 — Audience 매퍼, 동적 등록(DCR) 정책 또는 미리 만든 공개 클라이언트, 사용자 등록 — 과 확인하는 법을 적었고, 개인 설정의 MCP 카드는 이 문이 열려 있을 때 그렇다고 말합니다.</p>
+<p><strong>검증</strong></p>
+<p>가짜 인증 서버(디스커버리·JWKS·서명)로 규격의 리소스 서버 절반을 시험합니다: 메타데이터와 <code>WWW-Authenticate</code>, 리소스 대상·클라이언트 대상·추가 대상 각각의 허용, 다른 대상·모르는 계정·만료·다른 키의 서명·JWT 아님·스위치 꺼짐 각각의 거부와 그 문장, 그리고 토큰으로 쓰기가 403 인 것. 변이 검사에서 <code>oauthPrincipal</code> 의 변이 여섯이 모두 잡힙니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 <code>go vet</code>·<code>gofmt</code>, 가드·OpenAPI·모달·쪽넘김·버전 검사, 프런트엔드 160개 시험과 <code>tsc -b</code>·프로덕션 빌드를 통과했습니다.</p>
+<p>마이그레이션도 새 환경변수도 없습니다. 관리자 설정 <code>mcp.oauth.*</code> 넷이 늘고, <code>/.well-known/oauth-protected-resource</code> 가 생기며, <code>/auth/providers</code> 에 <code>mcpOAuth</code> 가 실립니다. 기본은 꺼짐이라 기존 배포의 동작은 그대로입니다.</p>
 </div>
 </body>
 </html>

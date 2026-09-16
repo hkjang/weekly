@@ -363,7 +363,7 @@ export default function App() {
         {page === 'import' && <ImportPage aiEnabled={session.aiEnabled} currentWeekStart={session.currentWeekStart} notify={notify} />}
         {page === 'team' && canTeam && <TeamPage workflowEnabled={session.workflowEnabled} currentUserId={session.user.id} notify={notify} />}
         {page === 'analytics' && canTeam && <AnalyticsPage isAdmin={session.user.role === 'ADMIN'} />}
-        {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} />}
+        {page === 'profile' && <ProfilePage session={session} notify={notify} refreshSession={refreshSession} mcpOAuth={Boolean(providers?.mcpOAuth)} />}
         {page === 'admin' && isAdmin && <AdminPage notify={notify} onSettingsChanged={refreshSession} />}
       </ErrorBoundary>
       </div>

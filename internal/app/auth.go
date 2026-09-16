@@ -134,10 +134,10 @@ func (a *App) authenticate(r *http.Request) (*principal, error) {
 	if authorization := r.Header.Get("Authorization"); strings.HasPrefix(authorization, "Bearer ") {
 		token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 		if !strings.HasPrefix(token, "wky_") {
-			return nil, refusalReason{
-				err:     fmt.Errorf("%w: unsupported bearer token", errNoSession),
-				message: "Bearer 토큰이 Weekly API 키 형식이 아닙니다. 키는 wky_ 로 시작합니다.",
-			}
+			// Not a personal key. The other thing a bearer can be is an access
+			// token from the SSO server, which MCP clients obtain through OAuth
+			// — see mcpoauth.go, which also says why when it refuses.
+			return a.oauthPrincipal(ctx, r, token)
 		}
 		p := &principal{AuthType: "api_key"}
 		err := a.db.QueryRow(ctx, `SELECT u.id,u.username,u.display_name,coalesce(u.email,''),u.role,u.organization_id,u.key_version,k.scopes
@@ -325,9 +325,12 @@ func (a *App) authProviders(w http.ResponseWriter, r *http.Request) {
 		// oidcStart; this only spares the visitor a redirect that would be
 		// turned into an interactive login anyway.
 		"autoLogin": oidcEnabled && a.oidcAutoLogin(r.Context()),
-		"name":      a.setting(r.Context(), "service.name", "Weekly"),
-		"notice":    a.setting(r.Context(), "service.notice", ""),
-		"build":     a.build,
+		// Published so the 개인 설정 MCP card can say the SSO door exists. The
+		// switch itself is enforced where the token arrives (oauthPrincipal).
+		"mcpOAuth": a.mcpOAuthSettings(r.Context()).Enabled && a.setting(r.Context(), "oidc.issuer_url", "") != "",
+		"name":     a.setting(r.Context(), "service.name", "Weekly"),
+		"notice":   a.setting(r.Context(), "service.notice", ""),
+		"build":    a.build,
 	})
 }
 
