@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +20,14 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	// A database of this test's own, not the configured one. The question below
+	// is "did this build's migrations all get applied and recorded", and the
+	// shared database cannot answer it: its schema_migrations is the history of
+	// everything ever run against it. On a machine where several branches share
+	// one database it carried 031–033 from branches this tree does not have,
+	// and the build's own thirty were applied and correct — the assertion
+	// failed twice on a release for a database's past, not for the code.
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,22 +36,27 @@ func TestDatabaseMigrationsAndSecretRotation(t *testing.T) {
 	// Derived from the embedded files rather than written out, because a
 	// literal here goes stale the moment a migration is added and the test only
 	// runs when a DSN is configured, so nobody finds out for several releases.
-	entries, err := migrationFiles.ReadDir("migrations")
+	// The whole set, not its highest number: a build whose latest file is
+	// recorded but whose middle one was skipped has the same maximum.
+	want := migrationVersions(t)
+	rows, err := db.Query(ctx, `SELECT version FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var version int
-	if err := db.QueryRow(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != len(entries) {
-		t.Fatalf("migration version: got=%d want=%d err=%v", version, len(entries), err)
+	got := []int{}
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, version)
 	}
-	// The status history references the actor without a cascade, so the user row
-	// cannot go first. Without this the test passes once and fails on every rerun
-	// against the same database.
-	if _, err := db.Exec(ctx, `DELETE FROM report_status_history WHERE actor_id IN (SELECT id FROM users WHERE username='clone-test')`); err != nil {
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `DELETE FROM users WHERE username='clone-test'`); err != nil {
-		t.Fatal(err)
+	if !slices.Equal(got, want) {
+		t.Fatalf("migration versions: got=%v want=%v", got, want)
 	}
 	var userID int64
 	if err := db.QueryRow(ctx, `INSERT INTO users(username,display_name,role) VALUES('clone-test','Clone Test','USER') RETURNING id`).Scan(&userID); err != nil {
