@@ -10,14 +10,50 @@ import (
 
 // 내 기록은 조직이 보는 것과 같은 주를 셉니다.
 //
+// 기록에 드는 주는 마감이 지난 주뿐이고, 마감은 달력이 아니라 규칙이 정합니다.
+// 기본 규칙(시작일로부터 7일 뒤, 그날이 끝나는 자정)에서 지난주는 월요일
+// 하루 내내 아직 열려 있어, 시험이 "지난주" 를 달력으로 세면 월요일마다
+// 연속 2주로 읽었습니다. 그래서 주는 규칙이 닫은 가장 최근 주부터 세고, 같은
+// 시나리오를 오늘이 무슨 요일이든 지난주가 열려 있는 규칙으로 한 번 더
+// 돌립니다 — 월요일이 오기를 기다리지 않아도 그 경로가 시험에 듭니다.
+//
 // guards: myParticipation
 func TestMyRecordCountsTheWeeksTheArrearsListCounts(t *testing.T) {
+	t.Run("default deadline", func(t *testing.T) { participationRecordScenario(t, "") })
+	// 13일 뒤 자정: 일요일 밤에도 지난주의 마감이 내일이라 열려 있습니다.
+	t.Run("last week still open", func(t *testing.T) { participationRecordScenario(t, "13") })
+}
+
+// closedWeekStart is the most recent week whose deadline has passed under the
+// rule — the newest week the record may count. Weeks are started on Monday
+// in the service timezone, the way the test files them.
+func closedWeekStart(now time.Time, rule deadlineRule) time.Time {
+	week := currentWeekStart(now, "MONDAY")
+	for week.AddDate(0, 0, rule.Days).Add(time.Duration(rule.Hour) * time.Hour).After(now) {
+		week = week.AddDate(0, 0, -7)
+	}
+	return week
+}
+
+func participationRecordScenario(t *testing.T, deadlineDays string) {
 	server := newTestServer(t)
+	if deadlineDays != "" {
+		if set := server.request(http.MethodPut, "/api/v1/admin/settings",
+			map[string]any{"settings": map[string]string{"workflow.deadline_days": deadlineDays}}, server.admin); set.Code != http.StatusOK {
+			t.Fatalf("마감 설정이 %d: %s", set.Code, set.Body.String())
+		}
+	}
 	author := server.createUser("streaker", "USER", nil)
 
 	location := server.app.serviceLocation(server.ctx())
-	current := currentWeekStart(time.Now().In(location), "MONDAY")
-	week := func(back int) string { return current.AddDate(0, 0, -7*back).Format(dateLayout) }
+	now := time.Now().In(location)
+	current := currentWeekStart(now, "MONDAY")
+	closed := closedWeekStart(now, server.app.deadlineRule(server.ctx()))
+	if deadlineDays != "" && !closed.Before(current.AddDate(0, 0, -7)) {
+		t.Fatalf("이 규칙에서는 지난주(%s)가 열려 있어야 하는데 닫힌 주가 %s 입니다", current.AddDate(0, 0, -7).Format(dateLayout), closed.Format(dateLayout))
+	}
+	// week(1) is the most recent closed week, week(2) the one before it.
+	week := func(back int) string { return closed.AddDate(0, 0, -7*(back-1)).Format(dateLayout) }
 
 	file := func(weekStart string) {
 		id, version := server.draft(author, weekStart, weekStart+" 보고")
