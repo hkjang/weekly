@@ -1036,7 +1036,12 @@ func validOptionalRegex(v string) bool {
 // carry. One list, because the MCP SSO setting names scopes by the same words
 // a key is issued with, and two lists would let an administrator type one the
 // key screen has never heard of.
-var keyScopes = []string{"reports:read", "analytics:read", "mcp:read"}
+var keyScopes = []string{"reports:read", "analytics:read", "mcp:read", "mcp:write"}
+
+// mcpWriteScope is the one scope that opens a write, and it opens exactly the
+// MCP tools that write — never a REST route. A key is still read only on the
+// API; what it may do through MCP is decided tool by tool.
+const mcpWriteScope = "mcp:write"
 
 // validScopeList accepts a space-separated subset of keyScopes, non-empty.
 func validScopeList(v string) bool {

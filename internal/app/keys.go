@@ -63,7 +63,9 @@ func (a *App) createKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(input.Scopes) == 0 {
-		input.Scopes = slices.Clone(keyScopes)
+		// Every read scope, and never the write one: writing through MCP is
+		// something a person asks for by name when they issue the key.
+		input.Scopes = []string{"reports:read", "analytics:read", "mcp:read"}
 	}
 	for _, scope := range input.Scopes {
 		if !slices.Contains(keyScopes, scope) {

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // The tools in this file exist because of what the surface could not answer.
@@ -314,6 +316,34 @@ func (a *App) mcpTextSearch(r *http.Request, p *principal, query string) (map[st
 	return data, nil
 }
 
+// mcpOwnReport is the caller's report covering the week weekStart names,
+// defaulting to this week. Found by the days it covers, the way every screen
+// finds it, so a grid that moved does not hide it.
+func (a *App) mcpOwnReport(r *http.Request, p *principal, arguments map[string]any) (int64, error) {
+	ctx := r.Context()
+	week, err := mcpDateArgument(arguments, "weekStart")
+	if err != nil {
+		return 0, mcpRefusal{message: err.Error()}
+	}
+	grid := a.setting(ctx, "workflow.week_start", "MONDAY")
+	start := currentWeekStart(time.Now().In(a.serviceLocation(ctx)), grid)
+	if week != "" {
+		parsed, _ := time.ParseInLocation(dateLayout, week, a.serviceLocation(ctx))
+		start = currentWeekStart(parsed, grid)
+	}
+	var id int64
+	err = a.db.QueryRow(ctx, `SELECT r.id FROM weekly_reports r
+		WHERE r.user_id=$1 AND `+weekCoveringDays("r", 2)+`
+		ORDER BY r.week_start DESC LIMIT 1`, p.ID, start.Format(dateLayout)).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, mcpRefuse("%s 주에 본인의 보고서가 없습니다. weekly_report_create 로 만들 수 있습니다.", start.Format(dateLayout))
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
 // mcpScheduleWindow reads the board window out of tool arguments, defaulting to
 // the month the service is in — the same default the board opens on.
 func mcpScheduleWindow(arguments map[string]any, today time.Time) (time.Time, time.Time, error) {
@@ -360,17 +390,28 @@ func mcpNewTools(p *principal, readOnly map[string]any) []map[string]any {
 		{
 			"name": "weekly_report_detail", "title": "주간보고 본문 열기",
 			"description": "보고서 한 건의 업무 목록, 금주 실적, 차주 계획, 이슈, 건의사항, 검토 의견을 그대로 읽습니다. " +
-				"weekly_reports_search 가 돌려준 id 를 넣으세요.",
+				"reportId 를 주면 그 보고서(권한 범위 안), 주지 않으면 호출한 계정 본인의 보고서를 weekStart(생략하면 이번 주)로 찾습니다. " +
+				"본인 보고서를 고치기 전에 이것으로 읽어 version 을 얻으세요.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
-				"reportId": map[string]any{"type": "integer", "description": "보고서 id"},
-			}, "required": []string{"reportId"}},
+				"reportId":  map[string]any{"type": "integer", "description": "보고서 id. 생략하면 본인의 보고서"},
+				"weekStart": map[string]any{"type": "string", "format": "date", "description": "reportId 가 없을 때 찾을 주(그 날이 든 주). 생략하면 이번 주"},
+			}},
 			"outputSchema": map[string]any{"type": "object", "properties": map[string]any{
-				"id": map[string]any{"type": "integer"}, "weekStart": map[string]any{"type": "string"},
-				"displayName": map[string]any{"type": "string"}, "status": map[string]any{"type": "string"},
-				"summary":  map[string]any{"type": "string"},
-				"items":    map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-				"comments": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-			}, "required": []string{"id", "weekStart", "status", "summary", "items"}},
+				"id": map[string]any{"type": "integer"}, "userId": map[string]any{"type": "integer"},
+				"username": map[string]any{"type": "string"}, "displayName": map[string]any{"type": "string"},
+				"weekStart":   map[string]any{"type": "string", "format": "date"},
+				"status":      map[string]any{"type": "string", "enum": mcpReportStatuses},
+				"sourceType":  map[string]any{"type": "string"},
+				"summary":     map[string]any{"type": "string"},
+				"version":     map[string]any{"type": "integer", "description": "수정할 때 weekly_report_update 에 그대로 넣는 값. 다른 곳에서 먼저 저장되면 거부된다"},
+				"submittedAt": map[string]any{"type": []string{"string", "null"}}, "reviewedAt": map[string]any{"type": []string{"string", "null"}},
+				"reviewedBy": map[string]any{"type": "string"}, "updatedAt": map[string]any{"type": "string"},
+				"items":                 map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"itemCount":             map[string]any{"type": "integer"},
+				"comments":              map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"includedMaterials":     map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"includedMaterialsNote": map[string]any{"type": "string"},
+			}, "required": []string{"id", "weekStart", "status", "summary", "version", "items"}},
 			"annotations": readOnly,
 		},
 		{
@@ -385,10 +426,12 @@ func mcpNewTools(p *principal, readOnly map[string]any) []map[string]any {
 				"query":     map[string]any{"type": "string"},
 				"terms":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"hits":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"returned":  map[string]any{"type": "integer"},
 				"truncated": map[string]any{"type": "boolean"},
 				"fuzzy":     map[string]any{"type": "boolean", "description": "글자가 그대로 일치하지 않은 결과가 섞여 있다"},
 				"semantic":  map[string]any{"type": "boolean", "description": "뜻으로 찾은 결과가 섞여 있다"},
-			}, "required": []string{"query", "terms", "hits", "truncated"}},
+				"note":      map[string]any{"type": "string", "description": "근사·의미 일치 경고와 넓히지 못한 이유. 있으면 반드시 읽을 것"},
+			}, "required": []string{"query", "terms", "hits", "returned", "truncated"}},
 			"annotations": readOnly,
 		},
 		{
@@ -402,11 +445,14 @@ func mcpNewTools(p *principal, readOnly map[string]any) []map[string]any {
 				"state": map[string]any{"type": "string", "enum": mcpScheduleStates, "description": "ALL 전체, OPEN 미완료, DONE 완료, OVERDUE 마감 지난 미완료, URGENT 미완료 긴급. 생략하면 ALL"},
 			}},
 			"outputSchema": map[string]any{"type": "object", "properties": map[string]any{
-				"from": map[string]any{"type": "string"}, "to": map[string]any{"type": "string"},
+				"from": map[string]any{"type": "string", "format": "date"}, "to": map[string]any{"type": "string", "format": "date"},
+				"today": map[string]any{"type": "string", "format": "date", "description": "서비스 시간대의 오늘. 지연·오늘 판정의 기준"},
+				"scope": map[string]any{"type": "string"}, "state": map[string]any{"type": "string"},
 				"tasks":   map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
 				"total":   map[string]any{"type": "integer"},
 				"summary": map[string]any{"type": "object"},
-			}, "required": []string{"from", "to", "tasks", "total", "summary"}},
+				"note":    map[string]any{"type": "string"},
+			}, "required": []string{"from", "to", "today", "tasks", "total", "summary"}},
 			"annotations": readOnly,
 		},
 	}
@@ -439,8 +485,18 @@ func (a *App) callMCPNewTool(r *http.Request, p *principal, name string, argumen
 	switch name {
 	case "weekly_report_detail":
 		id := int64(mcpArgumentInt(arguments, "reportId", 0, 0, 1<<53))
-		if id <= 0 {
+		if _, given := arguments["reportId"]; given && id <= 0 {
 			return nil, mcpRefuse("reportId 는 weekly_reports_search 가 돌려준 보고서 id 여야 합니다."), true
+		}
+		if id <= 0 {
+			// 내 보고서. The question a model asks before it writes — "what is
+			// in my report this week" — has no id yet, and making it search
+			// for one first was a turn spent on the obvious.
+			var err error
+			id, err = a.mcpOwnReport(r, p, arguments)
+			if err != nil {
+				return nil, err, true
+			}
 		}
 		data, err := a.mcpReportDetail(r.Context(), p, id)
 		return data, err, true

@@ -41,7 +41,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "internal" / "app"
-REFUSAL = re.compile(r'writeError\(\s*w,\s*(?:http\.StatusForbidden|403)\s*,')
+REFUSAL = re.compile(r'(?:writeError\(\s*w,|\bfail\()\s*(?:http\.StatusForbidden|403)\s*,')
 HANDLER = re.compile(r'^func \(a \*App\) (\w+)\(')
 # A second layer can also live in middleware: apiKeyRequestAllowed turns an API
 # key away from /mcp before the handler's own scope check is reached, so that
@@ -106,10 +106,14 @@ def sites():
             if code and (path.name, code.group(1)) in SECOND_LAYER:
                 second.append((path, index, line.strip(), SECOND_LAYER[(path.name, code.group(1))]))
                 continue
-            # The shape this can remove safely: the refusal, then a return. A
-            # site that continues some other way is left alone and counted, so
-            # a partial sweep never reads as a complete one.
-            if index + 1 < len(lines) and lines[index + 1].strip() == "return":
+            # The shape this can remove safely: the refusal, then a return — or
+            # the one-line form `return …, fail(403, …)` that a shared write path
+            # uses, where the line is the whole refusal. A site that continues
+            # some other way is left alone and counted, so a partial sweep never
+            # reads as a complete one.
+            if line.strip().startswith("return ") and "fail(" in line:
+                found.append((path, index, line.strip()))
+            elif index + 1 < len(lines) and lines[index + 1].strip() == "return":
                 found.append((path, index, line.strip()))
             else:
                 skipped.append((path, index, line.strip()))
@@ -209,7 +213,10 @@ def main():
     for number, (path, index, line) in enumerate(found, start=1):
         original = path.read_text(encoding="utf-8")
         lines = original.split("\n")
-        removed = lines[:index] + lines[index + 2:]
+        # One line for the `return …, fail(403, …)` form, two for the
+        # refusal-then-return form.
+        span = 1 if lines[index].strip().startswith("return ") and "fail(" in lines[index] else 2
+        removed = lines[:index] + lines[index + span:]
 
         # A finally covers an exception and not a kill. Ctrl-C, a timeout, or
         # the runner deciding it no longer needs this run all leave the file

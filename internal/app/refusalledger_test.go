@@ -28,10 +28,17 @@ import (
 // The ledger records handler and message rather than line numbers, which move
 // for reasons nobody needs to be told about.
 //
-// guards: every writeError(w, 403, ...) in this package
+// guards: every writeError(w, 403, ...) and fail(403, ...) in this package
+//
+// Two spellings of one thing. A refusal decided inside a write path that has
+// no ResponseWriter — createReportFor, updateReportFor, which the editor and
+// the MCP tools share — is returned as fail(http.StatusForbidden, …) and
+// written by whichever door the caller came through. It is the same refusal,
+// so it is on the same ledger; a spelling the ledger could not read was two
+// refusals quietly leaving it the day the write path was shared.
 
-var refusalPattern = regexp.MustCompile(`writeError\(\s*w,\s*(?:http\.StatusForbidden|403)\s*,\s*"([^"]+)"\s*,\s*(.+)$`)
-var refusalRough = regexp.MustCompile(`writeError\(\s*w,\s*(?:http\.StatusForbidden|403)`)
+var refusalPattern = regexp.MustCompile(`(?:writeError\(\s*w,|\bfail\()\s*(?:http\.StatusForbidden|403)\s*,\s*"([^"]+)"\s*,\s*(.+)$`)
+var refusalRough = regexp.MustCompile(`(?:writeError\(\s*w,|\bfail\()\s*(?:http\.StatusForbidden|403)`)
 var refusalHandler = regexp.MustCompile(`^func \(a \*App\) (\w+)\(`)
 
 // refusalSites reads the package as text, because that is the thing a stray

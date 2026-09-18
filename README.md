@@ -76,9 +76,9 @@ GitHub Release에서 `weekly-v<VERSION>.tar.gz` 하나만 반입합니다. 파�
 `docker image inspect --format '{{.Id}}'` 는 이 값과 다를 수 있습니다. Docker가 적재하면서 자기 식별자를 다시 매기기 때문이며, 확인에 쓰지 마십시오.
 
 ```bash
-sha256sum weekly-v0.303.0.tar.gz
-gzip -dc weekly-v0.303.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
-gzip -dc weekly-v0.303.0.tar.gz | docker load
+sha256sum weekly-v0.304.0.tar.gz
+gzip -dc weekly-v0.304.0.tar.gz | tar -xO manifest.json | grep -o 'blobs/sha256/[0-9a-f]\{64\}' | head -1
+gzip -dc weekly-v0.304.0.tar.gz | docker load
 cp deploy/.env.example deploy/.env
 # 첫 기동에 필요한 세 값과 운영용 WEEKLY_ENCRYPTION_KEY를 설정
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -598,7 +598,7 @@ REST API 기본 경로는 `/api/v1`이며 응답 규격은 다음과 같습니�
 
 개인 설정에서 발급한 `wky_...` 키를 `Authorization: Bearer`로 사용합니다.
 
-**개인 키는 조회 전용이며 기본 거부입니다.** 어떤 범위로도 저장·수정·삭제를 할 수 없고, 아래 경로 밖은 열리지 않습니다. 키는 주인의 권한을 넘어서지 못합니다 — 일반 사용자의 키에 `analytics:read`를 넣어도 팀 분석은 볼 수 없습니다.
+**개인 키는 REST 에서 조회 전용이며 기본 거부입니다.** 어떤 범위로도 REST 로 저장·수정·삭제를 할 수 없고, 아래 경로 밖은 열리지 않습니다. 유일한 예외는 `mcp:write` 범위가 여는 MCP 의 두 도구(본인 주간보고 만들기·고치기)이며, 이 범위는 키를 발급할 때 따로 켜야 합니다. 키는 주인의 권한을 넘어서지 못합니다 — 일반 사용자의 키에 `analytics:read`를 넣어도 팀 분석은 볼 수 없습니다.
 
 | 범위 | 열리는 것 |
 |---|---|
@@ -606,6 +606,7 @@ REST API 기본 경로는 `/api/v1`이며 응답 규격은 다음과 같습니�
 | `reports:read` | `GET /api/v1/reports…`, `/team/reports…`, `/rollups…`, `/search` |
 | `analytics:read` | `GET /api/v1/analytics…` |
 | `mcp:read` | `POST /mcp` |
+| `mcp:write` | MCP 의 `weekly_report_create`·`weekly_report_update` (본인 보고서만) |
 
 업무 추적·인수인계·회의 모드·경영 요약·업무 인사이트·담당자 목록·관리자 화면은 **어떤 범위로도 열리지 않습니다.** 키 회전은 기존 키를 즉시 무효화합니다.
 
@@ -625,6 +626,7 @@ Authorization: Bearer wky_...
 - `period_report_rollup`: 주·월·분기·반기·연 단위 취합과 경영 인사이트
 - `schedule_board_tasks`: 업무 상황판 일정, 지연·오늘·긴급 집계
 - `weekly_endpoint_analysis`: 최근 24시간 API 호출·지연·오류 분석, 관리자 전용
+- `weekly_report_create` / `weekly_report_update`: 본인 주간보고 만들기·고치기, `mcp:write` 키 전용
 
 도구는 호출자가 쓸 수 있는 것만 목록에 올라오고, 목록에 있는 도구는 기본 인자만으로도 답합니다. 인자가 규격에 맞지 않으면 무엇이 틀렸는지 문장으로 돌려주며(형식·허용값), 조건에 맞지 않는 값을 조용히 0건으로 답하지 않습니다.
 

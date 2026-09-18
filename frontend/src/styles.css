@@ -440,3 +440,6 @@ a.sr-tag:hover{background:#cbd5e1;text-decoration:underline}
   .month-cell{min-height:76px}
   .schedule-dialog .sr-lookup{grid-template-columns:1fr}
 }
+
+.toggle-inline{display:inline-flex;align-items:center;gap:6px;font-size:.88rem;color:#334155;white-space:nowrap}
+.toggle-inline input{margin:0}

@@ -225,107 +225,151 @@ func (a *App) loadReport(ctx context.Context, id int64) (*reportView, error) {
 // otherwise file a second one covering the same work. Both the blank report and
 // the clone go through here, because the clone takes a target week too and a
 // rule enforced on one path is not a rule.
-func (a *App) weekIsFree(w http.ResponseWriter, r *http.Request, userID int64, week time.Time) bool {
+// httpFailure is a refusal or failure a write path decided on, carried out to
+// whichever door the caller came through. The REST handler writes it as it
+// always has; the MCP tool turns it into a sentence for a model. One decision,
+// two envelopes — the codes and wording are the same at both.
+type httpFailure struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+func (f *httpFailure) Error() string { return f.Code + ": " + f.Message }
+
+func fail(status int, code, message string) *httpFailure {
+	return &httpFailure{Status: status, Code: code, Message: message}
+}
+
+// weekConflict is the report already covering these seven days, if any.
+func (a *App) weekConflict(ctx context.Context, userID int64, week time.Time) *httpFailure {
 	var existingID int64
 	var existingWeek time.Time
-	err := a.db.QueryRow(r.Context(), `SELECT id, week_start FROM weekly_reports
+	err := a.db.QueryRow(ctx, `SELECT id, week_start FROM weekly_reports
 		WHERE user_id=$1 AND week_start <= $2 AND week_start + 6 >= $3
 		ORDER BY week_start LIMIT 1`,
 		userID, week.AddDate(0, 0, 6).Format("2006-01-02"), week.Format("2006-01-02")).
 		Scan(&existingID, &existingWeek)
 	if err == nil {
-		writeError(w, http.StatusConflict, "REPORT_PERIOD_OVERLAPS",
+		return fail(http.StatusConflict, "REPORT_PERIOD_OVERLAPS",
 			existingWeek.Format("2006-01-02")+" 주차 보고서가 같은 기간을 이미 담고 있습니다. 그 보고서를 여십시오.")
-		return false
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		a.logger.Error("check overlapping report", "error", err, "userId", userID)
-		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
+		return fail(http.StatusInternalServerError, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
+	}
+	return nil
+}
+
+func (a *App) weekIsFree(w http.ResponseWriter, r *http.Request, userID int64, week time.Time) bool {
+	if failure := a.weekConflict(r.Context(), userID, week); failure != nil {
+		writeError(w, failure.Status, failure.Code, failure.Message)
 		return false
 	}
 	return true
 }
 
+type reportCreateInput struct {
+	WeekStart  string       `json:"weekStart"`
+	Summary    string       `json:"summary"`
+	SourceType string       `json:"sourceType"`
+	Items      []reportItem `json:"items"`
+}
+
 func (a *App) createReport(w http.ResponseWriter, r *http.Request) {
-	p := currentPrincipal(r.Context())
-	var input struct {
-		WeekStart  string       `json:"weekStart"`
-		Summary    string       `json:"summary"`
-		SourceType string       `json:"sourceType"`
-		Items      []reportItem `json:"items"`
-	}
+	var input reportCreateInput
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	week := currentWeekStart(time.Now().In(a.serviceLocation(r.Context())), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
+	id, failure := a.createReportFor(r, currentPrincipal(r.Context()), input)
+	if failure != nil {
+		writeError(w, failure.Status, failure.Code, failure.Message)
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// createReportFor is the whole of creating a report, with no door around it.
+//
+// Extracted because the editor is no longer the only writer: an MCP tool
+// creates reports too, and a second copy of this — the overlap rule, the
+// work item resolution, the status history, the audit row — would be a second
+// place for one of them to go missing. r is here for the audit and the
+// context; both doors have a request.
+func (a *App) createReportFor(r *http.Request, p *principal, input reportCreateInput) (int64, *httpFailure) {
+	ctx := r.Context()
+	week := currentWeekStart(time.Now().In(a.serviceLocation(ctx)), a.setting(ctx, "workflow.week_start", "MONDAY"))
 	if input.WeekStart != "" {
 		parsed, err := time.Parse("2006-01-02", input.WeekStart)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_WEEK", "주차 시작일이 올바르지 않습니다.")
-			return
+			return 0, fail(http.StatusBadRequest, "INVALID_WEEK", "주차 시작일이 올바르지 않습니다.")
 		}
 		week = parsed
 	}
 	if err := validateItems(input.Items); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_ITEMS", err.Error())
-		return
+		return 0, fail(http.StatusBadRequest, "INVALID_ITEMS", err.Error())
 	}
-	if !a.weekIsFree(w, r, p.ID, week) {
-		return
+	if failure := a.weekConflict(ctx, p.ID, week); failure != nil {
+		return 0, failure
 	}
-	tx, err := a.db.Begin(r.Context())
+	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		writeError(w, 500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
-		return
+		return 0, fail(500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
 	}
-	defer tx.Rollback(r.Context())
+	defer tx.Rollback(ctx)
 	var id int64
 	sourceType := editableSourceType(input.SourceType)
-	err = tx.QueryRow(r.Context(), `INSERT INTO weekly_reports(user_id,week_start,summary,source_type) VALUES($1,$2,$3,$4) RETURNING id`, p.ID, week, trimRunes(input.Summary, 10000), sourceType).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO weekly_reports(user_id,week_start,summary,source_type) VALUES($1,$2,$3,$4) RETURNING id`, p.ID, week, trimRunes(input.Summary, 10000), sourceType).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "weekly_reports_user_id_week_start_key") {
-			writeError(w, http.StatusConflict, "REPORT_EXISTS", "해당 주차 보고서가 이미 있습니다.")
-		} else {
-			a.logger.Error("create report", "error", err, "userId", p.ID, "trace", traceIDFromContext(r.Context()))
-			writeError(w, 500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
+			return 0, fail(http.StatusConflict, "REPORT_EXISTS", "해당 주차 보고서가 이미 있습니다.")
 		}
-		return
+		a.logger.Error("create report", "error", err, "userId", p.ID, "trace", traceIDFromContext(ctx))
+		return 0, fail(500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
 	}
 	for index, item := range input.Items {
-		workItemID, resolveErr := resolveWorkItem(r.Context(), tx, p.ID, item.Title, item.Category)
+		workItemID, resolveErr := resolveWorkItem(ctx, tx, p.ID, item.Title, item.Category)
 		if resolveErr != nil {
-			a.logger.Error("resolve work item", "error", resolveErr, "reportId", id, "trace", traceIDFromContext(r.Context()))
-			writeError(w, 500, "DATABASE_ERROR", "업무 식별자를 만들 수 없습니다.")
-			return
+			a.logger.Error("resolve work item", "error", resolveErr, "reportId", id, "trace", traceIDFromContext(ctx))
+			return 0, fail(500, "DATABASE_ERROR", "업무 식별자를 만들 수 없습니다.")
 		}
 		var itemID int64
-		if err = tx.QueryRow(r.Context(), `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order)
+		if err = tx.QueryRow(ctx, `INSERT INTO report_items(report_id,work_item_id,category,title,current_result,next_plan,issue,management_ask,progress,sort_order)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
 			id, workItemID, item.Category, item.Title, item.CurrentResult, item.NextPlan, item.Issue, item.ManagementAsk, item.Progress, index).Scan(&itemID); err != nil {
-			a.logger.Error("insert report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(r.Context()))
-			writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
-			return
+			a.logger.Error("insert report item", "error", err, "reportId", id, "index", index, "trace", traceIDFromContext(ctx))
+			return 0, fail(500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
 		}
-		sources, sourceErr := a.sourcesForSavedItem(r.Context(), tx, item, p.ID)
+		sources, sourceErr := a.sourcesForSavedItem(ctx, tx, item, p.ID)
 		if sourceErr == nil {
-			sourceErr = recordItemSources(r.Context(), tx, itemID, sources)
+			sourceErr = recordItemSources(ctx, tx, itemID, sources)
 		}
 		if sourceErr != nil {
-			a.logger.Error("record item sources", "error", sourceErr, "reportId", id, "trace", traceIDFromContext(r.Context()))
-			writeError(w, 500, "DATABASE_ERROR", "보고서 항목의 근거를 저장할 수 없습니다.")
-			return
+			a.logger.Error("record item sources", "error", sourceErr, "reportId", id, "trace", traceIDFromContext(ctx))
+			return 0, fail(500, "DATABASE_ERROR", "보고서 항목의 근거를 저장할 수 없습니다.")
 		}
 	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,to_status) VALUES($1,$2,'DRAFT')`, id, p.ID); err != nil {
-		writeError(w, 500, "DATABASE_ERROR", "이력을 저장할 수 없습니다.")
-		return
+	if _, err = tx.Exec(ctx, `INSERT INTO report_status_history(report_id,actor_id,to_status) VALUES($1,$2,'DRAFT')`, id, p.ID); err != nil {
+		return 0, fail(500, "DATABASE_ERROR", "이력을 저장할 수 없습니다.")
 	}
-	if err = tx.Commit(r.Context()); err != nil {
-		writeError(w, 500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
-		return
+	if err = tx.Commit(ctx); err != nil {
+		return 0, fail(500, "DATABASE_ERROR", "보고서를 만들 수 없습니다.")
 	}
 	a.audit(r, p, "report.create", "report", strconv.FormatInt(id, 10), map[string]any{"weekStart": week.Format("2006-01-02")})
-	writeData(w, http.StatusCreated, map[string]int64{"id": id})
+	return id, nil
+}
+
+type reportUpdateInput struct {
+	Summary    string       `json:"summary"`
+	Version    int          `json:"version"`
+	SourceType string       `json:"sourceType"`
+	Items      []reportItem `json:"items"`
+}
+
+type reportUpdateResult struct {
+	ID      int64  `json:"id"`
+	Version int    `json:"version"`
+	Status  string `json:"status"`
 }
 
 func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
@@ -333,48 +377,50 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p := currentPrincipal(r.Context())
-	var input struct {
-		Summary    string       `json:"summary"`
-		Version    int          `json:"version"`
-		SourceType string       `json:"sourceType"`
-		Items      []reportItem `json:"items"`
-	}
+	var input reportUpdateInput
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if input.Version < 1 {
-		writeError(w, 400, "VERSION_REQUIRED", "보고서 버전이 필요합니다.")
+	result, failure := a.updateReportFor(r, currentPrincipal(r.Context()), id, input)
+	if failure != nil {
+		writeError(w, failure.Status, failure.Code, failure.Message)
 		return
+	}
+	writeData(w, http.StatusOK, result)
+}
+
+// updateReportFor is the whole of saving a report — ownership, the version
+// check, the status rule, the item reconciliation, the history and the audit
+// — with no door around it. See createReportFor for why.
+func (a *App) updateReportFor(r *http.Request, p *principal, id int64, input reportUpdateInput) (reportUpdateResult, *httpFailure) {
+	ctx := r.Context()
+	none := reportUpdateResult{}
+	if input.Version < 1 {
+		return none, fail(400, "VERSION_REQUIRED", "보고서 버전이 필요합니다.")
 	}
 	if err := validateItems(input.Items); err != nil {
-		writeError(w, 400, "INVALID_ITEMS", err.Error())
-		return
+		return none, fail(400, "INVALID_ITEMS", err.Error())
 	}
-	tx, err := a.db.Begin(r.Context())
+	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
-		return
+		return none, fail(500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 	}
-	defer tx.Rollback(r.Context())
+	defer tx.Rollback(ctx)
 	var ownerID int64
 	var storedVersion int
 	var previousStatus string
-	err = tx.QueryRow(r.Context(), `SELECT user_id,version,status FROM weekly_reports WHERE id=$1 FOR UPDATE`, id).Scan(&ownerID, &storedVersion, &previousStatus)
+	err = tx.QueryRow(ctx, `SELECT user_id,version,status FROM weekly_reports WHERE id=$1 FOR UPDATE`, id).Scan(&ownerID, &storedVersion, &previousStatus)
 	// A report that does not exist is refused exactly as somebody else's is,
 	// down to the wording. Told apart, the two replies let anyone walk the
 	// identifiers and learn which reports exist and how many there are.
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
-		return
+		return none, fail(http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
 	}
 	if err != nil {
-		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
-		return
+		return none, fail(500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 	}
 	if ownerID != p.ID {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
-		return
+		return none, fail(http.StatusForbidden, "FORBIDDEN", "본인의 보고서만 수정할 수 있습니다.")
 	}
 	if storedVersion != input.Version {
 		// Not "새로고침 후 다시 시도하세요". The editor deliberately keeps what
@@ -384,10 +430,9 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 		// shown. Refreshing the page is the one action that throws the writing
 		// away, and it is not needed: pressing save again succeeds. Measured
 		// against a running deployment, exactly that.
-		writeError(w, http.StatusConflict, "VERSION_CONFLICT",
+		return none, fail(http.StatusConflict, "VERSION_CONFLICT",
 			"다른 곳에서 먼저 저장되어 이번 저장은 반영되지 않았습니다. 화면에 쓴 내용은 그대로 있으니 저장을 한 번 더 누르면 됩니다. "+
 				"그동안 저장된 내용은 덮어씁니다. 새로고침하면 지금 쓰고 있는 내용이 사라집니다.")
-		return
 	}
 	// A report whose content changed is no longer the report that was handed
 	// in, whatever the handing-in was called here.
@@ -412,7 +457,7 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 	// two different types for it and reject the whole statement.
 	relabelAsAI := strings.EqualFold(strings.TrimSpace(input.SourceType), "AI_TEXT")
 	clearReview := newStatus == "DRAFT"
-	_, err = tx.Exec(r.Context(), `UPDATE weekly_reports SET summary=$1,
+	_, err = tx.Exec(ctx, `UPDATE weekly_reports SET summary=$1,
 		source_type=CASE WHEN $2 THEN 'AI_TEXT' ELSE source_type END,
 		status=$3,
 		submitted_at=CASE WHEN $4 THEN NULL ELSE submitted_at END,
@@ -421,32 +466,28 @@ func (a *App) updateReport(w http.ResponseWriter, r *http.Request) {
 		version=version+1,updated_at=now() WHERE id=$5`,
 		trimRunes(input.Summary, 10000), relabelAsAI, newStatus, clearReview, id)
 	if err != nil {
-		a.logger.Error("update report", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
-		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
-		return
+		a.logger.Error("update report", "error", err, "reportId", id, "trace", traceIDFromContext(ctx))
+		return none, fail(500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 	}
 	// Reconcile rather than delete and re-insert. Re-inserting would issue new
 	// row ids on every save, which discards the work item link and any future
 	// reference to a specific item.
-	if err = a.persistReportItems(r.Context(), tx, id, ownerID, input.Items); err != nil {
-		a.logger.Error("persist report items", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
-		writeError(w, 500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
-		return
+	if err = a.persistReportItems(ctx, tx, id, ownerID, input.Items); err != nil {
+		a.logger.Error("persist report items", "error", err, "reportId", id, "trace", traceIDFromContext(ctx))
+		return none, fail(500, "DATABASE_ERROR", "보고서 항목을 저장할 수 없습니다.")
 	}
 	if newStatus != previousStatus {
-		_, err = tx.Exec(r.Context(), `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment)
+		_, err = tx.Exec(ctx, `INSERT INTO report_status_history(report_id,actor_id,from_status,to_status,comment)
 			VALUES($1,$2,$3,$4,'작성자가 제출·확정·승인 후 내용을 수정하여 작성 중으로 되돌림')`, id, p.ID, previousStatus, newStatus)
 		if err != nil {
-			writeError(w, 500, "DATABASE_ERROR", "보고서 상태 이력을 저장할 수 없습니다.")
-			return
+			return none, fail(500, "DATABASE_ERROR", "보고서 상태 이력을 저장할 수 없습니다.")
 		}
 	}
-	if err = tx.Commit(r.Context()); err != nil {
-		writeError(w, 500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
-		return
+	if err = tx.Commit(ctx); err != nil {
+		return none, fail(500, "DATABASE_ERROR", "보고서를 저장할 수 없습니다.")
 	}
 	a.audit(r, p, "report.update", "report", strconv.FormatInt(id, 10), map[string]any{"version": input.Version + 1, "status": newStatus})
-	writeData(w, http.StatusOK, map[string]any{"id": id, "version": input.Version + 1, "status": newStatus})
+	return reportUpdateResult{ID: id, Version: input.Version + 1, Status: newStatus}, nil
 }
 
 func (a *App) deleteReport(w http.ResponseWriter, r *http.Request) {

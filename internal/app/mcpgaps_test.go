@@ -375,9 +375,10 @@ func TestEveryToolTheListingOffersAnswersItsOwnDefaultCall(t *testing.T) {
 	// weekly_report_detail is the one tool with a required argument; every caller
 	// is given a report of their own to open.
 	reports := map[string]int64{}
+	versions := map[string]int{}
 	for who, cookie := range callers {
-		id, _ := server.draft(cookie, "2026-03-02", who+" 전수 점검 보고")
-		reports[who] = id
+		id, version := server.draft(cookie, "2026-03-02", who+" 전수 점검 보고")
+		reports[who], versions[who] = id, version
 	}
 
 	for who, cookie := range callers {
@@ -390,6 +391,13 @@ func TestEveryToolTheListingOffersAnswersItsOwnDefaultCall(t *testing.T) {
 				arguments["reportId"] = reports[who]
 			case "weekly_reports_text_search":
 				arguments["q"] = "전수 점검"
+			case "weekly_report_create":
+				arguments["weekStart"] = "2026-01-05"
+				arguments["summary"] = who + " 전수 생성"
+			case "weekly_report_update":
+				arguments["reportId"] = reports[who]
+				arguments["version"] = versions[who]
+				arguments["summary"] = who + " 전수 수정"
 			}
 			reply := mcpCall(t, server, cookie, "tools/call", map[string]any{
 				"name": name, "arguments": arguments,
@@ -421,7 +429,8 @@ func TestTheProfileCardNamesEveryMCPToolTheServerOffers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the profile screen: %v", err)
 	}
-	for _, tool := range app.mcpTools(&principal{Role: "ADMIN"}) {
+	// A session sees everything, the write tools included.
+	for _, tool := range app.mcpTools(&principal{Role: "ADMIN", AuthType: "session"}) {
 		name, _ := tool["name"].(string)
 		if !strings.Contains(string(card), name) {
 			t.Errorf("the MCP card on 개인 설정 does not name %s, so nobody connecting a client learns it exists", name)

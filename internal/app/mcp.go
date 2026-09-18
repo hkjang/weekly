@@ -201,8 +201,10 @@ func (a *App) mcpDispatch(r *http.Request, p *principal, request jsonRPCRequest)
 // mcpInstructions is what the server tells a model it is for, before the model
 // has called anything. It names the surfaces rather than describing them,
 // because the tool descriptions carry the detail and this is read every time.
-const mcpInstructions = "주간보고 제출 현황과 미제출자, 보고서 검색과 본문, 기간(주·월·분기·반기·연) 집계, 업무 상황판 일정, 서비스 API 상태를 읽기 전용으로 분석합니다. " +
-	"모든 도구는 호출한 계정의 권한 범위 안에서만 답하며, 목록을 돌려주는 도구는 전체 건수(total)와 잘라낸 사실을 note 로 함께 알려 줍니다."
+const mcpInstructions = "주간보고 제출 현황과 미제출자, 보고서 검색과 본문, 기간(주·월·분기·반기·연) 집계, 업무 상황판 일정, 서비스 API 상태를 읽고, " +
+	"쓰기 범위(mcp:write)가 있으면 호출한 계정 본인의 주간보고를 만들고 고칩니다(제출은 사람이 화면에서). " +
+	"모든 도구는 호출한 계정의 권한 범위 안에서만 답하며, 목록을 돌려주는 도구는 전체 건수(total)와 잘라낸 사실을 note 로 함께 알려 줍니다. " +
+	"보고서를 고치기 전에는 weekly_report_detail 로 읽어 version 을 얻으세요."
 
 func (a *App) writeRPC(w http.ResponseWriter, response jsonRPCResponse) {
 	w.Header().Set("Content-Type", "application/json")
@@ -255,16 +257,33 @@ func (a *App) mcpTools(p *principal) []map[string]any {
 				"period": map[string]any{"type": "string", "description": "2026-09-07(WEEK), 2026-08, 2026-Q3, 2026-H2, 2026 형식. 생략하면 현재 기간"},
 				"scope":  map[string]any{"type": "string", "enum": []string{scopeSelf, scopeTeam}, "description": "SELF는 본인, TEAM은 소속 조직. 생략하면 SELF"},
 			}},
+			// Every key the payload carries is declared. An agent reads this
+			// schema as the whole answer, and the fields it did not name —
+			// itemsTotal, contributorsTotal, note — are precisely the ones that
+			// say the list was cut. Measured: four tools were sending fields
+			// their own schema never mentioned.
 			"outputSchema": map[string]any{"type": "object", "properties": map[string]any{
-				"period": map[string]any{"type": "string"}, "label": map[string]any{"type": "string"},
+				"kind": map[string]any{"type": "string"}, "period": map[string]any{"type": "string"},
+				"label": map[string]any{"type": "string"}, "start": map[string]any{"type": "string", "format": "date"},
+				"end":   map[string]any{"type": "string", "format": "date"},
+				"scope": map[string]any{"type": "string"}, "scopeLabel": map[string]any{"type": "string"},
 				"summary": map[string]any{"type": "string"}, "insights": map[string]any{"type": "object"},
-				"highlights": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-				"items":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-			}, "required": []string{"period", "label", "summary", "insights", "highlights", "items"}},
+				"highlights":        map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"items":             map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"itemsTotal":        map[string]any{"type": "integer", "description": "잘리기 전 업무 수. items 길이보다 크면 일부만 담긴 것"},
+				"timelineItems":     map[string]any{"type": "integer", "description": "주차별 이력(weeks)을 가진 상위 업무 수"},
+				"categories":        map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"contributors":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"contributorsTotal": map[string]any{"type": "integer"},
+				"trend":             map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"weeks":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"note":              map[string]any{"type": "string", "description": "무엇을 얼마나 덜어 냈는지. 있으면 반드시 읽을 것"},
+			}, "required": []string{"kind", "period", "label", "summary", "insights", "highlights", "items", "itemsTotal"}},
 			"annotations": readOnly,
 		},
 	}
 	tools = append(tools, mcpNewTools(p, readOnly)...)
+	tools = append(tools, mcpWriteTools(p)...)
 	if p.Role == "ADMIN" {
 		tools = append(tools, map[string]any{"name": "weekly_endpoint_analysis", "title": "Weekly API 운영 분석", "description": "최근 24시간 API별 호출 수, 평균/최대 응답시간, 서버 오류(5xx) 수와 거부(4xx) 비율을 분석합니다. 거부는 권한·검증처럼 정상적으로 막아 낸 요청을 포함하므로 장애 지표가 아닙니다.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "outputSchema": map[string]any{"type": "object", "properties": map[string]any{"endpoints": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}}, "required": []string{"endpoints"}}, "annotations": readOnly})
 	}
@@ -352,6 +371,9 @@ func (a *App) callMCPTool(r *http.Request, p *principal, request jsonRPCRequest)
 	default:
 		handled := false
 		data, err, handled = a.callMCPNewTool(r, p, params.Name, params.Arguments)
+		if !handled {
+			data, err, handled = a.callMCPWriteTool(r, p, params.Name, params.Arguments)
+		}
 		if !handled {
 			response.Error = &jsonRPCError{Code: -32602, Message: "Unknown tool"}
 			return response

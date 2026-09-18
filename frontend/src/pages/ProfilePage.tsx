@@ -16,6 +16,9 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
   const [keys, setKeys] = useState<KeyView[]>([])
   const [keyVersion, setKeyVersion] = useState(session.user.keyVersion)
   const [name, setName] = useState('MCP / API')
+  // 쓰기는 이름을 대고 청하는 것입니다. 기본 키는 읽기 전용이고, 이 칸을 켠 키만
+  // MCP 의 보고서 만들기·고치기 도구를 봅니다 — 본인 보고서에 한해서.
+  const [mcpWrite, setMcpWrite] = useState(false)
   const [days, setDays] = useState(90)
   const [token, setToken] = useState<string>()
   const [mail, setMail] = useState<MailPreference>()
@@ -72,7 +75,7 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
     .then(value => { setKeysFailed(''); setKeys(value.keys); setKeyVersion(value.keyVersion) })
     .catch(error => { setKeysFailed(errorText(error, 'API 키 목록을 불러오지 못했습니다.')) })
   useEffect(() => { load(); loadMail(); loadWeekly() }, [])
-  const create = async () => { try { const value = await post<{ token: string }>('/api/v1/keys', { name, expiresInDays: days, scopes: ['reports:read', 'analytics:read', 'mcp:read'] }); setToken(value.token); await load(); notify('API 키를 생성했습니다.') } catch (error) { notify(errorText(error, '키를 만들 수 없습니다.'), 'error') } }
+  const create = async () => { try { const value = await post<{ token: string }>('/api/v1/keys', { name, expiresInDays: days, scopes: ['reports:read', 'analytics:read', 'mcp:read', ...(mcpWrite ? ['mcp:write'] : [])] }); setToken(value.token); await load(); notify('API 키를 생성했습니다.') } catch (error) { notify(errorText(error, '키를 만들 수 없습니다.'), 'error') } }
   const revoke = async (id: number) => { if (!confirm('이 API 키를 폐기하시겠습니까?')) return; await del(`/api/v1/keys/${id}`); await load(); notify('API 키를 폐기했습니다.') }
   const rotate = async () => { if (!confirm('모든 기존 API 키가 즉시 폐기됩니다. 키를 회전하시겠습니까?')) return; await post('/api/v1/keys/rotate'); setToken(undefined); await load(); await refreshSession(); notify('개인 키 버전을 회전하고 모든 기존 키를 폐기했습니다.') }
   return <><PageHeader title="개인 설정" description="프로필과 개인 API 키를 관리합니다."/>
@@ -137,8 +140,8 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
           </tr>)}</tbody></table></div>
         : <Empty>{mail.onSubmit ? '아직 발송한 주간보고가 없습니다. 다음 제출부터 여기에 기록됩니다.' : '발송이 꺼져 있습니다.'}</Empty>)}
     </Card>
-    <Card title="API · MCP 키 발급"><div className="inline-form"><label>키 이름<input value={name} onChange={e => setName(e.target.value)}/></label><label>유효기간<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={30}>30일</option><option value={90}>90일</option><option value={180}>180일</option><option value={365}>365일</option></select></label><Button onClick={create}>새 키 발급</Button></div>{token && <div className="token-reveal"><strong>지금 복사하세요. 다시 표시되지 않습니다.</strong><code>{token}</code><Button variant="secondary" onClick={() => navigator.clipboard.writeText(token)}>복사</Button></div>}</Card>
+    <Card title="API · MCP 키 발급"><div className="inline-form"><label>키 이름<input value={name} onChange={e => setName(e.target.value)}/></label><label>유효기간<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={30}>30일</option><option value={90}>90일</option><option value={180}>180일</option><option value={365}>365일</option></select></label><label className="toggle-inline"><input type="checkbox" checked={mcpWrite} onChange={e => setMcpWrite(e.target.checked)}/>MCP 로 내 보고서 작성·수정 허용 (mcp:write)</label><Button onClick={create}>새 키 발급</Button></div>{token && <div className="token-reveal"><strong>지금 복사하세요. 다시 표시되지 않습니다.</strong><code>{token}</code><Button variant="secondary" onClick={() => navigator.clipboard.writeText(token)}>복사</Button></div>}</Card>
     <Card title="활성 키">{keys.length ? <div className="table-wrap"><table><thead><tr><th>이름</th><th>접두사</th><th>범위</th><th>만료</th><th>최근 사용</th><th/></tr></thead><tbody>{keys.map(key => <tr key={key.id}><td>{key.name}</td><td><code>{key.prefix}…</code></td><td>{key.scopes.join(', ')}</td><td>{formatDate(key.expiresAt)}</td><td>{formatDate(key.lastUsedAt)}</td><td><button className="remove-button" onClick={() => revoke(key.id)}>폐기</button></td></tr>)}</tbody></table></div> : keysFailed ? <><Empty>{keysFailed}</Empty><div className="audit-pager"><Button variant="secondary" onClick={() => { void load() }}>다시 시도</Button></div></> : <Empty>발급된 API 키가 없습니다.</Empty>}</Card>
-    <Card title="MCP 연결"><p className="muted">Streamable HTTP 방식으로 연결하고 위에서 발급한 키를 Bearer 토큰으로 사용합니다.{mcpOAuth && <> 또는 <strong>키 없이 Keycloak 로그인</strong>으로 연결할 수 있습니다 — 클라이언트에 URL만 주면 로그인 창이 열리고, 토큰은 이 계정으로 읽기 전용으로 동작합니다.</>}</p><pre className="code-block">{`URL: ${location.origin}/mcp\nAuthorization: Bearer wky_...\nTools: weekly_submission_overview, weekly_reports_search, weekly_reports_text_search,\n       weekly_report_detail, period_report_rollup, schedule_board_tasks\n       (팀장 이상: weekly_missing_submitters / 관리자: weekly_endpoint_analysis)`}</pre></Card>
+    <Card title="MCP 연결"><p className="muted">Streamable HTTP 방식으로 연결하고 위에서 발급한 키를 Bearer 토큰으로 사용합니다.{mcpOAuth && <> 또는 <strong>키 없이 Keycloak 로그인</strong>으로 연결할 수 있습니다 — 클라이언트에 URL만 주면 로그인 창이 열리고, 토큰은 이 계정으로 읽기 전용으로 동작합니다.</>}</p><pre className="code-block">{`URL: ${location.origin}/mcp\nAuthorization: Bearer wky_...\nTools: weekly_submission_overview, weekly_reports_search, weekly_reports_text_search,\n       weekly_report_detail, period_report_rollup, schedule_board_tasks\n       (팀장 이상: weekly_missing_submitters / 관리자: weekly_endpoint_analysis)\n       (mcp:write 키: weekly_report_create, weekly_report_update — 본인 보고서만)`}</pre></Card>
   </>
 }
