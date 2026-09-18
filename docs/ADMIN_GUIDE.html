@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ADMIN_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 관리자 가이드</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.304.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: 구성 요소, 릴리즈 자산으로 설치, 환경 변수와 관리자 설정, 계정과 권한, 운영(백업·상태·업그레이드), 장애 대응, 보안. 화면을 쓰는 사람의 안내는 [사용자 가이드](USER_GUIDE.md)에 있습니다.</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.305.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: 구성 요소, 릴리즈 자산으로 설치, 환경 변수와 관리자 설정, 계정과 권한, 운영(백업·상태·업그레이드), 장애 대응, 보안. 화면을 쓰는 사람의 안내는 [사용자 가이드](USER_GUIDE.md)에 있습니다.</div></div></div>
 <p>이 문서의 그림은 실제로 띄운 Weekly v0.295.0 을 headless Chrome 이 1440×900 으로 찍은 것입니다(<code>scripts/guide-captures.py</code>). 화면의 이름·조직은 시험용 씨앗 데이터이며 실제 사람이 아닙니다. 운영 세부(백업 순서, 보안 통제 목록, 업그레이드 절차)는 [운영 및 보안 가이드](OPERATIONS.md)가 정본이고 여기서는 가리킵니다.</p>
 <hr>
 <h2>1. 구성 요소</h2>
@@ -61,12 +61,12 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <p>자원: Compose 기본값은 <code>mem_limit: 1g</code>, <code>cpus: 2</code>, <code>/tmp</code> tmpfs 512MiB 입니다. PPTX 내보내기는 한 요청이 <code>보고서당 최대 캡처 수 × 캡처 파일당 최대 MB × 3.5</code> 만큼 메모리를 쓰므로 첨부를 많이 허용하면 한도를 그만큼 올립니다(관리자 화면 <code>화면 캡처 첨부</code> 카드가 같은 계산을 보여 줍니다).</p>
 <hr>
 <h2>2. 설치</h2>
-<p>GitHub Release 에서 <code>weekly-v0.304.0.tar.gz</code> 하나만 반입합니다. 자세한 검증 근거(파일 해시와 이미지 다이제스트가 왜 둘 다 필요한지)는 [README 오프라인 설치](../README.md#오프라인-설치)에 있고, 여기서는 순서대로 붙여 넣을 명령만 적습니다.</p>
+<p>GitHub Release 에서 <code>weekly-v0.305.0.tar.gz</code> 하나만 반입합니다. 자세한 검증 근거(파일 해시와 이미지 다이제스트가 왜 둘 다 필요한지)는 [README 오프라인 설치](../README.md#오프라인-설치)에 있고, 여기서는 순서대로 붙여 넣을 명령만 적습니다.</p>
 <div class="phase-box"># 1. 파일이 온전히 왔는지 — 릴리즈에 적힌 SHA-256 과 비교
-sha256sum weekly-v0.304.0.tar.gz
+sha256sum weekly-v0.305.0.tar.gz
 
-# 2. 이미지 적재. 같은 버전의 weekly:v0.304.0 이 생깁니다
-gzip -dc weekly-v0.304.0.tar.gz | docker load
+# 2. 이미지 적재. 같은 버전의 weekly:v0.305.0 이 생깁니다
+gzip -dc weekly-v0.305.0.tar.gz | docker load
 
 # 3. 환경 파일. deploy/.env.example 을 복사해 값을 채웁니다
 cp deploy/.env.example deploy/.env
@@ -89,7 +89,7 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 <h3>3.1 환경 변수 (전수)</h3>
 <p>프로세스가 읽는 환경 변수는 아래 다섯 개가 전부입니다(<code>internal/app/config.go</code>). 나머지 설정은 모두 관리자 화면에 있고 PostgreSQL 에 저장됩니다.</p>
 <table><thead><tr><th>이름</th><th>기본값</th><th>필수</th><th>설명</th></tr></thead><tbody><tr><td><code>WEEKLY_POSTGRES_DSN</code></td><td>없음</td><td><strong>필수</strong></td><td>PostgreSQL 연결 문자열. 예: <code>postgres://weekly:비밀번호@db.example.internal:5432/weekly?sslmode=require</code></td></tr><tr><td><code>WEEKLY_BOOTSTRAP_ADMIN</code></td><td>없음</td><td>첫 기동만</td><td>관리자가 하나도 없는 DB 에서만 읽습니다. 최초 관리자 아이디</td></tr><tr><td><code>WEEKLY_BOOTSTRAP_ADMIN_PASSWORD</code></td><td>없음</td><td>첫 기동만</td><td>최초 관리자 비밀번호. <strong>12자 이상</strong>이 아니면 기동을 거절합니다. 기동 뒤 화면에서 바꿀 수 있습니다</td></tr><tr><td><code>WEEKLY_ENCRYPTION_KEY</code></td><td>없음 (볼륨의 <code>instance.key</code> 로 대체)</td><td>강력 권장</td><td>관리자 화면에서 입력한 OIDC Client Secret·AI API Key·Confluence 비밀번호·ITSM 토큰·SMTP 비밀번호를 보호하는 마스터 키. <code>openssl rand -base64 32</code> 로 한 번 만들고 업그레이드마다 같은 값을 유지합니다. 비우면 키가 상태 볼륨에만 저장되는 하위 호환 모드이며 기동 로그가 그 사실을 적습니다</td></tr><tr><td><code>WEEKLY_ALLOW_SECRET_RESET</code></td><td><code>false</code></td><td>선택</td><td>비밀 설정을 복호화할 수 없는 상태에서 기동을 강행하고 모두 다시 입력하기로 했을 때만 <code>true</code>. 기존 암호문은 지우지 않고 화면에 <code>다시 입력 필요</code>로 표시합니다</td></tr></tbody></table>
-<p>Compose 파일은 <code>WEEKLY_VERSION</code>(이미지 태그, 기본 <code>0.304.0</code>)도 읽습니다. 이것은 프로세스가 아니라 <code>deploy/compose.yaml</code>의 변수입니다.</p>
+<p>Compose 파일은 <code>WEEKLY_VERSION</code>(이미지 태그, 기본 <code>0.305.0</code>)도 읽습니다. 이것은 프로세스가 아니라 <code>deploy/compose.yaml</code>의 변수입니다.</p>
 <h3>3.2 관리자 화면의 서비스 설정</h3>
 <p><code>관리자 설정 → 서비스 설정</code> 탭입니다. 카드마다 그 설정이 하는 일이 화면에 적혀 있고, <code>설정 저장</code>은 화면 전체를 한 번에 저장합니다. 비밀값(Client Secret, API Key, 비밀번호, 토큰)은 암호화되어 저장되고 브라우저로 다시 내려가지 않으며, 입력란을 비워 저장하면 기존 값이 유지됩니다. <code>지우기</code>로만 지웁니다.</p>
 <figure><img src="assets/guide/admin-settings.png" alt="관리자 설정 — 서비스 설정 탭. 일반·워크플로 카드와 인증·Keycloak OIDC 카드"><figcaption>관리자 설정 — 서비스 설정 탭. 일반·워크플로 카드와 인증·Keycloak OIDC 카드</figcaption></figure>
@@ -185,7 +185,7 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 {&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;bootstrap administrator ensured&quot;,&quot;username&quot;:&quot;admin&quot;}
 {&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;database capabilities detected&quot;,&quot;pg_trgm&quot;:true,&quot;pgvector&quot;:false}
 {&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;password hashing pool sized&quot;,&quot;workers&quot;:8,&quot;reserved_mib&quot;:512,&quot;container_limit_mib&quot;:0}
-{&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;Weekly started&quot;,&quot;address&quot;:&quot;:8080&quot;,&quot;version&quot;:&quot;0.304.0&quot;}</div>
+{&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;Weekly started&quot;,&quot;address&quot;:&quot;:8080&quot;,&quot;version&quot;:&quot;0.305.0&quot;}</div>
 <p><code>key_source</code>가 <code>environment</code>가 아니라 볼륨이면 <code>WEEKLY_ENCRYPTION_KEY</code>가 없는 하위 호환 모드입니다. <code>container_limit_mib</code>가 0 이면 메모리 한도 없이 호스트 메모리를 상속한 것이니 Compose 의 <code>mem_limit</code>를 확인하십시오.</p>
 <h3>5.3 백업과 복구</h3>
 <p>같은 복구 시점의 <strong>PostgreSQL 데이터베이스</strong>와 <strong><code>/var/lib/weekly</code> 볼륨</strong>을 함께 백업하고, <code>WEEKLY_ENCRYPTION_KEY</code>는 Secret Manager 에 따로 보관합니다. <code>scripts/weekly-backup.sh</code>가 두 대상을 한 번에 처리합니다.</p>
