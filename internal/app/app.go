@@ -271,6 +271,7 @@ func (a *App) routes() {
 	a.mux.Handle("POST /api/v1/admin/settings/itsm/test", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.adminITSMTest))))
 	a.mux.Handle("DELETE /api/v1/admin/settings/{key}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.clearSecretSetting))))
 	a.mux.Handle("GET /api/v1/admin/mail/health", a.requireRole("ADMIN")(http.HandlerFunc(a.adminMailHealth)))
+	a.mux.Handle("GET /api/v1/admin/mail/deliveries", a.requireRole("ADMIN")(http.HandlerFunc(a.adminMailDeliveries)))
 	a.mux.Handle("GET /api/v1/admin/users", a.requireRole("ADMIN")(http.HandlerFunc(a.adminUsers)))
 	a.mux.Handle("POST /api/v1/admin/users", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.createUser))))
 	a.mux.Handle("PUT /api/v1/admin/users/{id}", a.requireRole("ADMIN")(a.csrf(http.HandlerFunc(a.updateUser))))

@@ -378,7 +378,21 @@ export interface TeamReminderQueueResult {
  * A writer sees their own deliveries; without this a relay refusing everybody
  * looks exactly like one nobody has used yet.
  */
-export interface MailHealth { days: number; sent: number; queued: number; failed: number; writers: number; lastError: string; lastFailedAt: string | null }
+export interface MailHealth { days: number; sent: number; queued: number; failed: number; writers: number; lastError: string; lastFailedAt: string | null; byKind?: { report: number; teamReminder: number; scheduleReminder: number } }
+
+/**
+ * One row behind the figures: what went to whom, and why it did not. The three
+ * queues (submit copy, team reminder, board deadline digest) share one shape;
+ * the subject is made from a date and carries no line of anybody's report.
+ */
+export type MailDeliveryKind = 'REPORT' | 'TEAM_REMINDER' | 'SCHEDULE_REMINDER'
+export interface MailDelivery {
+  kind: MailDeliveryKind; userName: string; address: string; subject: string
+  status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; errorMessage: string
+  createdAt: string; sentAt: string | null
+}
+/** The newest 50 in the same window as MailHealth; older rows stay in the queue tables. */
+export interface MailDeliveryList { days: number; items: MailDelivery[] }
 
 /** 월간 업무 상황판. 긴급 빨강 · 중요 초록 · 필요 파랑 · 일반 검정. */
 export type SchedulePriority = 'URGENT' | 'IMPORTANT' | 'NEEDED' | 'NORMAL'

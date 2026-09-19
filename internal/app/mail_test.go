@@ -1019,3 +1019,115 @@ func TestTheOperatorCanSeeWhatHappenedToTheMail(t *testing.T) {
 		t.Errorf("a writer read the deployment's mail health: %d", denied.Code)
 	}
 }
+
+// The submit copy is one of three queues. A team leader's reminders and the
+// board's deadline digests go through the same relay, and when it refuses
+// them the card used to say "실패 0건" while the guide sent the operator to
+// psql. The card counts all three, and lists what went to whom and why it
+// failed — without a line of anybody's report.
+
+// guards: adminMailHealth, adminMailDeliveries
+func TestTheOperatorSeesEveryQueueTheRelayTouches(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	server.configureRelay(relay)
+
+	writer := server.createUser("queues_writer", "USER", nil)
+	if w := server.request(http.MethodPut, "/api/v1/me/mail",
+		map[string]any{"address": "writer@internal.test", "onSubmit": true}, writer); w.Code != http.StatusOK {
+		t.Fatalf("save the preference: %d %s", w.Code, w.Body.String())
+	}
+	const secret = "비밀 프로젝트 마무리 보고"
+	server.submitted(writer, "2026-08-17", secret)
+	relay.awaitRelay(t, 1)
+
+	// Ordered oldest first by hand so the newest-first list is provable.
+	leader := createAutomationTestAccount(t, server, "queues_leader", "TEAM_LEADER", nil)
+	reminded := createAutomationTestAccount(t, server, "queues_reminded", "USER", nil)
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO team_reminder_deliveries
+		(requested_by,recipient_user_id,week_start,address,origin,status,attempts,error_message,next_attempt_at,sent_at,created_at)
+		VALUES ($1,$2,'2026-08-17','reminded@internal.test','AUTO','FAILED',5,'relay refused reminder',now()+interval '2 hours',NULL,now()+interval '1 second')`,
+		leader.id, reminded.id); err != nil {
+		t.Fatal(err)
+	}
+	digest := createAutomationTestAccount(t, server, "queues_digest", "USER", nil)
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO schedule_reminder_deliveries
+		(user_id,reminder_on,address,status,attempts,error_message,next_attempt_at,created_at)
+		VALUES ($1,'2026-09-20','digest@internal.test','QUEUED',0,'',now()+interval '1 day',now()+interval '2 seconds')`,
+		digest.id); err != nil {
+		t.Fatal(err)
+	}
+
+	w := server.request(http.MethodGet, "/api/v1/admin/mail/health", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read the health: %d %s", w.Code, w.Body.String())
+	}
+	health := decodeData(t, w)
+	if sent, _ := health["sent"].(float64); sent < 1 {
+		t.Errorf("sent=%v, want at least 1", health["sent"])
+	}
+	if failed, _ := health["failed"].(float64); failed < 1 {
+		t.Errorf("failed=%v, want at least 1 — the refused reminder is invisible", health["failed"])
+	}
+	if queued, _ := health["queued"].(float64); queued < 1 {
+		t.Errorf("queued=%v, want at least 1 — the waiting digest is invisible", health["queued"])
+	}
+	if writers, _ := health["writers"].(float64); writers != 3 {
+		t.Errorf("writers=%v, want 3 across the three queues", health["writers"])
+	}
+	if reason, _ := health["lastError"].(string); !strings.Contains(reason, "relay refused reminder") {
+		t.Errorf("the reminder's failure reason did not reach the operator: %q", reason)
+	}
+	if kinds, _ := health["byKind"].(map[string]any); kinds["report"] != 1.0 || kinds["teamReminder"] != 1.0 || kinds["scheduleReminder"] != 1.0 {
+		t.Errorf("byKind=%v, want one of each", health["byKind"])
+	}
+
+	w = server.request(http.MethodGet, "/api/v1/admin/mail/deliveries", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read the deliveries: %d %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), secret) {
+		t.Errorf("the operator's list carries a line of somebody's report: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"total"`) {
+		t.Errorf("the list claims a total it does not page: %s", w.Body.String())
+	}
+	list := decodeData(t, w)
+	items, _ := list["items"].([]any)
+	if len(items) != 3 {
+		t.Fatalf("items=%d, want 3: %s", len(items), w.Body.String())
+	}
+	type row struct{ kind, subject, address, status, userName, errorMessage string }
+	var rows []row
+	for _, item := range items {
+		m, _ := item.(map[string]any)
+		rows = append(rows, row{
+			kind:         m["kind"].(string),
+			subject:      m["subject"].(string),
+			address:      m["address"].(string),
+			status:       m["status"].(string),
+			userName:     m["userName"].(string),
+			errorMessage: m["errorMessage"].(string),
+		})
+	}
+	want := []row{
+		{"SCHEDULE_REMINDER", "2026-09-20 마감 알림", "digest@internal.test", "QUEUED", digest.username, ""},
+		{"TEAM_REMINDER", "2026-08-17 주 작성 권고", "reminded@internal.test", "FAILED", reminded.username, "relay refused reminder"},
+		{"REPORT", "2026-08-17 주 제출 메일", "writer@internal.test", "SENT", server.lastCreatedUsername("queues_writer"), ""},
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Errorf("item %d = %+v, want %+v (newest first)", i, rows[i], want[i])
+		}
+	}
+	if attempts, _ := items[1].(map[string]any)["attempts"].(float64); attempts != 5 {
+		t.Errorf("attempts=%v, want 5", items[1].(map[string]any)["attempts"])
+	}
+	if days, _ := list["days"].(float64); days != mailHealthDays {
+		t.Errorf("days=%v, want %d — the list and the figures must read the same window", list["days"], mailHealthDays)
+	}
+
+	if denied := server.request(http.MethodGet, "/api/v1/admin/mail/deliveries", nil, writer); denied.Code != http.StatusForbidden {
+		t.Errorf("a writer read the deployment's deliveries: %d", denied.Code)
+	}
+}

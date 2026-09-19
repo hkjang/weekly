@@ -169,7 +169,8 @@ Confluence 본문은 PostgreSQL 이나 로그에 저장되지 않습니다. 운�
 - 사용자 `시험 발송`(`POST /api/v1/me/mail/test`)은 언제나 요청한 본인에게 가장 최근 보고서를 제출 때와 같은 본문·첨부로 보냅니다. 한 사용자당 30초에 한 번(`429 TOO_MANY_ATTEMPTS`), SMTP 미설정이면 `400 MAIL_CONFIGURATION_INVALID`, 릴레이 거부면 `502 MAIL_SEND_FAILED`. 감사 이벤트 `mail.test`.
 - 팀원 권고(`POST /api/v1/me/team-reminders`, `TEAM_LEADER`·`ORG_MANAGER`·`ADMIN`)는 서버가 발송 직전 역할·조직 범위·제출 여부를 다시 계산합니다. 팀장·조직장은 본인 조직과 하위 조직, 관리자는 전체 활성 사용자, 본인 제외. `recipient_user_id + week_start` 유일 제약으로 같은 주에 한 통만 만들고, SMTP 가 준비되지 않았으면 `409 MAIL_RELAY_NOT_READY`. 감사 이벤트 `mail.team_reminders_queued`·`mail.team_reminders_manual`.
 - 마감 알림은 담당자 본인의 미완료 일정 중 종료일이 내일부터 5일 이내인 것(`scheduleReminderDays = 5`, 한 통 최대 100건)이며 발송 직전 수신 여부·주소·활성·남은 일감을 다시 확인해 보낼 것이 없으면 행을 지웁니다. 실패는 로그(`schedule reminder retry`, `schedule reminder gave up`).
-- 서비스 시간대가 실제 조직 시간대와 다르면 오전 9시도 그만큼 어긋나므로 `서비스 시간대`를 함께 확인하십시오. 관리자 카드의 발송 현황은 제출 메일만 집계하므로 권고·알림 장애는 서버 로그와 큐 테이블에서 봅니다.
+- 서비스 시간대가 실제 조직 시간대와 다르면 오전 9시도 그만큼 어긋나므로 `서비스 시간대`를 함께 확인하십시오.
+- 관리자 카드의 발송 현황(`GET /api/v1/admin/mail/health`)은 **세 큐를 모두 집계**하고(발송·대기·실패·사용자 수, 마지막 실패 사유, 종류별 건수) 그 아래 표가 같은 창의 **최근 50건**을 보여 줍니다(`GET /api/v1/admin/mail/deliveries` — 종류·수신자·제목·상태·시도·사유·시각, 본문·첨부 없음). 릴레이가 권고나 알림을 거부하면 여기서 사유가 보이며, 50건보다 오래된 기록은 위 표의 큐 테이블에서 봅니다.
 
 ### 3.8 ITSM 연동
 
@@ -267,7 +268,7 @@ MCP 인가 규격은 OAuth 2.1 입니다. 이 설정을 켜면 Weekly 는 **리�
 | 프로세스 생존 | `GET /healthz` |
 | PostgreSQL 연결 포함 준비 상태 | `GET /readyz` |
 | 최근 24시간 경로별 호출·지연·4xx/5xx | `관리자 설정 → 분석` 탭의 서비스 분석 |
-| 메일 발송 현황 | `서비스 설정 → 주간보고 메일 발송` 카드 아래 (최근 n일 발송·대기·실패) |
+| 메일 발송 현황 | `서비스 설정 → 주간보고 메일 발송` 카드 아래 (최근 n일 발송·대기·실패 — 제출·권고·알림 세 큐 합산, 최근 50건 표) |
 | Confluence 수집 상태 | `Confluence 자동화` 탭 |
 | 감사 이력 | `감사 로그` 탭 — 작업·행위자·기간으로 검색 |
 
