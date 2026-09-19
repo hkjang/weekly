@@ -1640,12 +1640,18 @@ paths:
         "502": { $ref: "#/components/responses/Error" }
   /admin/mail/health:
     get:
-      summary: 최근 주간보고 메일 발송 현황, 관리자 전용
+      summary: 최근 메일 발송 현황(세 큐 합산), 관리자 전용
       description: |
         최근 14일의 발송·대기·실패 건수와 대상 사용자 수, 그리고 **마지막 실패 사유를 릴레이가 준
         문장 그대로** 돌려준다. 작성자는 자기 발송만 보므로, 이것이 없으면 릴레이가 전원을 거부하는
         상태와 아직 아무도 쓰지 않은 상태가 운영자에게 똑같이 보인다. 연결 시험은 지금 이 순간만
         말하고, 지난 월요일이 나갔는지는 말하지 않는다.
+
+        숫자는 릴레이를 지나는 **세 큐를 합산**한다 — 제출 메일(`report_mail_deliveries`)·팀원 작성
+        권고(`team_reminder_deliveries`)·상황판 마감 알림(`schedule_reminder_deliveries`). `writers` 는
+        세 큐의 수신자를 합친 사람 수이고, `lastError` 는 세 큐 가운데 가장 최근의 실패 사유다.
+        `byKind` 가 종류별 건수를 따로 준다. `/admin/mail/deliveries` 가 같은 창(`days`)의 같은 행을
+        목록으로 보여 준다.
       responses:
         "200":
           description: OK
@@ -1664,6 +1670,48 @@ paths:
                       writers: { type: integer }
                       lastError: { type: string }
                       lastFailedAt: { type: string, format: date-time, nullable: true }
+                      byKind:
+                        type: object
+                        properties:
+                          report: { type: integer }
+                          teamReminder: { type: integer }
+                          scheduleReminder: { type: integer }
+        "403": { $ref: "#/components/responses/Error" }
+  /admin/mail/deliveries:
+    get:
+      summary: 최근 메일 발송 기록, 관리자 전용
+      description: |
+        `/admin/mail/health` 와 같은 창(최근 `days` 일)의 발송 기록을 세 큐에서 합쳐 `createdAt`
+        내림차순으로 **최근 50건**까지 돌려준다. 그 이상은 큐 테이블에서 본다. 무엇이 누구에게
+        언제 나갔고 왜 실패했는지가 전부이며, **본문·첨부는 싣지 않는다** — `subject` 는 주 시작일
+        또는 알림 날짜로 만든 한 줄(`2026-08-17 주 제출 메일`, `2026-08-17 주 작성 권고`,
+        `2026-09-20 마감 알림`)이고 보고서 제목이 아니다.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      days: { type: integer }
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            kind: { type: string, enum: [REPORT, TEAM_REMINDER, SCHEDULE_REMINDER] }
+                            userName: { type: string, description: 수신자 표시 이름 }
+                            address: { type: string }
+                            subject: { type: string }
+                            status: { type: string, enum: [QUEUED, SENT, FAILED] }
+                            attempts: { type: integer }
+                            errorMessage: { type: string }
+                            createdAt: { type: string, format: date-time }
+                            sentAt: { type: string, format: date-time, nullable: true }
         "403": { $ref: "#/components/responses/Error" }
   /admin/settings/mail/test:
     post:

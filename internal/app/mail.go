@@ -1089,14 +1089,43 @@ func (a *App) testMyReportMail(w http.ResponseWriter, r *http.Request) {
 const mailHealthDays = 14
 
 type mailHealthView struct {
-	Days       int        `json:"days"`
-	Sent       int        `json:"sent"`
-	Queued     int        `json:"queued"`
-	Failed     int        `json:"failed"`
-	Writers    int        `json:"writers"`
-	LastError  string     `json:"lastError"`
-	LastFailed *time.Time `json:"lastFailedAt"`
+	Days       int              `json:"days"`
+	Sent       int              `json:"sent"`
+	Queued     int              `json:"queued"`
+	Failed     int              `json:"failed"`
+	Writers    int              `json:"writers"`
+	LastError  string           `json:"lastError"`
+	LastFailed *time.Time       `json:"lastFailedAt"`
+	ByKind     mailHealthByKind `json:"byKind"`
 }
+
+type mailHealthByKind struct {
+	Report           int `json:"report"`
+	TeamReminder     int `json:"teamReminder"`
+	ScheduleReminder int `json:"scheduleReminder"`
+}
+
+// Every queue the relay touches, in one shape. Three tables because three
+// different things queue them (a submit transaction, a team leader's morning,
+// a board's deadline sweep), but to the operator watching the relay they are
+// one stream of "did it go". The figures and the list both read this — the
+// same window over the same rows — so the card cannot say "실패 1건" and then
+// list none.
+//
+// Only the columns the operator needs. The report's title and the reminder's
+// origin stay in their own tables; nothing here joins to a report body.
+const mailDeliveriesUnion = `
+	SELECT 'REPORT' AS kind, d.id, d.user_id AS who, d.address, d.status, d.attempts,
+		d.error_message, d.created_at, d.sent_at, to_char(r.week_start, 'YYYY-MM-DD') || ' 주 제출 메일' AS subject
+	FROM report_mail_deliveries d JOIN weekly_reports r ON r.id = d.report_id
+	UNION ALL
+	SELECT 'TEAM_REMINDER', id, recipient_user_id, address, status, attempts,
+		error_message, created_at, sent_at, to_char(week_start, 'YYYY-MM-DD') || ' 주 작성 권고'
+	FROM team_reminder_deliveries
+	UNION ALL
+	SELECT 'SCHEDULE_REMINDER', id, user_id, address, status, attempts,
+		error_message, created_at, sent_at, to_char(reminder_on, 'YYYY-MM-DD') || ' 마감 알림'
+	FROM schedule_reminder_deliveries`
 
 // adminMailHealth answers what has actually been happening to the mail.
 //
@@ -1111,10 +1140,14 @@ func (a *App) adminMailHealth(w http.ResponseWriter, r *http.Request) {
 			count(*) FILTER (WHERE status = 'SENT'),
 			count(*) FILTER (WHERE status = 'QUEUED'),
 			count(*) FILTER (WHERE status = 'FAILED'),
-			count(DISTINCT user_id)
-		FROM report_mail_deliveries
+			count(DISTINCT who),
+			count(*) FILTER (WHERE kind = 'REPORT'),
+			count(*) FILTER (WHERE kind = 'TEAM_REMINDER'),
+			count(*) FILTER (WHERE kind = 'SCHEDULE_REMINDER')
+		FROM (`+mailDeliveriesUnion+`) m
 		WHERE created_at > now() - make_interval(days => $1)`, mailHealthDays).
-		Scan(&view.Sent, &view.Queued, &view.Failed, &view.Writers); err != nil {
+		Scan(&view.Sent, &view.Queued, &view.Failed, &view.Writers,
+			&view.ByKind.Report, &view.ByKind.TeamReminder, &view.ByKind.ScheduleReminder); err != nil {
 		a.logger.Error("mail health", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 현황을 읽을 수 없습니다.")
 		return
@@ -1122,11 +1155,68 @@ func (a *App) adminMailHealth(w http.ResponseWriter, r *http.Request) {
 	// The relay's own words, not a count. "3건 실패" sends an operator to a log;
 	// "받는 주소를 릴레이가 거부했습니다: 550 …" sends them to the right place.
 	if err := a.db.QueryRow(r.Context(), `
-		SELECT coalesce(error_message, ''), created_at FROM report_mail_deliveries
+		SELECT coalesce(error_message, ''), created_at FROM (`+mailDeliveriesUnion+`) m
 		WHERE error_message <> '' AND created_at > now() - make_interval(days => $1)
 		ORDER BY created_at DESC LIMIT 1`, mailHealthDays).
 		Scan(&view.LastError, &view.LastFailed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		a.logger.Error("mail health reason", "error", err, "trace", traceIDFromContext(r.Context()))
 	}
 	writeData(w, http.StatusOK, view)
+}
+
+// mailDeliveryLimit is how many recent rows the card shows. Enough to read a
+// bad morning; anything older is in the queue tables.
+const mailDeliveryLimit = 50
+
+type mailDeliveryRow struct {
+	Kind         string     `json:"kind"`
+	UserName     string     `json:"userName"`
+	Address      string     `json:"address"`
+	Subject      string     `json:"subject"`
+	Status       string     `json:"status"`
+	Attempts     int        `json:"attempts"`
+	ErrorMessage string     `json:"errorMessage"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	SentAt       *time.Time `json:"sentAt"`
+}
+
+type mailDeliveryList struct {
+	Days  int               `json:"days"`
+	Items []mailDeliveryRow `json:"items"`
+}
+
+// adminMailDeliveries lists what went to whom, and why it did not — the rows
+// behind the figures, newest first. No body: the subject is made from a date,
+// and the address is the one the writer already sees on their own screen.
+func (a *App) adminMailDeliveries(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT m.kind, u.display_name, m.address, m.subject, m.status, m.attempts,
+			m.error_message, m.created_at, m.sent_at
+		FROM (`+mailDeliveriesUnion+`) m JOIN users u ON u.id = m.who
+		WHERE m.created_at > now() - make_interval(days => $1)
+		ORDER BY m.created_at DESC, m.id DESC
+		LIMIT $2`, mailHealthDays, mailDeliveryLimit)
+	if err != nil {
+		a.logger.Error("mail deliveries", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 기록을 읽을 수 없습니다.")
+		return
+	}
+	defer rows.Close()
+	list := mailDeliveryList{Days: mailHealthDays, Items: []mailDeliveryRow{}}
+	for rows.Next() {
+		var item mailDeliveryRow
+		if err := rows.Scan(&item.Kind, &item.UserName, &item.Address, &item.Subject, &item.Status,
+			&item.Attempts, &item.ErrorMessage, &item.CreatedAt, &item.SentAt); err != nil {
+			a.logger.Error("mail deliveries", "error", err, "trace", traceIDFromContext(r.Context()))
+			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 기록을 읽을 수 없습니다.")
+			return
+		}
+		list.Items = append(list.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		a.logger.Error("mail deliveries", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 기록을 읽을 수 없습니다.")
+		return
+	}
+	writeData(w, http.StatusOK, list)
 }
