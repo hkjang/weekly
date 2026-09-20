@@ -19,11 +19,12 @@ func TestATitleMatchOutranksAFloodOfRecentBodies(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 
 	const phrase = "격오지 회선 이설"
 	var userID, oldReport, newReport int64

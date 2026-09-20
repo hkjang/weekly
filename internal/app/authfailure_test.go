@@ -45,10 +45,12 @@ func TestOnlyGenuineSignOutIsMarkedAsNoSession(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	live := &App{db: db}
 
 	// A token of the right shape that matches nothing, and a session cookie that

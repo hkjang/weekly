@@ -25,11 +25,12 @@ func TestDeadlineInstantMatchesTheSQLItGuards(t *testing.T) {
 		t.Skip("tzdata unavailable")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 
 	weeks := []time.Time{
 		time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC),
@@ -98,11 +99,12 @@ func TestImportedHistoryStillCountsAgainstAccountsCreatedLater(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 
 	// Weeks far enough back that their deadlines have certainly passed.
 	monday := currentWeekStart(time.Now(), "MONDAY")

@@ -531,3 +531,21 @@ func createScratchDatabase(t *testing.T, dsn string) string {
 }
 
 var _ = fmt.Sprint
+
+// assertScratchDatabase checks the live pool before a test writes any fixtures.
+// Parsing the source DSN uses pgx's database default when its URL has no path.
+func assertScratchDatabase(t *testing.T, pool *pgxpool.Pool, sourceDSN string) {
+	t.Helper()
+	source, err := pgx.ParseConfig(sourceDSN)
+	if err != nil {
+		t.Fatal("parse the source database configuration")
+	}
+	var database string
+	if err := pool.QueryRow(context.Background(), "SELECT current_database()").Scan(&database); err != nil {
+		t.Fatalf("query the test pool database: %v", err)
+	}
+	if database == source.Database {
+		t.Fatalf("test pool uses the shared database %q", database)
+	}
+	t.Logf("test pool database %q differs from source database %q", database, source.Database)
+}

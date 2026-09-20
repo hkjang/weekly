@@ -347,11 +347,12 @@ func TestEmbeddingStalenessIsDetected(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	var vectorInstalled bool
 	if err := db.QueryRow(ctx, `SELECT to_regtype('vector') IS NOT NULL`).Scan(&vectorInstalled); err != nil {
 		t.Fatal(err)
@@ -423,11 +424,12 @@ func TestLoginThrottleBlocksAndClears(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	const username = "throttle-test"
@@ -479,11 +481,12 @@ func TestWorkItemMergeAndSplitSurviveTheNextSave(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	if _, err := db.Exec(ctx, `DELETE FROM users WHERE username='split-test'`); err != nil {
@@ -638,11 +641,12 @@ func TestOrganizationTemplateWalksUpToTheNearestOwner(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	// Cleaned up with defer rather than t.Cleanup: cleanups run after the
@@ -731,11 +735,12 @@ func TestIssueEpisodeStopsAtTheFirstWeekWithoutOne(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	_ = application
 
@@ -819,11 +824,12 @@ func TestIssueOutcomeIsRecordedOncePerWeek(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 
 	clean := func() { db.Exec(context.Background(), `DELETE FROM users WHERE username='issue-once'`) }
 	clean()
@@ -877,11 +883,12 @@ func TestWorkLookupFindsOtherPeoplesWorkAndNothingFromTheirReports(t *testing.T)
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	clean := func() {
@@ -945,11 +952,12 @@ func TestWorkLookupAnswersShortQueries(t *testing.T) {
 		t.Skip("WEEKLY_TEST_POSTGRES_DSN is not configured")
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, dsn)
+	db, err := openDatabase(ctx, createScratchDatabase(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertScratchDatabase(t, db, dsn)
 	application := &App{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	clean := func() { db.Exec(context.Background(), `DELETE FROM users WHERE username='lookup-short'`) }
