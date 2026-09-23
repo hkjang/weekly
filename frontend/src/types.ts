@@ -391,8 +391,14 @@ export interface MailDelivery {
   status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; errorMessage: string
   createdAt: string; sentAt: string | null
 }
-/** The newest 50 in the same window as MailHealth; older rows stay in the queue tables. */
-export interface MailDeliveryList { days: number; items: MailDelivery[] }
+export type MailDeliveryStatus = 'QUEUED' | 'SENT' | 'FAILED'
+/**
+ * The newest 50 in the same window as MailHealth; older rows stay in the queue
+ * tables. `status` and `kind` echo the condition the server applied — the
+ * filter runs before the 50 are cut, so asking for the failures reaches past a
+ * page the good week filled, and the caption can never outrun the rows.
+ */
+export interface MailDeliveryList { days: number; status?: MailDeliveryStatus; kind?: MailDeliveryKind; items: MailDelivery[] }
 
 /** 월간 업무 상황판. 긴급 빨강 · 중요 초록 · 필요 파랑 · 일반 검정. */
 export type SchedulePriority = 'URGENT' | 'IMPORTANT' | 'NEEDED' | 'NORMAL'
