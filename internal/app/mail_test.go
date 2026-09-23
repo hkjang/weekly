@@ -1131,3 +1131,126 @@ func TestTheOperatorSeesEveryQueueTheRelayTouches(t *testing.T) {
 		t.Errorf("a writer read the deployment's deliveries: %d", denied.Code)
 	}
 }
+
+// A good week buries a bad one.
+//
+// The list is the newest 50 rows of the three queues, and the card above it
+// counts the same 14 days. A deployment that sends a hundred digests on a
+// Monday morning pushes the one refusal off the bottom of that 50 — so the
+// figures say 실패 1건 and the table under them lists nothing but successes.
+// The window is not the only thing the two have to agree on; the operator
+// came for the failure, and scrolling is not a way to find it.
+
+// guards: adminMailDeliveries, mailDeliveryFilter
+func TestTheOperatorCanPickTheFailuresOutOfAGoodWeek(t *testing.T) {
+	server := newTestServer(t)
+	digest := createAutomationTestAccount(t, server, "filter_digest", "USER", nil)
+	leader := createAutomationTestAccount(t, server, "filter_leader", "TEAM_LEADER", nil)
+	reminded := createAutomationTestAccount(t, server, "filter_reminded", "USER", nil)
+
+	// 55 successes, newest first, so the two rows below fall off the page.
+	// reminder_on only has to be distinct — the window is read from created_at.
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO schedule_reminder_deliveries
+		(user_id,reminder_on,address,status,attempts,next_attempt_at,created_at,sent_at)
+		SELECT $1, DATE '2026-01-01' + i, 'digest@internal.test', 'SENT', 1,
+			now(), now() - make_interval(secs => i), now() - make_interval(secs => i)
+		FROM generate_series(1, 55) AS i`, digest.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO team_reminder_deliveries
+		(requested_by,recipient_user_id,week_start,address,origin,status,attempts,error_message,next_attempt_at,sent_at,created_at)
+		VALUES ($1,$2,'2026-08-17','reminded@internal.test','AUTO','FAILED',5,'relay refused reminder',now(),NULL,now()-interval '1 hour')`,
+		leader.id, reminded.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO schedule_reminder_deliveries
+		(user_id,reminder_on,address,status,attempts,next_attempt_at,created_at)
+		VALUES ($1,'2026-01-01','digest@internal.test','QUEUED',0,now(),now()-interval '2 hours')`,
+		digest.id); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(query string) (map[string]any, []map[string]any) {
+		t.Helper()
+		w := server.request(http.MethodGet, "/api/v1/admin/mail/deliveries"+query, nil, server.admin)
+		if w.Code != http.StatusOK {
+			t.Fatalf("read %q: %d %s", query, w.Code, w.Body.String())
+		}
+		data := decodeData(t, w)
+		raw, _ := data["items"].([]any)
+		items := make([]map[string]any, 0, len(raw))
+		for _, item := range raw {
+			m, _ := item.(map[string]any)
+			items = append(items, m)
+		}
+		return data, items
+	}
+
+	// The card's figures. These are what the operator is chasing.
+	w := server.request(http.MethodGet, "/api/v1/admin/mail/health", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read the health: %d %s", w.Code, w.Body.String())
+	}
+	health := decodeData(t, w)
+	if failed, _ := health["failed"].(float64); failed != 1 {
+		t.Fatalf("failed=%v, want 1", health["failed"])
+	}
+
+	// The page the operator lands on: full, and every row of it a success.
+	// This is the setup, not the defect — it is why a filter is the only way
+	// to the rows the figures above are counting.
+	_, unfiltered := read("")
+	if len(unfiltered) != mailDeliveryLimit {
+		t.Fatalf("unfiltered items=%d, want a full page of %d", len(unfiltered), mailDeliveryLimit)
+	}
+	for _, item := range unfiltered {
+		if item["status"] != "SENT" {
+			t.Fatalf("the seeded page was meant to be all successes, got %v", item["status"])
+		}
+	}
+
+	// Asking for the failures must reach past the 50 successes, not filter
+	// the page after it was cut.
+	data, failures := read("?status=FAILED")
+	if len(failures) != 1 {
+		t.Fatalf("status=FAILED items=%d, want the 1 the card counts", len(failures))
+	}
+	if failures[0]["kind"] != "TEAM_REMINDER" || failures[0]["errorMessage"] != "relay refused reminder" {
+		t.Errorf("the refused reminder did not come back: %+v", failures[0])
+	}
+	if data["status"] != "FAILED" {
+		t.Errorf("status=%v, want the applied filter echoed so the screen cannot mislabel the table", data["status"])
+	}
+	if days, _ := data["days"].(float64); days != mailHealthDays {
+		t.Errorf("days=%v, want %d — filtering must not move the window", data["days"], mailHealthDays)
+	}
+
+	// Both filters at once, and the kind on its own.
+	if _, waiting := read("?kind=SCHEDULE_REMINDER&status=QUEUED"); len(waiting) != 1 {
+		t.Errorf("kind+status items=%d, want the 1 waiting digest", len(waiting))
+	}
+	if _, reminders := read("?kind=TEAM_REMINDER"); len(reminders) != 1 {
+		t.Errorf("kind=TEAM_REMINDER items=%d, want 1", len(reminders))
+	}
+	if data, sent := read("?kind=SCHEDULE_REMINDER&status=SENT"); len(sent) != mailDeliveryLimit || data["kind"] != "SCHEDULE_REMINDER" {
+		t.Errorf("kind=SCHEDULE_REMINDER&status=SENT items=%d kind=%v, want a full page of digests", len(sent), data["kind"])
+	}
+
+	// Typed by hand into the address bar as often as picked from a select.
+	if _, lower := read("?status=failed"); len(lower) != 1 {
+		t.Errorf("status=failed items=%d, want the same 1 — the filter reads a name, not a spelling", len(lower))
+	}
+
+	// A value the server does not understand must not come back as an
+	// unfiltered page. The screen would caption it 실패만 and list successes.
+	for _, query := range []string{"?status=BOGUS", "?kind=BOGUS", "?status=SENT&kind=REPORTS"} {
+		bad := server.request(http.MethodGet, "/api/v1/admin/mail/deliveries"+query, nil, server.admin)
+		if bad.Code != http.StatusBadRequest || errorCode(bad) != "INVALID_FILTER" {
+			t.Errorf("%s = %d %s, want 400 INVALID_FILTER", query, bad.Code, bad.Body.String())
+		}
+	}
+
+	if denied := server.request(http.MethodGet, "/api/v1/admin/mail/deliveries?status=FAILED", nil, reminded.cookie); denied.Code != http.StatusForbidden {
+		t.Errorf("a writer filtered the deployment's deliveries: %d", denied.Code)
+	}
+}

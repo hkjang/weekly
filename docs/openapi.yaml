@@ -1686,6 +1686,24 @@ paths:
         언제 나갔고 왜 실패했는지가 전부이며, **본문·첨부는 싣지 않는다** — `subject` 는 주 시작일
         또는 알림 날짜로 만든 한 줄(`2026-08-17 주 제출 메일`, `2026-08-17 주 작성 권고`,
         `2026-09-20 마감 알림`)이고 보고서 제목이 아니다.
+
+        `status` 와 `kind` 는 **50건으로 자르기 전에** 적용한다. 잘린 뒤에 거르면 좋은 한 주가
+        나쁜 한 주를 덮는다 — 아침마다 마감 알림 100건이 나가는 배포에서는 최근 50건이 전부
+        성공이고, 카드가 세고 있는 그 실패 한 건은 이미 밀려나 있다. 둘 다 대소문자를 가리지
+        않으며, 이 배포가 저장하지 않는 값은 **거르지 않은 쪽수가 아니라 400 `INVALID_FILTER`**
+        로 답한다. 적용한 조건은 응답의 `status`·`kind` 로 되돌려 주므로 화면이 표에 없는
+        조건을 제목으로 달 수 없다(조건이 없으면 두 칸 모두 없다).
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema: { type: string, enum: [QUEUED, SENT, FAILED] }
+          description: 이 상태의 발송만. 비우면 전부.
+        - in: query
+          name: kind
+          required: false
+          schema: { type: string, enum: [REPORT, TEAM_REMINDER, SCHEDULE_REMINDER] }
+          description: 이 큐의 발송만. 비우면 세 큐 전부.
       responses:
         "200":
           description: OK
@@ -1698,6 +1716,8 @@ paths:
                     type: object
                     properties:
                       days: { type: integer }
+                      status: { type: string, enum: [QUEUED, SENT, FAILED], description: 적용한 상태 조건. 없으면 생략 }
+                      kind: { type: string, enum: [REPORT, TEAM_REMINDER, SCHEDULE_REMINDER], description: 적용한 종류 조건. 없으면 생략 }
                       items:
                         type: array
                         items:
@@ -1712,6 +1732,7 @@ paths:
                             errorMessage: { type: string }
                             createdAt: { type: string, format: date-time }
                             sentAt: { type: string, format: date-time, nullable: true }
+        "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
   /admin/settings/mail/test:
     post:
