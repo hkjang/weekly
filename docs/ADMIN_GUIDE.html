@@ -130,6 +130,7 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 <li>마감 알림은 담당자 본인의 미완료 일정 중 종료일이 내일부터 5일 이내인 것(<code>scheduleReminderDays = 5</code>, 한 통 최대 100건)이며 발송 직전 수신 여부·주소·활성·남은 일감을 다시 확인해 보낼 것이 없으면 행을 지웁니다. 실패는 로그(<code>schedule reminder retry</code>, <code>schedule reminder gave up</code>).</li>
 <li>서비스 시간대가 실제 조직 시간대와 다르면 오전 9시도 그만큼 어긋나므로 <code>서비스 시간대</code>를 함께 확인하십시오.</li>
 <li>관리자 카드의 발송 현황(<code>GET /api/v1/admin/mail/health</code>)은 <strong>세 큐를 모두 집계</strong>하고(발송·대기·실패·사용자 수, 마지막 실패 사유, 종류별 건수) 그 아래 표가 같은 창의 <strong>최근 50건</strong>을 보여 줍니다(<code>GET /api/v1/admin/mail/deliveries</code> — 종류·수신자·제목·상태·시도·사유·시각, 본문·첨부 없음). 릴레이가 권고나 알림을 거부하면 여기서 사유가 보이며, 50건보다 오래된 기록은 위 표의 큐 테이블에서 봅니다.</li>
+<li>표 위의 <strong>종류·상태</strong> 선택으로 좁힐 수 있습니다. 거르는 일은 50건으로 자르기 <strong>전에</strong> 서버에서 일어나므로, 아침마다 마감 알림이 수십 건 나가는 배포에서 <code>상태 = 실패</code>를 고르면 최근 50건 밖으로 밀려난 실패도 나옵니다 — 카드가 <code>실패 3건</code>이라고 말하는데 표에는 하나도 없는 일이 이 때문에 생깁니다. 좁힌 결과가 비면 표 대신 그 사실을 적습니다.</li>
 </ul>
 <h3>3.8 ITSM 연동</h3>
 <p><code>ITSM 연동</code> 카드에서 <code>ITSM 연동 사용</code>을 켜고 주소를 채운 뒤 <code>설정 저장</code>을 누르면 상황판의 일정 추가 창에 SR 번호 칸이 나타납니다. <strong>주소가 두 개</strong>인 이유는 실제로 다른 시스템인 경우가 많기 때문입니다 — 하나로 가정하면 상황판의 모든 링크가 브라우저에서 JSON 을 여는 주소가 됩니다.</p>
@@ -176,7 +177,7 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 <hr>
 <h2>5. 운영</h2>
 <h3>5.1 상태 점검</h3>
-<table><thead><tr><th>무엇</th><th>어디</th></tr></thead><tbody><tr><td>프로세스 생존</td><td><code>GET /healthz</code></td></tr><tr><td>PostgreSQL 연결 포함 준비 상태</td><td><code>GET /readyz</code></td></tr><tr><td>최근 24시간 경로별 호출·지연·4xx/5xx</td><td><code>관리자 설정 → 분석</code> 탭의 서비스 분석</td></tr><tr><td>메일 발송 현황</td><td><code>서비스 설정 → 주간보고 메일 발송</code> 카드 아래 (최근 n일 발송·대기·실패 — 제출·권고·알림 세 큐 합산, 최근 50건 표)</td></tr><tr><td>Confluence 수집 상태</td><td><code>Confluence 자동화</code> 탭</td></tr><tr><td>감사 이력</td><td><code>감사 로그</code> 탭 — 작업·행위자·기간으로 검색</td></tr></tbody></table>
+<table><thead><tr><th>무엇</th><th>어디</th></tr></thead><tbody><tr><td>프로세스 생존</td><td><code>GET /healthz</code></td></tr><tr><td>PostgreSQL 연결 포함 준비 상태</td><td><code>GET /readyz</code></td></tr><tr><td>최근 24시간 경로별 호출·지연·4xx/5xx</td><td><code>관리자 설정 → 분석</code> 탭의 서비스 분석</td></tr><tr><td>메일 발송 현황</td><td><code>서비스 설정 → 주간보고 메일 발송</code> 카드 아래 (최근 n일 발송·대기·실패 — 제출·권고·알림 세 큐 합산, 최근 50건 표 — 종류·상태로 거를 수 있음)</td></tr><tr><td>Confluence 수집 상태</td><td><code>Confluence 자동화</code> 탭</td></tr><tr><td>감사 이력</td><td><code>감사 로그</code> 탭 — 작업·행위자·기간으로 검색</td></tr></tbody></table>
 <figure><img src="assets/guide/admin-analytics.png" alt="관리자 설정 — 분석 탭. 업무 키워드 워드클라우드와 조직별 보고 현황"><figcaption>관리자 설정 — 분석 탭. 업무 키워드 워드클라우드와 조직별 보고 현황</figcaption></figure>
 <figure><img src="assets/guide/admin-audit.png" alt="관리자 설정 — 감사 로그 탭. 로그인·상황판 생성·삭제 같은 이벤트가 행위자·IP 와 함께 남습니다"><figcaption>관리자 설정 — 감사 로그 탭. 로그인·상황판 생성·삭제 같은 이벤트가 행위자·IP 와 함께 남습니다</figcaption></figure>
 <p>기동 시 한 번 도는 정리 작업(업무 식별자 백필, 첨부 파일 무결성 확인)은 서버가 응답을 시작한 뒤 배경에서 수행하며 진행은 <code>work item backfill progress</code> 로그로 봅니다.</p>

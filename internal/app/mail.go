@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1181,28 +1183,81 @@ type mailDeliveryRow struct {
 }
 
 type mailDeliveryList struct {
-	Days  int               `json:"days"`
-	Items []mailDeliveryRow `json:"items"`
+	Days int `json:"days"`
+	// The filter the server actually applied, echoed back. The screen captions
+	// the table with what it asked for; if the server had quietly dropped a
+	// condition, that caption would be a lie told over the rows disproving it.
+	Status string            `json:"status,omitempty"`
+	Kind   string            `json:"kind,omitempty"`
+	Items  []mailDeliveryRow `json:"items"`
+}
+
+// The names the three queues actually store — the CHECK constraints on their
+// status columns, and the labels mailDeliveriesUnion gives each queue.
+var (
+	mailDeliveryStatuses = []string{"QUEUED", "SENT", "FAILED"}
+	mailDeliveryKinds    = []string{"REPORT", "TEAM_REMINDER", "SCHEDULE_REMINDER"}
+)
+
+// mailDeliveryFilter reads one condition from the query. Uppercased, because
+// this is as often typed into an address bar as picked from a select.
+//
+// An unreadable page size falls back to the default page; an unreadable filter
+// cannot. clampQueryInt's caller still gets what it asked for, only less of it,
+// but a status this deployment never stores has no nearest sensible answer —
+// and the unfiltered page is the one answer that is actively wrong, because
+// the screen has already captioned it 실패만.
+func mailDeliveryFilter(r *http.Request, name string, allowed []string) (string, bool) {
+	value := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get(name)))
+	if value == "" {
+		return "", true
+	}
+	return value, slices.Contains(allowed, value)
 }
 
 // adminMailDeliveries lists what went to whom, and why it did not — the rows
 // behind the figures, newest first. No body: the subject is made from a date,
 // and the address is the one the writer already sees on their own screen.
+//
+// status and kind narrow it, and they are applied to the window rather than to
+// the page. A good week is what hides a bad one: a deployment sending a
+// hundred digests on a Monday fills the newest 50 with successes and pushes
+// the single refusal the card is counting off the bottom. Filtering the page
+// after the cut would hand back whichever failures happened to be in that 50,
+// which on exactly the week the operator needs this is none of them.
 func (a *App) adminMailDeliveries(w http.ResponseWriter, r *http.Request) {
+	status, statusKnown := mailDeliveryFilter(r, "status", mailDeliveryStatuses)
+	kind, kindKnown := mailDeliveryFilter(r, "kind", mailDeliveryKinds)
+	if !statusKnown || !kindKnown {
+		writeError(w, http.StatusBadRequest, "INVALID_FILTER",
+			"발송 상태는 QUEUED·SENT·FAILED, 종류는 REPORT·TEAM_REMINDER·SCHEDULE_REMINDER 가운데 하나여야 합니다.")
+		return
+	}
+	where := ""
+	args := []any{mailHealthDays}
+	if status != "" {
+		args = append(args, status)
+		where += fmt.Sprintf(" AND m.status = $%d", len(args))
+	}
+	if kind != "" {
+		args = append(args, kind)
+		where += fmt.Sprintf(" AND m.kind = $%d", len(args))
+	}
+	args = append(args, mailDeliveryLimit)
 	rows, err := a.db.Query(r.Context(), `
 		SELECT m.kind, u.display_name, m.address, m.subject, m.status, m.attempts,
 			m.error_message, m.created_at, m.sent_at
 		FROM (`+mailDeliveriesUnion+`) m JOIN users u ON u.id = m.who
-		WHERE m.created_at > now() - make_interval(days => $1)
+		WHERE m.created_at > now() - make_interval(days => $1)`+where+`
 		ORDER BY m.created_at DESC, m.id DESC
-		LIMIT $2`, mailHealthDays, mailDeliveryLimit)
+		LIMIT $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
 		a.logger.Error("mail deliveries", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 기록을 읽을 수 없습니다.")
 		return
 	}
 	defer rows.Close()
-	list := mailDeliveryList{Days: mailHealthDays, Items: []mailDeliveryRow{}}
+	list := mailDeliveryList{Days: mailHealthDays, Status: status, Kind: kind, Items: []mailDeliveryRow{}}
 	for rows.Next() {
 		var item mailDeliveryRow
 		if err := rows.Scan(&item.Kind, &item.UserName, &item.Address, &item.Subject, &item.Status,
