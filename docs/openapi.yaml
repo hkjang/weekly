@@ -1693,6 +1693,10 @@ paths:
         않으며, 이 배포가 저장하지 않는 값은 **거르지 않은 쪽수가 아니라 400 `INVALID_FILTER`**
         로 답한다. 적용한 조건은 응답의 `status`·`kind` 로 되돌려 주므로 화면이 표에 없는
         조건을 제목으로 달 수 없다(조건이 없으면 두 칸 모두 없다).
+
+        조건을 적용한 뒤에도 창 안의 행이 50건을 넘으면 `truncated: true` 다 — 가득 찬 쪽은
+        그것이 없으면 "최근 `days` 일이 이것뿐" 으로 읽히고, 더 좁혀야 한다는 것을 알 길이
+        없다. 잘리지 않았으면 이 칸은 **생략한다**. 총건수는 싣지 않는다.
       parameters:
         - in: query
           name: status
@@ -1718,6 +1722,7 @@ paths:
                       days: { type: integer }
                       status: { type: string, enum: [QUEUED, SENT, FAILED], description: 적용한 상태 조건. 없으면 생략 }
                       kind: { type: string, enum: [REPORT, TEAM_REMINDER, SCHEDULE_REMINDER], description: 적용한 종류 조건. 없으면 생략 }
+                      truncated: { type: boolean, description: 창 안(조건 적용 후)의 행이 더 있어 잘렸음. 잘리지 않으면 생략 }
                       items:
                         type: array
                         items:
