@@ -134,6 +134,12 @@ paths:
         `streak`은 가장 최근 마감된 주부터 거슬러 센 연속 제출 주차, `best`는 창(최근 52주)
         안의 최장 기록, `owed`/`filed`는 그 창에서 내야 했던 주와 실제로 낸 주다. `lastMissed`
         는 창 안에서 마지막으로 빠뜨린 주이며, 없으면 생략된다.
+
+        `openArrears`는 이번 주보다 앞서면서 **아직 마감이 지나지 않은** 미제출 주 가운데 가장
+        오래된 주의 시작일이다 — 기본 규칙에서 월요일 하루 내내 열려 있는 지난주처럼, 오늘 내면
+        기록이 지켜지는 주다. 기록에 세지는 않고(`owed`/`filed`/`streak`/`lastMissed` 에 들지
+        않는다) 이름만 말하며, 해당하는 주가 없으면 생략된다. 이번 주는 `thisWeekFiled`가
+        답하므로 여기에 들지 않는다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /me/report-inclusions:

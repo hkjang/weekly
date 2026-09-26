@@ -54,6 +54,13 @@ func participationRecordScenario(t *testing.T, deadlineDays string) {
 	}
 	// week(1) is the most recent closed week, week(2) the one before it.
 	week := func(back int) string { return closed.AddDate(0, 0, -7*(back-1)).Format(dateLayout) }
+	// 닫힌 가장 최근 주와 이번 주 사이는 아직 열려 있고, 시나리오는 그 사이를
+	// 비워 둡니다 — 그 가운데 가장 오래된 주가 카드가 가리켜야 할 주입니다.
+	// 기본 규칙에서 오늘이 월요일이 아니면 그 사이가 없어 조용히 지나갑니다.
+	wantOpen := ""
+	if oldest := closed.AddDate(0, 0, 7); oldest.Before(current) {
+		wantOpen = oldest.Format(dateLayout)
+	}
 
 	file := func(weekStart string) {
 		id, version := server.draft(author, weekStart, weekStart+" 보고")
@@ -95,6 +102,26 @@ func participationRecordScenario(t *testing.T, deadlineDays string) {
 	}
 	if record.Owed < record.Filed {
 		t.Errorf("낸 주가 내야 했던 주보다 많습니다: %+v", record)
+	}
+
+	// 아직 마감 전인 지난주. 기록에는 들지 않지만 이름은 말해야 합니다 — 오늘
+	// 안에 내면 지켜지는 주를 카드에서 볼 길이 없으면 그 사람은 그것을 놓칩니다.
+	if record.OpenArrears != wantOpen {
+		t.Errorf("열린 미제출 주가 %q, want %q (%+v)", record.OpenArrears, wantOpen, record)
+	}
+	if wantOpen != "" {
+		file(wantOpen)
+		saved := read()
+		if saved.OpenArrears != "" {
+			t.Errorf("열린 주를 내고도 %q 를 아직 안 냈다고 합니다", saved.OpenArrears)
+		}
+		// 낸 뒤에도 그 주는 마감 전이므로 연속 기록을 움직이지 않습니다.
+		if saved.Streak != record.Streak {
+			t.Errorf("마감 전인 주를 내자 연속 기록이 %d에서 %d로 바뀌었습니다", record.Streak, saved.Streak)
+		}
+		if saved.Owed != record.Owed || saved.Filed != record.Filed {
+			t.Errorf("마감 전인 주가 %d/%d 를 %d/%d 로 바꿨습니다", record.Filed, record.Owed, saved.Filed, saved.Owed)
+		}
 	}
 
 	// 이번 주는 아직 열려 있습니다. 연속에 세지 않고, 낼 것이 남았다고만 말합니다 —
