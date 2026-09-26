@@ -41,6 +41,17 @@ type participationView struct {
 	// LastMissed is the most recent closed week with nothing filed, empty when
 	// there is none in the window. It is what a person needs to open next.
 	LastMissed string `json:"lastMissed,omitempty"`
+	// OpenArrears is the oldest week that is behind this one, still open, owed to
+	// this person, and unfiled — the week they can still save today. Empty when
+	// there is none.
+	//
+	// It is a name, not a score: an open week is still not counted anywhere, so
+	// it stays out of Owed·Filed·Streak·LastMissed. Under the default rule last
+	// week is open all Monday, and before this field that week appeared nowhere
+	// in the answer — not in the record, which reads only closed weeks, and not
+	// in ThisWeek*, which reads only the current one. The reader could not see
+	// the one week still worth filing today.
+	OpenArrears string `json:"openArrears,omitempty"`
 }
 
 // participationWindowWeeks is how far back the record is read. A year is the
@@ -64,14 +75,21 @@ func (a *App) myParticipation(w http.ResponseWriter, r *http.Request) {
 	// rather than by the date, the way every other screen counts it: after the
 	// administrator moves the week start, an exact match would read a filed
 	// week as missing and break the streak of everybody in the service at once.
+	//
+	// Whether the deadline has passed is selected rather than filtered on. Read
+	// as a filter it dropped the open weeks before anybody could see them, and
+	// an open week that is behind this one is exactly what the reader can still
+	// act on. It is the same fragment the administrator screens count with, so
+	// the week this card calls open is the week the arrears list calls open.
 	rows, err := a.db.Query(r.Context(), `
 		SELECT week.day::date,
 		       EXISTS(SELECT 1 FROM weekly_reports r
 		              WHERE r.user_id=u.id AND r.status <> 'DRAFT'
-		                AND `+weekCoveringDaysOf("r", "week.day::date")+`)
+		                AND `+weekCoveringDaysOf("r", "week.day::date")+`),
+		       `+deadlinePassed+`
 		FROM users u
 		CROSS JOIN generate_series($6::date, $2::date, interval '7 day') AS week(day)
-		WHERE u.id=$1 AND week.day::date >= `+expectedFromWeek+` AND `+deadlinePassed+`
+		WHERE u.id=$1 AND week.day::date >= `+expectedFromWeek+`
 		ORDER BY week.day DESC`,
 		// $3·$4·$5 are the timezone, days and hour the shared deadline fragments
 		// name. They are positional because those fragments are shared with the
@@ -86,10 +104,22 @@ func (a *App) myParticipation(w http.ResponseWriter, r *http.Request) {
 	running, counting := 0, true
 	for rows.Next() {
 		var day time.Time
-		var filed bool
-		if err := rows.Scan(&day, &filed); err != nil {
+		var filed, closed bool
+		if err := rows.Scan(&day, &filed, &closed); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "제출 기록을 읽을 수 없습니다.")
 			return
+		}
+		// An open week is named and then dropped, before it can touch Owed, Filed
+		// or the run. Counting one would break every record in the service for as
+		// long as the week stayed open. The rows arrive newest first, so the last
+		// name written is the oldest week still open — the one running out first.
+		// This week is left out because ThisWeek* already answers for it, and one
+		// week described twice in two different ways is worse than not at all.
+		if !closed {
+			if start := day.Format(dateLayout); !filed && start != view.ThisWeekStart {
+				view.OpenArrears = start
+			}
+			continue
 		}
 		view.Owed++
 		if filed {

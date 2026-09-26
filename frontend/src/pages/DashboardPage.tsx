@@ -45,6 +45,7 @@ export default function DashboardPage({ session, navigate }: { session: SessionI
         <p className="muted">{record.thisWeekFiled
           ? `이번 주(${record.thisWeekStart})는 이미 제출했습니다. 마감이 지나면 기록에 더해집니다.`
           : `이번 주(${record.thisWeekStart})는 아직입니다. 마감 전까지는 기록이 끊기지 않습니다.`}
+          {record.openArrears && ` 지난주(${record.openArrears})는 아직 마감 전입니다 — 지금 내면 기록에 들어갑니다.`}
           {record.lastMissed && ` 마지막으로 빠뜨린 주는 ${record.lastMissed}입니다.`}</p>
       </Card>}
       <Card title="이번 주 이슈">{report && report.items.some(i => i.issue.trim()) ? <ul className="issue-list">{report.items.filter(i => i.issue.trim()).map((item, index) => <li key={index}><span>{item.title}</span><p>{item.issue}</p></li>)}</ul> : <Empty>이번 주 보고서에 적은 이슈가 없습니다.</Empty>}</Card>
