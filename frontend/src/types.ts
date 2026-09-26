@@ -431,5 +431,7 @@ export interface ScheduleBoard {
 export interface ParticipationRecord {
   streak: number; best: number; owed: number; filed: number; window: number
   thisWeekStart: string; thisWeekFiled: boolean; lastMissed?: string
+  /** 아직 마감 전인, 이번 주보다 앞선 미제출 주 가운데 가장 오래된 주. 기록에는 들지 않고 이름만 말합니다. */
+  openArrears?: string
 }
 export interface ITSMLookup { id: string; title: string; url?: string }
