@@ -1199,7 +1199,7 @@ func TestTheOperatorCanPickTheFailuresOutOfAGoodWeek(t *testing.T) {
 	// The page the operator lands on: full, and every row of it a success.
 	// This is the setup, not the defect — it is why a filter is the only way
 	// to the rows the figures above are counting.
-	_, unfiltered := read("")
+	full, unfiltered := read("")
 	if len(unfiltered) != mailDeliveryLimit {
 		t.Fatalf("unfiltered items=%d, want a full page of %d", len(unfiltered), mailDeliveryLimit)
 	}
@@ -1207,6 +1207,12 @@ func TestTheOperatorCanPickTheFailuresOutOfAGoodWeek(t *testing.T) {
 		if item["status"] != "SENT" {
 			t.Fatalf("the seeded page was meant to be all successes, got %v", item["status"])
 		}
+	}
+	// A full page is indistinguishable from "this is all of the last 14 days"
+	// unless the response says otherwise. There are 57 rows in the window and
+	// the operator is looking at 50 of them.
+	if truncated, _ := full["truncated"].(bool); !truncated {
+		t.Errorf("truncated=%v, want true — 57 rows in the window and the page shows %d", full["truncated"], mailDeliveryLimit)
 	}
 
 	// Asking for the failures must reach past the 50 successes, not filter
@@ -1223,6 +1229,12 @@ func TestTheOperatorCanPickTheFailuresOutOfAGoodWeek(t *testing.T) {
 	}
 	if days, _ := data["days"].(float64); days != mailHealthDays {
 		t.Errorf("days=%v, want %d — filtering must not move the window", data["days"], mailHealthDays)
+	}
+	// And the other direction: a narrowed page that holds everything matching
+	// must not say it was cut. A standing "최근 50건만" would be noise on the
+	// one row the operator came for.
+	if _, said := data["truncated"]; said {
+		t.Errorf("status=FAILED said truncated=%v over 1 row — the notice must appear only when rows were dropped", data["truncated"])
 	}
 
 	// Both filters at once, and the kind on its own.

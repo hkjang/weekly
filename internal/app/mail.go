@@ -1187,9 +1187,14 @@ type mailDeliveryList struct {
 	// The filter the server actually applied, echoed back. The screen captions
 	// the table with what it asked for; if the server had quietly dropped a
 	// condition, that caption would be a lie told over the rows disproving it.
-	Status string            `json:"status,omitempty"`
-	Kind   string            `json:"kind,omitempty"`
-	Items  []mailDeliveryRow `json:"items"`
+	Status string `json:"status,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	// Set when the window held more rows than the page shows. A full page is
+	// otherwise read as "this is all of the last 14 days", and the operator has
+	// no way to know they should narrow further. Absent when nothing was
+	// dropped, so the screen's notice cannot be standing furniture.
+	Truncated bool              `json:"truncated,omitempty"`
+	Items     []mailDeliveryRow `json:"items"`
 }
 
 // The names the three queues actually store — the CHECK constraints on their
@@ -1243,7 +1248,11 @@ func (a *App) adminMailDeliveries(w http.ResponseWriter, r *http.Request) {
 		args = append(args, kind)
 		where += fmt.Sprintf(" AND m.kind = $%d", len(args))
 	}
-	args = append(args, mailDeliveryLimit)
+	// One more than the page, and the extra row is never shown. Its existence is
+	// the whole answer — asking a second query for a count would say how many
+	// more there are, which is not a number the operator can act on, and a total
+	// in the response is a page-size contract this list does not have.
+	args = append(args, mailDeliveryLimit+1)
 	rows, err := a.db.Query(r.Context(), `
 		SELECT m.kind, u.display_name, m.address, m.subject, m.status, m.attempts,
 			m.error_message, m.created_at, m.sent_at
@@ -1259,6 +1268,10 @@ func (a *App) adminMailDeliveries(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	list := mailDeliveryList{Days: mailHealthDays, Status: status, Kind: kind, Items: []mailDeliveryRow{}}
 	for rows.Next() {
+		if len(list.Items) == mailDeliveryLimit {
+			list.Truncated = true
+			break
+		}
 		var item mailDeliveryRow
 		if err := rows.Scan(&item.Kind, &item.UserName, &item.Address, &item.Subject, &item.Status,
 			&item.Attempts, &item.ErrorMessage, &item.CreatedAt, &item.SentAt); err != nil {

@@ -397,8 +397,12 @@ export type MailDeliveryStatus = 'QUEUED' | 'SENT' | 'FAILED'
  * tables. `status` and `kind` echo the condition the server applied — the
  * filter runs before the 50 are cut, so asking for the failures reaches past a
  * page the good week filled, and the caption can never outrun the rows.
+ *
+ * `truncated` is set only when the window held more than the page shows — a
+ * full table is otherwise read as the whole window. Absent when nothing was
+ * dropped, so the screen's notice is never standing furniture.
  */
-export interface MailDeliveryList { days: number; status?: MailDeliveryStatus; kind?: MailDeliveryKind; items: MailDelivery[] }
+export interface MailDeliveryList { days: number; status?: MailDeliveryStatus; kind?: MailDeliveryKind; truncated?: boolean; items: MailDelivery[] }
 
 /** 월간 업무 상황판. 긴급 빨강 · 중요 초록 · 필요 파랑 · 일반 검정. */
 export type SchedulePriority = 'URGENT' | 'IMPORTANT' | 'NEEDED' | 'NORMAL'
