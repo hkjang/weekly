@@ -228,6 +228,8 @@ export interface ConfluenceSyncStatus {
   enabled: boolean; status: string; lastSuccessAt?: string; lastAttemptAt?: string; currentStartedAt?: string; errorMessage: string
   pagesScanned: number; pagesChanged: number; candidatesCreated: number; pagesFailed: number; mappedUsers: number; unmappedUsers: number; unresolvedActors: number; unattributedPages: number
   recentErrors: { id: number; pageId?: string; phase: string; statusCode?: number; message: string; createdAt: string }[]
+  /** 진단 표가 최신 20건에서 잘렸을 때만 옵니다. */
+  recentErrorsTruncated?: boolean
 }
 
 /** Coverage of the optional semantic search index. */
