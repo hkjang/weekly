@@ -262,6 +262,11 @@ func (a *App) acceptConfluenceCandidates(w http.ResponseWriter, r *http.Request)
 	writeData(w, 200, map[string]any{"accepted": len(input.IDs), "reportId": input.ReportID})
 }
 
+// confluenceRecentErrorLimit is how many diagnosis rows the status response
+// carries. The table behind it keeps the newest 500 (recordConfluenceError),
+// so the screen is usually looking at a slice of something larger.
+const confluenceRecentErrorLimit = 20
+
 func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 	cfg, err := a.loadConfluenceSettings(r.Context())
 	if err != nil {
@@ -277,11 +282,20 @@ func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "QUERY_FAILED", "동기화 상태를 조회할 수 없습니다.")
 		return
 	}
-	errorRows, _ := a.db.Query(r.Context(), `SELECT id,page_id,phase,status_code,error_message,created_at FROM confluence_sync_errors ORDER BY created_at DESC LIMIT 20`)
+	// One row past the page. Its existence is the whole answer, so it is read
+	// instead of counted — a COUNT would be a second query for one boolean.
+	// id breaks the tie so that rows stored in the same instant do not take
+	// turns being the one left out.
+	errorRows, _ := a.db.Query(r.Context(), `SELECT id,page_id,phase,status_code,error_message,created_at FROM confluence_sync_errors ORDER BY created_at DESC, id DESC LIMIT $1`, confluenceRecentErrorLimit+1)
 	errorsView := make([]map[string]any, 0)
+	truncated := false
 	if errorRows != nil {
 		defer errorRows.Close()
 		for errorRows.Next() {
+			if len(errorsView) == confluenceRecentErrorLimit {
+				truncated = true
+				break
+			}
 			var id int64
 			var pageID *string
 			var phase, message string
@@ -295,7 +309,7 @@ func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 	var mapped, unmapped int
 	_ = a.db.QueryRow(r.Context(), `SELECT count(*) FROM user_external_accounts WHERE system_type='CONFLUENCE' AND active=true`).Scan(&mapped)
 	_ = a.db.QueryRow(r.Context(), `SELECT count(*) FROM users u WHERE u.active=true AND NOT EXISTS(SELECT 1 FROM user_external_accounts e WHERE e.user_id=u.id AND e.system_type='CONFLUENCE' AND e.active=true)`).Scan(&unmapped)
-	writeData(w, 200, map[string]any{
+	payload := map[string]any{
 		"enabled": cfg.Enabled, "status": status, "lastSuccessAt": lastSuccess, "lastAttemptAt": lastAttempt, "currentStartedAt": currentStarted,
 		"errorMessage": errorMessage, "pagesScanned": scanned, "pagesChanged": changed, "candidatesCreated": created, "pagesFailed": failed,
 		"mappedUsers": mapped, "unmappedUsers": unmapped, "recentErrors": errorsView,
@@ -303,7 +317,13 @@ func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 		// answer the question that actually loses work: which Confluence
 		// accounts turned up in the scan and matched nobody.
 		"unresolvedActors": unresolvedActors, "unattributedPages": unattributedPages,
-	})
+	}
+	// Absent unless true: a field that is always there becomes a line the
+	// screen always prints, and then it says nothing.
+	if truncated {
+		payload["recentErrorsTruncated"] = true
+	}
+	writeData(w, 200, payload)
 }
 
 func (a *App) forceConfluenceSync(w http.ResponseWriter, r *http.Request) {
