@@ -282,6 +282,49 @@ func TestConfluenceCandidateLegacyNormalizationAndCanonicalMerge(t *testing.T) {
 	}
 }
 
+// guards: adminConfluenceStatus
+//
+// confluence_sync_errors keeps the newest 500 rows, but the status query reads
+// only the newest confluenceRecentErrorLimit of them. A full table therefore
+// reads as "this is every diagnosis there is" — a sync that failed forty times
+// shows twenty rows and no sign of the rest. The response has to say so, and
+// only when it is true: a permanent notice teaches the operator to ignore it.
+func TestTheOperatorLearnsTheDiagnosisTableIsCutOff(t *testing.T) {
+	server := newTestServer(t)
+
+	read := func() map[string]any {
+		t.Helper()
+		w := server.request(http.MethodGet, "/api/v1/admin/confluence/sync/status", nil, server.admin)
+		if w.Code != http.StatusOK {
+			t.Fatalf("read the status: %d %s", w.Code, w.Body.String())
+		}
+		return decodeData(t, w)
+	}
+
+	// A table that fits: the screen shows everything, so no notice.
+	for i := 0; i < confluenceRecentErrorLimit; i++ {
+		server.app.recordConfluenceNotice(server.ctx(), "SCAN", "연결되지 않은 사용자를 찾았습니다.")
+	}
+	data := read()
+	if rows, _ := data["recentErrors"].([]any); len(rows) != confluenceRecentErrorLimit {
+		t.Fatalf("recentErrors=%d, want the full %d", len(rows), confluenceRecentErrorLimit)
+	}
+	if _, present := data["recentErrorsTruncated"]; present {
+		t.Fatalf("recentErrorsTruncated=%v on an untruncated table, want the field absent", data["recentErrorsTruncated"])
+	}
+
+	// One row more than the screen carries. The rows returned must not grow —
+	// the extra row is read only to learn that it exists.
+	server.app.recordConfluenceError(server.ctx(), "12345", "FETCH", 502, errors.New("relay refused the page"))
+	data = read()
+	if rows, _ := data["recentErrors"].([]any); len(rows) != confluenceRecentErrorLimit {
+		t.Fatalf("recentErrors=%d, want still %d", len(rows), confluenceRecentErrorLimit)
+	}
+	if truncated, _ := data["recentErrorsTruncated"].(bool); !truncated {
+		t.Fatalf("recentErrorsTruncated=%v, want true", data["recentErrorsTruncated"])
+	}
+}
+
 func serverURLFromRequest(r *http.Request) string {
 	return "http://" + r.Host
 }
