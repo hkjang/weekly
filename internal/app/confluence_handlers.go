@@ -286,29 +286,51 @@ func (a *App) adminConfluenceStatus(w http.ResponseWriter, r *http.Request) {
 	// instead of counted — a COUNT would be a second query for one boolean.
 	// id breaks the tie so that rows stored in the same instant do not take
 	// turns being the one left out.
-	errorRows, _ := a.db.Query(r.Context(), `SELECT id,page_id,phase,status_code,error_message,created_at FROM confluence_sync_errors ORDER BY created_at DESC, id DESC LIMIT $1`, confluenceRecentErrorLimit+1)
+	// A read that fails is not an answer. Every value below leaves the most
+	// reassuring one behind when it is dropped — no diagnoses, nobody
+	// unmapped — so a failure has to refuse the card the way the sync state
+	// query above already does.
+	errorRows, err := a.db.Query(r.Context(), `SELECT id,page_id,phase,status_code,error_message,created_at FROM confluence_sync_errors ORDER BY created_at DESC, id DESC LIMIT $1`, confluenceRecentErrorLimit+1)
+	if err != nil {
+		writeError(w, 500, "QUERY_FAILED", "동기화 진단을 조회할 수 없습니다.")
+		return
+	}
+	defer errorRows.Close()
 	errorsView := make([]map[string]any, 0)
 	truncated := false
-	if errorRows != nil {
-		defer errorRows.Close()
-		for errorRows.Next() {
-			if len(errorsView) == confluenceRecentErrorLimit {
-				truncated = true
-				break
-			}
-			var id int64
-			var pageID *string
-			var phase, message string
-			var code *int
-			var createdAt time.Time
-			if errorRows.Scan(&id, &pageID, &phase, &code, &message, &createdAt) == nil {
-				errorsView = append(errorsView, map[string]any{"id": id, "pageId": pageID, "phase": phase, "statusCode": code, "message": message, "createdAt": createdAt})
-			}
+	for errorRows.Next() {
+		if len(errorsView) == confluenceRecentErrorLimit {
+			truncated = true
+			break
+		}
+		var id int64
+		var pageID *string
+		var phase, message string
+		var code *int
+		var createdAt time.Time
+		if err := errorRows.Scan(&id, &pageID, &phase, &code, &message, &createdAt); err != nil {
+			writeError(w, 500, "QUERY_FAILED", "동기화 진단을 조회할 수 없습니다.")
+			return
+		}
+		errorsView = append(errorsView, map[string]any{"id": id, "pageId": pageID, "phase": phase, "statusCode": code, "message": message, "createdAt": createdAt})
+	}
+	// Only when the page was not cut short: breaking out of the loop early
+	// leaves the rows unfinished on purpose, and Err() would report that.
+	if !truncated {
+		if err := errorRows.Err(); err != nil {
+			writeError(w, 500, "QUERY_FAILED", "동기화 진단을 조회할 수 없습니다.")
+			return
 		}
 	}
 	var mapped, unmapped int
-	_ = a.db.QueryRow(r.Context(), `SELECT count(*) FROM user_external_accounts WHERE system_type='CONFLUENCE' AND active=true`).Scan(&mapped)
-	_ = a.db.QueryRow(r.Context(), `SELECT count(*) FROM users u WHERE u.active=true AND NOT EXISTS(SELECT 1 FROM user_external_accounts e WHERE e.user_id=u.id AND e.system_type='CONFLUENCE' AND e.active=true)`).Scan(&unmapped)
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM user_external_accounts WHERE system_type='CONFLUENCE' AND active=true`).Scan(&mapped); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "사용자 매핑 수를 조회할 수 없습니다.")
+		return
+	}
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users u WHERE u.active=true AND NOT EXISTS(SELECT 1 FROM user_external_accounts e WHERE e.user_id=u.id AND e.system_type='CONFLUENCE' AND e.active=true)`).Scan(&unmapped); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "사용자 매핑 수를 조회할 수 없습니다.")
+		return
+	}
 	payload := map[string]any{
 		"enabled": cfg.Enabled, "status": status, "lastSuccessAt": lastSuccess, "lastAttemptAt": lastAttempt, "currentStartedAt": currentStarted,
 		"errorMessage": errorMessage, "pagesScanned": scanned, "pagesChanged": changed, "candidatesCreated": created, "pagesFailed": failed,

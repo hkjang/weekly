@@ -325,6 +325,52 @@ func TestTheOperatorLearnsTheDiagnosisTableIsCutOff(t *testing.T) {
 	}
 }
 
+// guards: adminConfluenceStatus
+//
+// Every number on this card is read as the state of the last sync. Three of its
+// reads used to throw their error away, and the value left behind was in each
+// case the most reassuring one the screen can show: an empty diagnosis table
+// ("진단 없음"), and 0 mapped / 0 unmapped users. A card that cannot reach the
+// database has to say that instead of answering with a zero, the way the sync
+// state query above it already does.
+func TestTheConfluenceCardRefusesToAnswerWithAFailedQuery(t *testing.T) {
+	server := newTestServer(t)
+	// A real diagnosis is waiting to be read, so an empty table below is the
+	// failure speaking and not the truth.
+	server.app.recordConfluenceError(server.ctx(), "12345", "FETCH", 502, errors.New("relay refused the page"))
+
+	// Take each table away the way a lost tablespace or a botched migration
+	// would. The harness gives this test its own database, so the rename is
+	// undone only to keep the rest of the server usable.
+	for _, table := range []string{"confluence_sync_errors", "user_external_accounts"} {
+		t.Run(table, func(t *testing.T) {
+			if _, err := server.app.db.Exec(server.ctx(), `ALTER TABLE `+table+` RENAME TO `+table+`_hidden`); err != nil {
+				t.Fatalf("hide %s: %v", table, err)
+			}
+			defer func() {
+				if _, err := server.app.db.Exec(server.ctx(), `ALTER TABLE `+table+`_hidden RENAME TO `+table); err != nil {
+					t.Fatalf("restore %s: %v", table, err)
+				}
+			}()
+
+			w := server.request(http.MethodGet, "/api/v1/admin/confluence/sync/status", nil, server.admin)
+			if w.Code != http.StatusInternalServerError || errorCode(w) != "QUERY_FAILED" {
+				t.Fatalf("status with %s unreachable = %d %s, want 500 QUERY_FAILED instead of a card that reads as a healthy one", table, w.Code, w.Body.String())
+			}
+		})
+	}
+
+	// With every table back the card answers again, so the refusal above is the
+	// missing table talking and not a handler that stopped working.
+	w := server.request(http.MethodGet, "/api/v1/admin/confluence/sync/status", nil, server.admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status once the tables are back = %d %s", w.Code, w.Body.String())
+	}
+	if rows, _ := decodeData(t, w)["recentErrors"].([]any); len(rows) != 1 {
+		t.Fatalf("recentErrors=%d, want the 1 diagnosis this test recorded", len(rows))
+	}
+}
+
 func serverURLFromRequest(r *http.Request) string {
 	return "http://" + r.Host
 }
