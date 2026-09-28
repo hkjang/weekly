@@ -86,16 +86,26 @@ const SCREENS = {json.dumps(SCREENS)}
 const browser = await chromium.launch()
 const page = await (await browser.newContext({{viewport:{{width:1400,height:1000}}}})).newPage()
 await page.goto(BASE, {{waitUntil:'networkidle'}})
+// 조직 계정(SSO)이 켜진 배포에서는 아이디·비밀번호 칸이 접혀 있습니다.
+// 자동 로그인(prompt=none)이 켜져 있으면 첫 화면은 Keycloak 에 한 번 다녀온 뒤에 섭니다.
+// 그 사이에 토글을 찾으면 없다고 판단하므로, 비밀번호 칸이나 토글 둘 중 하나가 보일 때까지 기다립니다.
+await page.locator('input[type=password], .local-login-toggle').first().waitFor({{ timeout: 30000 }})
+const localToggle = page.getByRole('button', {{ name: /아이디·비밀번호로 로그인/ }})
+if (await localToggle.count() && (await localToggle.getAttribute('aria-expanded')) !== 'true') await localToggle.click()
 await page.getByLabel(/아이디|사용자/).fill({json.dumps(user)})
 await page.locator('input[type=password]').fill({json.dumps(password)})
-await page.getByRole('button', {{name:'로그인'}}).click()
+await page.getByRole('button', {{name:'로그인', exact: true}}).click()
 await page.waitForTimeout(2500)
 const out = []
 for (const [route, pattern] of SCREENS) {{
   await page.unrouteAll()
   await page.route(new RegExp(pattern), r => r.fulfill({{status:500, contentType:'application/json',
     body: JSON.stringify({{success:false,data:null,error:{{code:'QUERY_FAILED',message:{json.dumps(MARKER)}}},traceId:'x'}})}}))
-  await page.evaluate(() => {{ location.hash = '#/dashboard' }})
+  // 다른 화면을 거쳐 들어와야 그 화면이 새로 그려지고 주입한 실패를 겪습니다.
+  // 늘 대시보드를 거쳤기 때문에, 대시보드 자신은 같은 주소로 "이동"만 하고 다시
+  // 그려지지 않아 이 검사가 한 번도 대시보드의 실패를 본 적이 없었습니다.
+  const away = route === 'dashboard' ? 'history' : 'dashboard'
+  await page.evaluate(x => {{ location.hash = '#/' + x }}, away)
   await page.waitForTimeout(600)
   await page.evaluate(x => {{ location.hash = '#/' + x }}, route)
   await page.waitForTimeout(2400)

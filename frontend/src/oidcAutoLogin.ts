@@ -99,3 +99,35 @@ export function withoutOIDCAutoResult(pathname: string, search: string, hash: st
   const remaining = query.toString()
   return `${pathname}${remaining ? `?${remaining}` : ''}${hash}`
 }
+
+/**
+ * Keycloak 이 이 브라우저에서 닿는지, 탭을 보내기 전에 한 번 묻습니다.
+ *
+ * 자동 로그인은 탭 전체를 Keycloak 으로 보냅니다. 브라우저가 Keycloak 에 닿지
+ * 못하면 — VPN 이 끊겼거나, IdP 를 재시작하는 중이거나, 사무실 망이 그쪽으로
+ * 가지 않거나 — 그 탭은 브라우저의 "사이트에 연결할 수 없음" 화면에 떨어지고
+ * Weekly 는 사라집니다. 어떻게 돌아가야 하는지 말해 줄 화면도 함께 사라집니다.
+ *
+ * `no-cors` 요청은 응답을 읽을 수 없는 대신, 서버가 무엇이든 답하면 성공하고
+ * 연결 자체가 안 되면 실패합니다. 알고 싶은 것이 정확히 그 차이입니다. 제한
+ * 시간 안에 답이 없으면 닿지 않는 것으로 봅니다 — 느린 IdP 로 탭을 보내는 것도
+ * 사람을 빈 화면 앞에 세워 두는 것이기 때문입니다.
+ */
+export async function issuerReachable(
+  issuer: string,
+  timeoutMs = 2500,
+  fetcher: (input: string, init: RequestInit) => Promise<unknown> = (input, init) => fetch(input, init),
+): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    await fetcher(`${issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`, {
+      mode: 'no-cors', cache: 'no-store', credentials: 'omit', signal: controller.signal,
+    })
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}

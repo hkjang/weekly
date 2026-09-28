@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { errorText, api, post } from './api'
 import { Button, Spinner, Toast } from './components'
 import CommandPalette, { periodCommands } from './CommandPalette'
+import { loginNotice, loginSections } from './loginLayout'
+import type { LoginNotice } from './loginLayout'
 import type { Command } from './CommandPalette'
 import { appHandlesClick, navigateTo, parseRoute, replaceRoute, routeHash } from './router'
 import { confirmDiscard, hasUnsavedWork } from './unsavedGuard'
@@ -26,7 +28,7 @@ import RollupPage from './pages/RollupPage'
 import SchedulePage from './pages/SchedulePage'
 import WorkItemsPage from './pages/WorkItemsPage'
 import {
-  beginOIDCAutoLogin, clearOIDCAutoLoginMarkers, isAnonymousSessionProbe,
+  beginOIDCAutoLogin, clearOIDCAutoLoginMarkers, isAnonymousSessionProbe, issuerReachable,
   oidcAutoLoginMarkers, oidcStartURL, rememberOIDCAutoReturn,
   shouldAttemptOIDCAutoLogin, skipOIDCAutoLogin, withoutOIDCAutoResult,
 } from './oidcAutoLogin'
@@ -64,7 +66,10 @@ export default function App() {
   const [initiallyAnonymous, setInitiallyAnonymous] = useState(false)
   const [autoLoginStarted, setAutoLoginStarted] = useState(false)
   const [oidcAutoReturned] = useState(() => new URLSearchParams(window.location.search).has('oidc_auto'))
-  const [oidcAutoUnavailable] = useState(() => new URLSearchParams(window.location.search).get('oidc_auto') === 'unavailable')
+  // 자동 로그인이 돌아온 결과(miss·unavailable). 주소에서는 곧 지우므로 처음 한 번 읽어 둡니다.
+  const [oidcAutoResult] = useState(() => new URLSearchParams(window.location.search).get('oidc_auto'))
+  // Keycloak did not answer this browser, so the silent attempt was not made.
+  const [oidcUnreachable, setOidcUnreachable] = useState(false)
 
   const expiredRef = useRef(false)
   const notify = (message: string, kind: 'success' | 'error' = 'success') => {
@@ -116,7 +121,26 @@ export default function App() {
     if (!shouldAttemptOIDCAutoLogin({ oidc: providers.oidc, autoLogin: providers.autoLogin, anonymous: initiallyAnonymous, signedOut, attempted, skipped })) return
     if (!beginOIDCAutoLogin()) return
     setAutoLoginStarted(true)
-    window.location.replace(oidcStartURL(window.location.hash, true))
+    // Ask first whether Keycloak answers from this browser. Sending the tab to
+    // an IdP it cannot reach strands the person on the browser's own error
+    // page with no way back that says so; see issuerReachable. A server that
+    // does not publish the issuer is taken at its word, as before.
+    const issuer = providers.oidcIssuer
+    let cancelled = false
+    void (issuer ? issuerReachable(issuer) : Promise.resolve(true)).then(reachable => {
+      if (cancelled) return
+      if (reachable) {
+        window.location.replace(oidcStartURL(window.location.hash, true))
+        return
+      }
+      // Not again in this tab: the answer will not change in the next second,
+      // and a person who is not on the VPN should not wait for it on every
+      // screen they open.
+      skipOIDCAutoLogin()
+      setOidcUnreachable(true)
+      setAutoLoginStarted(false)
+    })
+    return () => { cancelled = true }
   }, [loading, providers, session, initiallyAnonymous, signedOut, oidcAutoReturned])
   useEffect(() => {
     if (!session) return
@@ -264,7 +288,7 @@ export default function App() {
   // created and then thrown away at the exact moment it is needed.
   if (!session) return <>
     <Login providers={providers} notify={notify}
-      notice={signedOut ? '세션이 만료되어 로그아웃됐습니다. 다시 로그인해 주세요.' : oidcAutoUnavailable ? 'Keycloak 자동 로그인을 확인하지 못했습니다. 아래 방식으로 로그인해 주세요.' : undefined}
+      notice={loginNotice({ signedOut, oidcAuto: oidcUnreachable ? 'unreachable' : oidcAutoResult })}
       onLogin={async () => { clearOIDCAutoLoginMarkers(); expiredRef.current = false; setSessionExpired(false); setSignedOut(false); await refreshSession() }} />
     {toast && <Toast key={toast.id} {...toast} onClose={() => setToast(undefined)} />}
   </>
@@ -409,14 +433,52 @@ function Nav({ active, icon, children, page, onClick }: { active: boolean; icon:
 }
 function roleName(role: string) { return ({ USER: '사용자', TEAM_LEADER: '팀장', ORG_MANAGER: '조직장', ADMIN: '관리자' } as Record<string, string>)[role] ?? role }
 
-function Login({ providers, onLogin, notify, notice }: { providers: Providers; onLogin: () => Promise<void>; notify: (message: string, kind?: 'success' | 'error') => void; notice?: string }) {
+function Login({ providers, onLogin, notify, notice }: { providers: Providers; onLogin: () => Promise<void>; notify: (message: string, kind?: 'success' | 'error') => void; notice?: LoginNotice }) {
   const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false)
+  const sections = loginSections(providers)
+  // 접힌 아이디·비밀번호 칸. 한 번 연 사람은 그 탭에서 계속 열린 채로 봅니다 —
+  // 로컬 계정을 쓰는 사람이 로그인에 실패할 때마다 다시 펼치게 하지 않기 위해서입니다.
+  const [localOpen, setLocalOpen] = useState(() => {
+    try { return window.sessionStorage.getItem('weekly_login_local_open') === '1' } catch { return false }
+  })
+  const toggleLocal = () => setLocalOpen(open => {
+    try { window.sessionStorage.setItem('weekly_login_local_open', open ? '0' : '1') } catch { /* 저장소 없음 */ }
+    return !open
+  })
+  const showLocalForm = sections.local === 'form' || (sections.local === 'collapsed' && localOpen)
   const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); try { await post('/api/v1/auth/login', { username, password }); await onLogin() } catch (error) { notify(errorText(error, '로그인할 수 없습니다.'), 'error') } finally { setBusy(false) } }
-  return <div className="login-page"><div className="login-panel"><div className="login-brand"><span className="brand-mark">W</span><div><h1>{providers.name}</h1><p>한 주의 성과를 선명하게 기록하세요.</p></div></div>{notice && <div className="login-expired" role="alert">{notice}</div>}{providers.notice && <div className="login-notice">{providers.notice}</div>}
-    {providers.local && <form onSubmit={submit}><label>아이디<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label><label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label><Button disabled={busy} className="full">{busy ? '로그인 중…' : '로그인'}</Button></form>}
-    {providers.local && providers.oidc && <div className="divider"><span>또는</span></div>}
-    {providers.oidc && <a className="button secondary full sso" href={oidcStartURL(window.location.hash, false)} onClick={() => { clearOIDCAutoLoginMarkers() }}>Keycloak SSO로 로그인</a>}
-    {!providers.local && !providers.oidc && <p className="login-error">활성화된 로그인 방식이 없습니다. 관리자에게 문의하세요.</p>}
+  return <div className="login-page"><div className="login-panel">
+    <div className="login-brand"><span className="brand-mark" aria-hidden="true">W</span><p>한 주의 성과를 선명하게 기록하세요.</p></div>
+    <p className="login-eyebrow">Secure access</p>
+    <h1 className="login-title">{providers.name} 로그인</h1>
+    <p className="login-lead">인증 후 보던 화면으로 안전하게 돌아갑니다.</p>
+    {notice && <div className={notice.tone === 'alert' ? 'login-expired' : 'login-info'} role={notice.tone === 'alert' ? 'alert' : 'status'}>
+      {notice.tone === 'info' && <ShieldIcon/>}<span>{notice.text}</span></div>}
+    {providers.notice && <div className="login-notice">{providers.notice}</div>}
+    {sections.sso && <a className="button primary full login-sso" href={oidcStartURL(window.location.hash, false)} onClick={() => { clearOIDCAutoLoginMarkers() }}>
+      <ShieldIcon/> 조직 계정으로 로그인</a>}
+    {sections.sso && <p className="login-sso-hint">Keycloak SSO · 사내 계정 하나로 로그인합니다.</p>}
+    {sections.local === 'collapsed' && <button type="button" className="local-login-toggle" aria-expanded={localOpen} aria-controls="local-login-form" onClick={toggleLocal}>
+      <LockIcon/><span>아이디·비밀번호로 로그인</span><ChevronIcon open={localOpen}/></button>}
+    {showLocalForm && <form id="local-login-form" className={sections.local === 'collapsed' ? 'local-login-form' : undefined} onSubmit={submit}>
+      {sections.local === 'collapsed' && <p className="local-login-note">조직 계정(SSO)이 없는 계정이나, SSO 를 쓸 수 없을 때를 위한 로그인입니다. 평소에는 위의 조직 계정으로 로그인하세요.</p>}
+      <label>아이디<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label>
+      <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
+      <Button disabled={busy} className="full" variant={sections.sso ? 'secondary' : 'primary'}>{busy ? '로그인 중…' : '로그인'}</Button>
+    </form>}
+    {!sections.sso && sections.local === 'none' && <p className="login-error">활성화된 로그인 방식이 없습니다. 관리자에게 문의하세요.</p>}
     <footer><span>{providers.name} v{providers.build.version}</span><span>Commit {providers.build.commit.slice(0, 8)}</span></footer>
   </div><div className="login-art"><div className="orb one"/><div className="orb two"/><div className="week-grid">{['MON','TUE','WED','THU','FRI'].map((day, index) => <div key={day} style={{ '--i': index } as React.CSSProperties}><strong>{day}</strong><span/><span/><span/></div>)}</div></div></div>
+}
+
+function ShieldIcon() {
+  return <svg className="login-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+}
+
+function LockIcon() {
+  return <svg className="login-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return <svg className={`login-icon login-chevron${open ? ' open' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
 }

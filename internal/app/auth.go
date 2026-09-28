@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -325,6 +326,9 @@ func (a *App) authProviders(w http.ResponseWriter, r *http.Request) {
 		// oidcStart; this only spares the visitor a redirect that would be
 		// turned into an interactive login anyway.
 		"autoLogin": oidcEnabled && a.oidcAutoLogin(r.Context()),
+		// Where the browser is about to be sent anyway, published only when it
+		// will be, so the page can check it answers before leaving.
+		"oidcIssuer": a.silentIssuer(r.Context()),
 		// Published so the 개인 설정 MCP card can say the SSO door exists. The
 		// switch itself is enforced where the token arrives (oauthPrincipal).
 		"mcpOAuth": a.mcpOAuthSettings(r.Context()).Enabled && a.setting(r.Context(), "oidc.issuer_url", "") != "",
@@ -368,6 +372,48 @@ func (a *App) oidcConfig(ctx context.Context) (oidcConfiguration, error) {
 // saved auto_login must not outlive the provider it was saved for.
 func (a *App) oidcAutoLogin(ctx context.Context) bool {
 	return a.settingBool(ctx, "oidc.enabled", false) && a.settingBool(ctx, "oidc.auto_login", false)
+}
+
+// oidcIssuerOrigin is scheme://host[:port] of the configured issuer, or empty
+// when it is not an http(s) URL. Only the origin: a CSP source names where a
+// page may connect, and the path under it is Keycloak's business.
+func oidcIssuerOrigin(issuer string) string {
+	parsed, err := url.Parse(strings.TrimSpace(issuer))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+// silentIssuer is the issuer URL while silent sign-in is on, and empty
+// otherwise. It is not a secret — the browser is redirected to it — but it is
+// only needed, and so only published, when the page will probe it.
+func (a *App) silentIssuer(ctx context.Context) string {
+	if !a.oidcAutoLogin(ctx) {
+		return ""
+	}
+	issuer := strings.TrimRight(strings.TrimSpace(a.setting(ctx, "oidc.issuer_url", "")), "/")
+	if oidcIssuerOrigin(issuer) == "" {
+		return ""
+	}
+	return issuer
+}
+
+// documentConnectOrigin is the Keycloak origin the SPA document may connect to,
+// and only while silent sign-in is switched on — the one feature that needs it.
+//
+// Silent sign-in sends the whole tab to Keycloak with prompt=none. When the
+// browser cannot reach Keycloak — the VPN is down, the IdP is being restarted,
+// the office network does not route to it — that tab lands on the browser's own
+// "사이트에 연결할 수 없음" page, with Weekly gone and nothing on screen that
+// says how to get back. Measured: exactly that, from a browser that could not
+// resolve the issuer's host. So the page first asks Keycloak whether it answers
+// at all, which needs this one origin in connect-src and nothing else.
+func (a *App) documentConnectOrigin(ctx context.Context) string {
+	if !a.oidcAutoLogin(ctx) {
+		return ""
+	}
+	return oidcIssuerOrigin(a.setting(ctx, "oidc.issuer_url", ""))
 }
 
 func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {

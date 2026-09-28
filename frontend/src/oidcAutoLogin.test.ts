@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { APIError } from './api'
 import {
-  beginOIDCAutoLogin, clearOIDCAutoLoginMarkers, isAnonymousSessionProbe,
+  beginOIDCAutoLogin, clearOIDCAutoLoginMarkers, isAnonymousSessionProbe, issuerReachable,
   oidcAutoLoginMarkers, oidcStartURL, shouldAttemptOIDCAutoLogin,
   skipOIDCAutoLogin, withoutOIDCAutoResult,
 } from './oidcAutoLogin'
@@ -85,5 +85,28 @@ describe('Keycloak 기존 세션 자동 로그인', () => {
       const url = new URL(oidcStartURL(hash, true), 'https://weekly.test')
       expect(url.searchParams.get('returnTo')).toBe('#/dashboard')
     }
+  })
+})
+
+describe('Keycloak 이 닿는지 먼저 묻기', () => {
+  it('무엇이든 답하면 닿는 것이다 — 응답을 읽을 필요는 없다', async () => {
+    expect(await issuerReachable('http://kc/realms/w', 100, async () => ({}))).toBe(true)
+  })
+
+  it('연결이 실패하면 닿지 않는 것이다', async () => {
+    expect(await issuerReachable('http://kc/realms/w', 100, async () => { throw new TypeError('Failed to fetch') })).toBe(false)
+  })
+
+  it('제한 시간 안에 답이 없으면 닿지 않는 것으로 본다', async () => {
+    const hanging = (_: string, init: RequestInit) => new Promise((_, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    })
+    expect(await issuerReachable('http://kc/realms/w', 20, hanging)).toBe(false)
+  })
+
+  it('발급자의 디스커버리 문서를 묻는다 — 끝의 슬래시는 한 번만', async () => {
+    let asked = ''
+    await issuerReachable('http://kc/realms/w/', 100, async input => { asked = input; return {} })
+    expect(asked).toBe('http://kc/realms/w/.well-known/openid-configuration')
   })
 })

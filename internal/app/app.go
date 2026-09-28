@@ -356,6 +356,11 @@ func (a *App) serveSPA(w http.ResponseWriter, r *http.Request) {
 	}
 	if name == "index.html" {
 		w.Header().Set("Cache-Control", "no-cache")
+		// The one page that may ask Keycloak whether it can be reached before
+		// sending the whole tab there — see documentConnectOrigin.
+		if origin := a.documentConnectOrigin(r.Context()); origin != "" {
+			w.Header().Set("Content-Security-Policy", contentSecurityPolicy(origin))
+		}
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}

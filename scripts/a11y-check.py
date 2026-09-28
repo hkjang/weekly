@@ -55,9 +55,15 @@ const PAGES = {json.dumps(PAGES)}
 const browser = await chromium.launch()
 const page = await (await browser.newContext({{ viewport: {{ width: 1440, height: 900 }} }})).newPage()
 await page.goto(BASE, {{ waitUntil: 'networkidle' }})
+// 조직 계정(SSO)이 켜진 배포에서는 아이디·비밀번호 칸이 접혀 있습니다.
+// 자동 로그인(prompt=none)이 켜져 있으면 첫 화면은 Keycloak 에 한 번 다녀온 뒤에 섭니다.
+// 그 사이에 토글을 찾으면 없다고 판단하므로, 비밀번호 칸이나 토글 둘 중 하나가 보일 때까지 기다립니다.
+await page.locator('input[type=password], .local-login-toggle').first().waitFor({{ timeout: 30000 }})
+const localToggle = page.getByRole('button', {{ name: /아이디·비밀번호로 로그인/ }})
+if (await localToggle.count() && (await localToggle.getAttribute('aria-expanded')) !== 'true') await localToggle.click()
 await page.getByLabel(/아이디|사용자/).fill({json.dumps(user)})
 await page.locator('input[type=password]').fill({json.dumps(password)})
-await page.getByRole('button', {{ name: '로그인' }}).click()
+await page.getByRole('button', {{ name: '로그인', exact: true }}).click()
 await page.waitForTimeout(2500)
 const report = {{ total: 0, missing: [] }}
 for (const name of PAGES) {{

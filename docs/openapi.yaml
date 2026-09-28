@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Weekly API
-  version: 0.310.0
+  version: 0.311.0
   description: |
     주간보고 작성·복제와 개인 자동화, 근거 검증형 Confluence 6.9.1 자동 초안,
     원자 사실 AI 구조화, PPTX Import, 관리자 설정, 분석 및 키 관리 REST API.
@@ -69,6 +69,12 @@ paths:
         시작 경로의 `silent=1`은 무시되고 평범한 로그인이 된다. Keycloak 세션이 없거나 상호작용이 필요하면 일반
         로그인 화면으로 돌아오며 반복하지 않는다. 네트워크·DB 오류와 작성 중 세션 만료는
         이 자동 이동의 조건이 아니다.
+
+        `oidcIssuer` 는 **자동 로그인이 켜져 있을 때만** 발급자 URL 을 싣는다(꺼져 있으면
+        빈 문자열). SPA 는 탭을 보내기 전에 이 주소의 디스커버리 문서에 한 번 요청해 답이
+        없으면 보내지 않는다 — 브라우저가 Keycloak 에 닿지 못할 때 사람이 브라우저 오류
+        화면에 갇히지 않게 하기 위해서다. 그 요청을 위해 같은 조건에서만 SPA 문서의 CSP
+        `connect-src` 에 발급자의 origin 이 더해진다. `mcpOAuth` 는 MCP SSO 가 켜졌는지다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /auth/login:

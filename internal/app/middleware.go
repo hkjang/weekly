@@ -66,9 +66,23 @@ func (a *App) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(""))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// contentSecurityPolicy is the one policy this product serves, with room for a
+// single extra origin a page may connect to. Only the SPA document ever passes
+// one — see documentConnectOrigin — because a fetch is governed by the CSP of
+// the document that runs it, and widening every API and asset response to
+// reach it would buy nothing and cost a settings read per request.
+func contentSecurityPolicy(extraConnect string) string {
+	connect := "'self'"
+	if extraConnect != "" {
+		connect += " " + extraConnect
+	}
+	return "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src " + connect +
+		"; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 }
 
 type metricsWriter struct {
