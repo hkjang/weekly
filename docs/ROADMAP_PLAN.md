@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.312.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.313.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8620,3 +8620,9 @@ Keycloak 26 을 띄우고 브라우저로 세 경우를 끝까지 따라갔습�
 새 시험 `TestTheConfluenceCardRefusesToAnswerWithAFailedQuery` 가 고치기 전 코드에서 `status with confluence_sync_errors unreachable = 200 {… "recentErrors":[], "mappedUsers":0 …}, want 500 QUERY_FAILED` 로 실패하는 것을 먼저 확인한 뒤 통과했고, `user_external_accounts` 하위도 `200 … "mappedUsers":0,"unmappedUsers":0` 으로 함께 실패했습니다(표에는 진단이 실제로 1건 들어 있었습니다). 재현은 기존 관례(`audittrail_test.go` 의 `ALTER TABLE … RENAME TO …_hidden`)대로 표를 잠시 치우고 되돌린 뒤 카드가 다시 답하는 것까지 확인하며, 진단 행은 직접 INSERT 하지 않고 프로덕션 쓰기 경로 `recordConfluenceError` 로 만들었습니다. 실제 PostgreSQL 위에서 전체 Go 테스트와 `go vet`·`gofmt`·`go build`, 가드·OpenAPI·쪽넘김·모달·버전 검사, 프런트엔드 173개 시험과 `tsc -b`·프로덕션 빌드를 통과했습니다. 탭의 실패 문구 자체는 이 저장소에 `AdminPage` 를 렌더하는 프런트 시험이 없어 타입 검사와 빌드까지만 확인했습니다.
 
 마이그레이션도 새 환경변수도 설정 키의 변경도 없습니다. 응답에 늘어난 칸도 사라진 칸도 없고, 달라지는 것은 조회가 실패할 때뿐입니다 — 그때 200 대신 `500 QUERY_FAILED` 가 갑니다. 0 을 정상값으로 읽던 클라이언트가 이제 오류를 받으며, 그것이 이 릴리즈가 고치는 것입니다.
+
+### v0.313.0 — Confluence 상태를 읽지 못하면 수동 동기화를 접수하지 않습니다
+
+수동 동기화 POST 의 상태 Scan 오류 무시를 고쳤습니다. 테이블 조회 실패와 상태 행 없음은 worker 깨우기·요청 감사 기록 전에 안전한 한국어 메시지의 `500 QUERY_FAILED` 로 반환합니다. RUNNING·IDLE 성공 계약은 유지하며 POST OpenAPI 에 500 을 추가했습니다.
+
+실제 PostgreSQL·HTTP 시험으로 오류/행 없음/정상 상태와 감사 증감을 검증했고, 구 코드의 202 접수와 감사 +1 을 재현했습니다. 마이그레이션·환경변수·설정 변경은 없습니다. 프런트 렌더링과 wake 호출 부재의 동적 계측은 검증 범위 밖입니다.
