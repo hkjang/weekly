@@ -2273,9 +2273,11 @@ paths:
   /admin/confluence/sync:
     post:
       summary: 관리자 증분 동기화 비동기 요청
+      description: 동기화 상태 조회에 실패하거나 상태 행이 없으면 500 QUERY_FAILED로 요청을 거절합니다.
       responses:
         "202": { $ref: "#/components/responses/Success" }
         "409": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
   /admin/confluence/sync/status:
     get:
       summary: 동기화 상태·처리 건수·최근 오류
