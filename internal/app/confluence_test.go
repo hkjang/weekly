@@ -374,3 +374,114 @@ func TestTheConfluenceCardRefusesToAnswerWithAFailedQuery(t *testing.T) {
 func serverURLFromRequest(r *http.Request) string {
 	return "http://" + r.Host
 }
+
+// guards: forceConfluenceSync
+func TestTheForceSyncRefusesAnUnreadableState(t *testing.T) {
+	server := newTestServer(t)
+	searched := make(chan struct{}, 1)
+	confluence := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/api/content/search" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "start": 0, "limit": 25, "size": 0})
+		select {
+		case searched <- struct{}{}:
+		default:
+		}
+	}))
+	defer confluence.Close()
+	on := server.request(http.MethodPut, "/api/v1/admin/settings", map[string]any{
+		"settings": map[string]string{
+			"confluence.enabled": "true", "confluence.base_url": confluence.URL,
+			"confluence.auth_mode": "BASIC", "confluence.username": "svc",
+			"confluence.password": "secret", "confluence.analyze_body": "false",
+			"confluence.ai_enabled": "false",
+		},
+	}, server.admin)
+	if on.Code != http.StatusOK {
+		t.Fatalf("enable Confluence: %d %s", on.Code, on.Body.String())
+	}
+	// Observe the real worker past its startup reset, then wait for its sync
+	// to finish using the same database lock it holds in production.
+	select {
+	case <-searched:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the real Confluence worker did not reach the search endpoint")
+	}
+	connection, err := server.app.db.Acquire(server.ctx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(server.ctx(), "SELECT pg_advisory_lock($1)", confluenceAdvisoryLock); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := connection.Exec(server.ctx(), "SELECT pg_advisory_unlock($1)", confluenceAdvisoryLock); err != nil {
+			t.Error(err)
+		}
+	}()
+	exec := func(sql string) {
+		t.Helper()
+		if _, err := server.app.db.Exec(server.ctx(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	audits := func() int {
+		t.Helper()
+		var count int
+		if err := server.app.db.QueryRow(server.ctx(),
+			"SELECT count(*) FROM audit_logs WHERE action='confluence.sync.request'").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	check := func(t *testing.T, wantCode int, wantStatus string, wantQueued bool, wantAudits int) {
+		t.Helper()
+		before := audits()
+		w := server.request(http.MethodPost, "/api/v1/admin/confluence/sync", nil, server.admin)
+		if w.Code != wantCode {
+			t.Errorf("sync = %d %s, want %d", w.Code, w.Body.String(), wantCode)
+		} else if wantCode == http.StatusInternalServerError {
+			var body struct {
+				Error struct {
+					Code    string
+					Message string
+				}
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Error.Code != "QUERY_FAILED" || body.Error.Message != "동기화 상태를 조회할 수 없습니다." {
+				t.Errorf("unsafe or unexpected query failure: %s", w.Body.String())
+			}
+		} else {
+			data := decodeData(t, w)
+			if data["status"] != wantStatus || data["queued"] != wantQueued {
+				t.Errorf("sync response = %v, want status=%s queued=%v", data, wantStatus, wantQueued)
+			}
+		}
+		if delta := audits() - before; delta != wantAudits {
+			t.Errorf("request audit delta = %d, want %d", delta, wantAudits)
+		}
+	}
+	t.Run("unreachable table", func(t *testing.T) {
+		exec("ALTER TABLE confluence_sync_state RENAME TO confluence_sync_state_hidden")
+		defer exec("ALTER TABLE confluence_sync_state_hidden RENAME TO confluence_sync_state")
+		check(t, http.StatusInternalServerError, "", false, 0)
+	})
+	t.Run("missing row", func(t *testing.T) {
+		exec("DELETE FROM confluence_sync_state WHERE system_type='CONFLUENCE'")
+		defer exec("INSERT INTO confluence_sync_state(system_type) VALUES ('CONFLUENCE')")
+		check(t, http.StatusInternalServerError, "", false, 0)
+	})
+	t.Run("running", func(t *testing.T) {
+		exec("UPDATE confluence_sync_state SET status='RUNNING' WHERE system_type='CONFLUENCE'")
+		check(t, http.StatusAccepted, "RUNNING", false, 0)
+	})
+	t.Run("idle after recovery", func(t *testing.T) {
+		exec("UPDATE confluence_sync_state SET status='IDLE' WHERE system_type='CONFLUENCE'")
+		check(t, http.StatusAccepted, "QUEUED", true, 1)
+	})
+}

@@ -354,7 +354,10 @@ func (a *App) forceConfluenceSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var status string
-	_ = a.db.QueryRow(r.Context(), `SELECT status FROM confluence_sync_state WHERE system_type='CONFLUENCE'`).Scan(&status)
+	if err := a.db.QueryRow(r.Context(), `SELECT status FROM confluence_sync_state WHERE system_type='CONFLUENCE'`).Scan(&status); err != nil {
+		writeError(w, 500, "QUERY_FAILED", "동기화 상태를 조회할 수 없습니다.")
+		return
+	}
 	if status == "RUNNING" {
 		writeData(w, 202, map[string]any{"queued": false, "status": status})
 		return
