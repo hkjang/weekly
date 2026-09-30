@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.313.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.314.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4412,6 +4412,9 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <h3>v0.313.0 — Confluence 상태를 읽지 못하면 수동 동기화를 접수하지 않습니다</h3>
 <p>수동 동기화 POST 의 상태 Scan 오류 무시를 고쳤습니다. 테이블 조회 실패와 상태 행 없음은 worker 깨우기·요청 감사 기록 전에 안전한 한국어 메시지의 <code>500 QUERY_FAILED</code> 로 반환합니다. RUNNING·IDLE 성공 계약은 유지하며 POST OpenAPI 에 500 을 추가했습니다.</p>
 <p>실제 PostgreSQL·HTTP 시험으로 오류/행 없음/정상 상태와 감사 증감을 검증했고, 구 코드의 202 접수와 감사 +1 을 재현했습니다. 마이그레이션·환경변수·설정 변경은 없습니다. 프런트 렌더링과 wake 호출 부재의 동적 계측은 검증 범위 밖입니다.</p>
+<h3>v0.314.0 — 거절된 첨부 업로드가 앞선 이미지를 남기지 않습니다</h3>
+<p><code>uploadAttachments</code> 가 파일을 하나씩 저장하며 진행해, 중간 파일이 거절되면 <code>400 UNSUPPORTED_IMAGE</code> 를 답하면서도 앞선 이미지는 디스크와 <code>report_attachments</code> 에 남겼습니다. 화면은 실패라고 말하므로 작성자가 성한 파일만 다시 올려 같은 캡처가 두 벌이 됐습니다. 이제 <code>readUploadedImage</code> 로 모든 파일의 크기·디코딩·형식을 먼저 검사해 <code>checkedAttachment</code> 로 모아 둔 뒤, 그제서야 디스크 쓰기와 INSERT 를 한 트랜잭션에서 수행합니다. 검사 단계는 10MB×20장이 힙에 올라오는 회귀를 피하려고 본문을 들고 있지 않고 저장 단계에서 다시 읽습니다.</p>
+<p>실제 PostgreSQL 위의 새 시험이 고치기 전 코드에서 <code>stored 1 image(s)</code> 와 재업로드 후 <code>3 rows</code> 로 실패하는 것을 확인한 뒤 통과했고, 별도 트리에서 독립 재현했습니다. 응답 코드·문구·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없습니다. <code>tx.Commit</code> 실패와 <code>STORAGE_FULL</code> 경로는 시험으로 밟지 않아 검증 범위 밖입니다.</p>
 </div>
 </body>
 </html>
