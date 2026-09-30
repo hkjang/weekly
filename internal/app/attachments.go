@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -223,30 +224,18 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 	if placement != placementBefore {
 		placement = placementAfter
 	}
-	if err := os.MkdirAll(filepath.Join(stateDirectoryAttachments, strconv.FormatInt(id, 10)), 0o700); err != nil {
-		a.logger.Error("create attachment directory", "error", err)
-		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "이미지 저장소를 만들 수 없습니다.")
-		return
-	}
-	var nextOrder int
-	_ = a.db.QueryRow(r.Context(), `SELECT coalesce(max(sort_order),-1)+1 FROM report_attachments WHERE report_id=$1 AND placement=$2`, id, placement).Scan(&nextOrder)
-
-	created := []attachmentView{}
+	// Every file is read and checked before any of them is stored. Storing each
+	// one as the loop reached it meant a request refused on its third image kept
+	// the first two: the screen said the upload failed, so the writer picked the
+	// good files and sent them again, and the report came away carrying the
+	// first ones twice — two rows, one placement, one capture printed twice in
+	// the exported deck. writeAttachmentFile already promises a single file is
+	// written whole or not at all; this is the same promise for the request.
+	checked := make([]checkedAttachment, 0, len(files))
 	for _, header := range files {
-		if header.Size > maxBytes {
-			writeError(w, http.StatusBadRequest, "FILE_TOO_LARGE",
-				fmt.Sprintf("%s의 크기가 허용 한도(%dMB)를 초과했습니다.", header.Filename, maxBytes>>20))
-			return
-		}
-		stream, openErr := header.Open()
-		if openErr != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_UPLOAD", "업로드한 파일을 읽을 수 없습니다.")
-			return
-		}
-		body, readErr := io.ReadAll(io.LimitReader(stream, maxBytes+1))
-		stream.Close()
-		if readErr != nil || int64(len(body)) > maxBytes {
-			writeError(w, http.StatusBadRequest, "FILE_TOO_LARGE", "업로드한 파일이 너무 큽니다.")
+		body, code, message := readUploadedImage(header, maxBytes)
+		if code != "" {
+			writeError(w, http.StatusBadRequest, code, message)
 			return
 		}
 		// Decoding is the check: an image that cannot be decoded is not an image,
@@ -264,9 +253,44 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sum := fmt.Sprintf("%x", sha256.Sum256(body))
-		relative := filepath.Join(strconv.FormatInt(id, 10), sum+"."+kind.Extension)
-		absolute := filepath.Join(stateDirectoryAttachments, relative)
-		if err := writeAttachmentFile(absolute, body); err != nil {
+		checked = append(checked, checkedAttachment{
+			header: header, contentType: kind.ContentType, extension: kind.Extension, sum: sum,
+			relative: filepath.Join(strconv.FormatInt(id, 10), sum+"."+kind.Extension),
+			width:    config.Width, height: config.Height,
+		})
+	}
+
+	if err := os.MkdirAll(filepath.Join(stateDirectoryAttachments, strconv.FormatInt(id, 10)), 0o700); err != nil {
+		a.logger.Error("create attachment directory", "error", err)
+		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "이미지 저장소를 만들 수 없습니다.")
+		return
+	}
+	var nextOrder int
+	_ = a.db.QueryRow(r.Context(), `SELECT coalesce(max(sort_order),-1)+1 FROM report_attachments WHERE report_id=$1 AND placement=$2`, id, placement).Scan(&nextOrder)
+
+	// One transaction for the rows, so a database that refuses the third insert
+	// leaves none of them behind either. The files it wrote before that stay on
+	// disk, referenced by nothing: content-addressed, so the writer's next
+	// attempt lands on the same names rather than adding to them.
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		a.logger.Error("begin attachment insert", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "이미지 정보를 저장할 수 없습니다.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	created := []attachmentView{}
+	for _, item := range checked {
+		// Read again rather than holding every body from the checking pass: the
+		// administrator's limits allow 20 images of 10MB, and keeping them all
+		// in memory would put that on the heap for each request at once.
+		body, code, message := readUploadedImage(item.header, maxBytes)
+		if code != "" {
+			writeError(w, http.StatusBadRequest, code, message)
+			return
+		}
+		if err := writeAttachmentFile(filepath.Join(stateDirectoryAttachments, item.relative), body); err != nil {
 			a.logger.Error("store attachment", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
 			if errors.Is(err, syscall.ENOSPC) {
 				// Naming the cause, because the person who can fix it is not the
@@ -279,27 +303,65 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "이미지를 저장할 수 없습니다.")
 			return
 		}
+		filename := trimRunes(filepath.Base(item.header.Filename), 255)
 		var attachmentID int64
 		var createdAt time.Time
-		err = a.db.QueryRow(r.Context(), `INSERT INTO report_attachments
+		if err := tx.QueryRow(r.Context(), `INSERT INTO report_attachments
 			(report_id,user_id,original_filename,stored_path,content_type,extension,size_bytes,width,height,sha256,placement,sort_order)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,created_at`,
-			id, p.ID, trimRunes(filepath.Base(header.Filename), 255), relative, kind.ContentType, kind.Extension,
-			len(body), config.Width, config.Height, sum, placement, nextOrder).Scan(&attachmentID, &createdAt)
-		if err != nil {
+			id, p.ID, filename, item.relative, item.contentType, item.extension,
+			len(body), item.width, item.height, item.sum, placement, nextOrder).Scan(&attachmentID, &createdAt); err != nil {
 			a.logger.Error("insert attachment", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
 			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "이미지 정보를 저장할 수 없습니다.")
 			return
 		}
 		created = append(created, attachmentView{
-			ID: attachmentID, Filename: trimRunes(filepath.Base(header.Filename), 255), Placement: placement,
-			SortOrder: nextOrder, SizeBytes: int64(len(body)), Width: config.Width, Height: config.Height,
+			ID: attachmentID, Filename: filename, Placement: placement,
+			SortOrder: nextOrder, SizeBytes: int64(len(body)), Width: item.width, Height: item.height,
 			CreatedAt: createdAt, Available: true,
 		})
 		nextOrder++
 	}
+	if err := tx.Commit(r.Context()); err != nil {
+		a.logger.Error("commit attachments", "error", err, "reportId", id, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "이미지 정보를 저장할 수 없습니다.")
+		return
+	}
 	a.audit(r, p, "report.attachment_upload", "report", strconv.FormatInt(id, 10), map[string]any{"count": len(created), "placement": placement})
 	writeData(w, http.StatusCreated, created)
+}
+
+// checkedAttachment is one uploaded image that has passed every check the
+// request can be refused on. Its bytes are deliberately not kept — see the
+// second pass in uploadAttachments.
+type checkedAttachment struct {
+	header      *multipart.FileHeader
+	contentType string
+	extension   string
+	sum         string
+	relative    string
+	width       int
+	height      int
+}
+
+// readUploadedImage reads one part whole, or names the refusal it earns. The
+// read is capped one byte past the administrator's per-file limit, which is
+// enough to know the file is over it.
+func readUploadedImage(header *multipart.FileHeader, maxBytes int64) (body []byte, code, message string) {
+	if header.Size > maxBytes {
+		return nil, "FILE_TOO_LARGE",
+			fmt.Sprintf("%s의 크기가 허용 한도(%dMB)를 초과했습니다.", header.Filename, maxBytes>>20)
+	}
+	stream, openErr := header.Open()
+	if openErr != nil {
+		return nil, "INVALID_UPLOAD", "업로드한 파일을 읽을 수 없습니다."
+	}
+	defer stream.Close()
+	body, readErr := io.ReadAll(io.LimitReader(stream, maxBytes+1))
+	if readErr != nil || int64(len(body)) > maxBytes {
+		return nil, "FILE_TOO_LARGE", "업로드한 파일이 너무 큽니다."
+	}
+	return body, "", ""
 }
 
 // serveAttachment streams the stored image for the report preview.
