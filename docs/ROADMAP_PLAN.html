@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.314.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.315.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4415,6 +4415,9 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <h3>v0.314.0 — 거절된 첨부 업로드가 앞선 이미지를 남기지 않습니다</h3>
 <p><code>uploadAttachments</code> 가 파일을 하나씩 저장하며 진행해, 중간 파일이 거절되면 <code>400 UNSUPPORTED_IMAGE</code> 를 답하면서도 앞선 이미지는 디스크와 <code>report_attachments</code> 에 남겼습니다. 화면은 실패라고 말하므로 작성자가 성한 파일만 다시 올려 같은 캡처가 두 벌이 됐습니다. 이제 <code>readUploadedImage</code> 로 모든 파일의 크기·디코딩·형식을 먼저 검사해 <code>checkedAttachment</code> 로 모아 둔 뒤, 그제서야 디스크 쓰기와 INSERT 를 한 트랜잭션에서 수행합니다. 검사 단계는 10MB×20장이 힙에 올라오는 회귀를 피하려고 본문을 들고 있지 않고 저장 단계에서 다시 읽습니다.</p>
 <p>실제 PostgreSQL 위의 새 시험이 고치기 전 코드에서 <code>stored 1 image(s)</code> 와 재업로드 후 <code>3 rows</code> 로 실패하는 것을 확인한 뒤 통과했고, 별도 트리에서 독립 재현했습니다. 응답 코드·문구·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없습니다. <code>tx.Commit</code> 실패와 <code>STORAGE_FULL</code> 경로는 시험으로 밟지 않아 검증 범위 밖입니다.</p>
+<h3>v0.315.0 — IPv6 로 접속한 사용자가 로그인하고, 그 로그인 실패가 속도 제한에 세어집니다</h3>
+<p><code>remoteHost</code> 가 <code>strings.Split(r.RemoteAddr, ":")[0]</code> 로 주소를 읽어, net/http 가 넘기는 IPv6 형태 <code>"[::1]:54321"</code> 에서 <code>"["</code> 를 주소로 돌려줬습니다. 이 값을 받는 곳 셋이 모두 <code>inet</code> 컬럼(<code>audit_logs</code>·<code>user_sessions</code>·<code>login_attempts</code>)이라 세 쓰기가 실패하고, 세 실패가 각각 조용했습니다 — 감사 기록은 버려지고, 비밀번호가 맞으면 <code>issueSession</code> 의 INSERT 가 실패해 <code>500 SESSION_ERROR</code>, 틀리면 <code>login_attempts</code> 행이 들어가지 않아 <code>auth.max_login_attempts</code> 가 영원히 도달하지 않았습니다. 바이너리는 <code>":8080"</code> 에 붙고 Linux 에서 그것은 IPv6 도 받으므로 듀얼 스택 망의 기본 동작에서 재현됩니다. 이제 <code>net.SplitHostPort</code>+<code>net.ParseIP</code> 로 읽고 주소로 읽히지 않으면 <code>""</code> 를 돌려줍니다(영역이 붙은 <code>fe80::1%eth0</code> 를 넘기는 <code>netip</code> 대신 <code>ParseIP</code>). <code>X-Forwarded-For</code> 는 그것이 주소일 때만 이기고 아니면 연결 주소가 남아, 헤더에 쓰레기값을 넣어 자기 실패 횟수를 지우는 두 번째 입구도 막았습니다.</p>
+<p>새 시험 3개를 실제 IPv6 리스너(<code>net.Listen("tcp","[::1]:0")</code>)에 프로덕션 <code>app.Handler()</code> 를 올리고 실제 HTTP 클라이언트로 POST 해서 돌렸습니다 — <code>RemoteAddr</code> 을 손으로 넣지 않고 net/http 가 채우게 했습니다. 고치기 전 셋 모두 <code>SESSION_ERROR</code> 500 과 <code>counts 0 failures</code> 로 실패하고, 고친 뒤 통과하며, 옛 한 줄을 되돌려 같은 실패가 다시 나는 것까지 확인한 뒤 별도 트리에서 독립 재현했습니다. 응답 코드·문구·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없습니다. 새 시험은 DB 와 IPv6 루프백이 둘 다 있어야 돌고 없으면 건너뛰며, <code>parseClientHost</code> 의 대괄호 처리를 실제 프록시 출력으로 확인한 것과 기존 저장 행과의 표기 비교는 검증 범위 밖입니다.</p>
 </div>
 </body>
 </html>

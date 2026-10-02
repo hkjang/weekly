@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.314.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.315.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8632,3 +8632,9 @@ Keycloak 26 을 띄우고 브라우저로 세 경우를 끝까지 따라갔습�
 `uploadAttachments` 가 파일을 하나씩 저장하며 진행해, 중간 파일이 거절되면 `400 UNSUPPORTED_IMAGE` 를 답하면서도 앞선 이미지는 디스크와 `report_attachments` 에 남겼습니다. 화면은 실패라고 말하므로 작성자가 성한 파일만 다시 올려 같은 캡처가 두 벌이 됐습니다. 이제 `readUploadedImage` 로 모든 파일의 크기·디코딩·형식을 먼저 검사해 `checkedAttachment` 로 모아 둔 뒤, 그제서야 디스크 쓰기와 INSERT 를 한 트랜잭션에서 수행합니다. 검사 단계는 10MB×20장이 힙에 올라오는 회귀를 피하려고 본문을 들고 있지 않고 저장 단계에서 다시 읽습니다.
 
 실제 PostgreSQL 위의 새 시험이 고치기 전 코드에서 `stored 1 image(s)` 와 재업로드 후 `3 rows` 로 실패하는 것을 확인한 뒤 통과했고, 별도 트리에서 독립 재현했습니다. 응답 코드·문구·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없습니다. `tx.Commit` 실패와 `STORAGE_FULL` 경로는 시험으로 밟지 않아 검증 범위 밖입니다.
+
+### v0.315.0 — IPv6 로 접속한 사용자가 로그인하고, 그 로그인 실패가 속도 제한에 세어집니다
+
+`remoteHost` 가 `strings.Split(r.RemoteAddr, ":")[0]` 로 주소를 읽어, net/http 가 넘기는 IPv6 형태 `"[::1]:54321"` 에서 `"["` 를 주소로 돌려줬습니다. 이 값을 받는 곳 셋이 모두 `inet` 컬럼(`audit_logs`·`user_sessions`·`login_attempts`)이라 세 쓰기가 실패하고, 세 실패가 각각 조용했습니다 — 감사 기록은 버려지고, 비밀번호가 맞으면 `issueSession` 의 INSERT 가 실패해 `500 SESSION_ERROR`, 틀리면 `login_attempts` 행이 들어가지 않아 `auth.max_login_attempts` 가 영원히 도달하지 않았습니다. 바이너리는 `":8080"` 에 붙고 Linux 에서 그것은 IPv6 도 받으므로 듀얼 스택 망의 기본 동작에서 재현됩니다. 이제 `net.SplitHostPort`+`net.ParseIP` 로 읽고 주소로 읽히지 않으면 `""` 를 돌려줍니다(영역이 붙은 `fe80::1%eth0` 를 넘기는 `netip` 대신 `ParseIP`). `X-Forwarded-For` 는 그것이 주소일 때만 이기고 아니면 연결 주소가 남아, 헤더에 쓰레기값을 넣어 자기 실패 횟수를 지우는 두 번째 입구도 막았습니다.
+
+새 시험 3개를 실제 IPv6 리스너(`net.Listen("tcp","[::1]:0")`)에 프로덕션 `app.Handler()` 를 올리고 실제 HTTP 클라이언트로 POST 해서 돌렸습니다 — `RemoteAddr` 을 손으로 넣지 않고 net/http 가 채우게 했습니다. 고치기 전 셋 모두 `SESSION_ERROR` 500 과 `counts 0 failures` 로 실패하고, 고친 뒤 통과하며, 옛 한 줄을 되돌려 같은 실패가 다시 나는 것까지 확인한 뒤 별도 트리에서 독립 재현했습니다. 응답 코드·문구·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없습니다. 새 시험은 DB 와 IPv6 루프백이 둘 다 있어야 돌고 없으면 건너뛰며, `parseClientHost` 의 대괄호 처리를 실제 프록시 출력으로 확인한 것과 기존 저장 행과의 표기 비교는 검증 범위 밖입니다.
