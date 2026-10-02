@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -789,10 +790,44 @@ func (a *App) audit(r *http.Request, p *principal, action, resourceType, resourc
 	}
 }
 
+// remoteHost is the caller's address, or "" when there is no address to record.
+//
+// Every caller hands the answer to an `inet` column — audit_logs.ip_address,
+// user_sessions.ip_address, login_attempts.ip_address — or compares it against
+// host(ip_address). So a string that is not an address is worse than none: the
+// write fails, and each of those writes fails quietly in its own way. The audit
+// record is dropped, the login_attempts row the rate limiter counts is dropped
+// so the limit never arrives, and a correct password answers SESSION_ERROR.
+//
+// Splitting RemoteAddr on ":" produced exactly that for every IPv6 caller:
+// net/http hands over "[::1]:54321" and the first field is "[". The binary
+// listens on ":8080", which on Linux accepts IPv6, so a dual-stack network made
+// signing in impossible and password guessing uncounted.
 func remoteHost(r *http.Request) string {
-	host := strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0])
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
-		host = forwarded
+	// A proxy's header wins when it carries an address, which is what
+	// OPERATIONS.md asks the proxy to overwrite. When it carries anything else,
+	// the connection still has an address and that one stands — erasing your own
+	// address must not erase the count of your own failures.
+	if forwarded, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); forwarded != "" {
+		if host := parseClientHost(forwarded); host != "" {
+			return host
+		}
 	}
-	return host
+	return parseClientHost(r.RemoteAddr)
+}
+
+// parseClientHost reads one IP address out of an address field, with or without
+// a port and with or without the brackets an IPv6 address wears beside one.
+func parseClientHost(value string) string {
+	value = strings.TrimSpace(value)
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = strings.TrimSpace(host)
+	}
+	value = strings.TrimPrefix(strings.TrimSuffix(value, "]"), "[")
+	// ParseIP, not netip: a scoped address like fe80::1%eth0 is not something an
+	// `inet` column accepts, and netip.ParseAddr would hand one over.
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String()
+	}
+	return ""
 }
