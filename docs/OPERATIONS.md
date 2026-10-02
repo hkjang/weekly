@@ -60,7 +60,7 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 - 감사 대상: 로그인, 로그인 차단, 업무 병합·분리, 보고서 상태/내용, 사용자/조직/설정, 키, 템플릿, PPTX 다운로드, AI 분석, Import 업로드·재분석·확정, Confluence Sync·자동 매핑·후보 수정/제외/수락
 - 개인 키 원문은 발급 응답에서 한 번만 노출
 
-외부 Reverse Proxy를 사용할 때 신뢰할 수 없는 클라이언트가 `X-Forwarded-For`와 `X-Forwarded-Proto`를 직접 주입하지 못하도록 Proxy에서 해당 헤더를 덮어써야 한다.
+외부 Reverse Proxy를 사용할 때 신뢰할 수 없는 클라이언트가 `X-Forwarded-For`와 `X-Forwarded-Proto`를 직접 주입하지 못하도록 Proxy에서 해당 헤더를 덮어써야 한다. 감사 이력·세션·로그인 시도에 기록하는 주소는 `X-Forwarded-For`의 첫 항목이 IP 주소로 읽힐 때만 그것을 쓰고, 아니면 연결 자체의 주소를 쓴다. IPv6 접속(`:8080`은 IPv6도 받는다)도 `::1` 형태로 그대로 기록한다.
 
 ## 상태 확인
 
