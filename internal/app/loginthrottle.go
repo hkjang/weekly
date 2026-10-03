@@ -28,6 +28,11 @@ type loginThrottle struct {
 	// Failures is the count within the window, used to scale the delay on a
 	// wrong password.
 	Failures int
+	// AddressFailures is the same count for the client address. Recorded next to
+	// Failures because the two counters refuse an attempt for different reasons,
+	// and a trail that only carries the account's count reads as "blocked after
+	// 0 failures" every time the address counter was the one that said no.
+	AddressFailures int
 }
 
 // loginThrottleFor reports whether this attempt may proceed.
@@ -57,14 +62,19 @@ func (a *App) loginThrottleFor(ctx context.Context, username, address string) lo
 	ctx, cancel := context.WithTimeout(ctx, throttleWait)
 	defer cancel()
 
+	// The oldest attempt is read for each counter, not just for the account. It
+	// is what the wait is computed from, and a caller stopped by the address
+	// counter has no failures of their own to age out — so the account's `min`
+	// was null for them and the refusal claimed the block was already over.
 	var accountFailures, addressFailures int
-	var oldest *time.Time
+	var accountOldest, addressOldest *time.Time
 	err := a.db.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE lower(username)=lower($1)),
 		count(*) FILTER (WHERE $2 <> '' AND host(ip_address)=$2),
-		min(created_at) FILTER (WHERE lower(username)=lower($1))
+		min(created_at) FILTER (WHERE lower(username)=lower($1)),
+		min(created_at) FILTER (WHERE $2 <> '' AND host(ip_address)=$2)
 		FROM login_attempts WHERE created_at > now() - make_interval(mins => $3)`,
-		username, address, minutes).Scan(&accountFailures, &addressFailures, &oldest)
+		username, address, minutes).Scan(&accountFailures, &addressFailures, &accountOldest, &addressOldest)
 	if err != nil {
 		// A counter that cannot be read must not become a way in. Failing closed
 		// on the whole endpoint would be worse — one database hiccup would lock
@@ -74,19 +84,32 @@ func (a *App) loginThrottleFor(ctx context.Context, username, address string) lo
 		return loginThrottle{}
 	}
 
-	result := loginThrottle{Failures: accountFailures}
+	result := loginThrottle{Failures: accountFailures, AddressFailures: addressFailures}
 	if limit > 0 && accountFailures >= limit {
 		result.Blocked = true
+		result.RetryAfter = windowRemaining(accountOldest, window)
 	}
 	if addressLimit > 0 && addressFailures >= addressLimit {
 		result.Blocked = true
-	}
-	if result.Blocked && oldest != nil {
-		if remaining := time.Until(oldest.Add(window)); remaining > 0 {
+		// Whichever counter clears last decides the wait. Reporting the shorter of
+		// the two would send the caller back to the same refusal.
+		if remaining := windowRemaining(addressOldest, window); remaining > result.RetryAfter {
 			result.RetryAfter = remaining
 		}
 	}
 	return result
+}
+
+// windowRemaining is how long the oldest counted attempt still has inside the
+// window — the moment the count can first fall below a limit.
+func windowRemaining(oldest *time.Time, window time.Duration) time.Duration {
+	if oldest == nil {
+		return 0
+	}
+	if remaining := time.Until(oldest.Add(window)); remaining > 0 {
+		return remaining
+	}
+	return 0
 }
 
 // throttleWait bounds one throttle query. Counting recent attempts touches a
