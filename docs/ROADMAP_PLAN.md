@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.315.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.316.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8638,3 +8638,9 @@ Keycloak 26 을 띄우고 브라우저로 세 경우를 끝까지 따라갔습�
 `remoteHost` 가 `strings.Split(r.RemoteAddr, ":")[0]` 로 주소를 읽어, net/http 가 넘기는 IPv6 형태 `"[::1]:54321"` 에서 `"["` 를 주소로 돌려줬습니다. 이 값을 받는 곳 셋이 모두 `inet` 컬럼(`audit_logs`·`user_sessions`·`login_attempts`)이라 세 쓰기가 실패하고, 세 실패가 각각 조용했습니다 — 감사 기록은 버려지고, 비밀번호가 맞으면 `issueSession` 의 INSERT 가 실패해 `500 SESSION_ERROR`, 틀리면 `login_attempts` 행이 들어가지 않아 `auth.max_login_attempts` 가 영원히 도달하지 않았습니다. 바이너리는 `":8080"` 에 붙고 Linux 에서 그것은 IPv6 도 받으므로 듀얼 스택 망의 기본 동작에서 재현됩니다. 이제 `net.SplitHostPort`+`net.ParseIP` 로 읽고 주소로 읽히지 않으면 `""` 를 돌려줍니다(영역이 붙은 `fe80::1%eth0` 를 넘기는 `netip` 대신 `ParseIP`). `X-Forwarded-For` 는 그것이 주소일 때만 이기고 아니면 연결 주소가 남아, 헤더에 쓰레기값을 넣어 자기 실패 횟수를 지우는 두 번째 입구도 막았습니다.
 
 새 시험 3개를 실제 IPv6 리스너(`net.Listen("tcp","[::1]:0")`)에 프로덕션 `app.Handler()` 를 올리고 실제 HTTP 클라이언트로 POST 해서 돌렸습니다 — `RemoteAddr` 을 손으로 넣지 않고 net/http 가 채우게 했습니다. 고치기 전 셋 모두 `SESSION_ERROR` 500 과 `counts 0 failures` 로 실패하고, 고친 뒤 통과하며, 옛 한 줄을 되돌려 같은 실패가 다시 나는 것까지 확인한 뒤 별도 트리에서 독립 재현했습니다. 응답 코드·문구·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없습니다. 새 시험은 DB 와 IPv6 루프백이 둘 다 있어야 돌고 없으면 건너뛰며, `parseClientHost` 의 대괄호 처리를 실제 프록시 출력으로 확인한 것과 기존 저장 행과의 표기 비교는 검증 범위 밖입니다.
+
+### v0.316.0 — 주소 제한으로 차단된 로그인이 실제 남은 차단 시간을 말합니다
+
+로그인을 막는 계수기는 계정당 실패와 주소당 실패(`auth.max_login_attempts_per_ip`) 둘인데, `loginThrottleFor` 는 남은 시간을 계정 기준 `min(created_at)` 하나로만 계산했습니다. 주소 제한으로 차단된 호출자는 자기 실패 기록이 없으므로(주소 계수기를 채운 것은 같은 주소로 보이는 다른 사람의 오타입니다) 그 값이 NULL 이고, `RetryAfter` 가 0 이 되어 응답이 `Retry-After: 1` 과 "1분 후에 다시 시도하세요" 를 내보냈습니다. 주소 차단은 `auth.lockout_minutes` 동안 유지되므로 안내를 따른 사용자는 비밀번호가 처음부터 맞았는데도 1분마다 같은 거부를 다시 만나며 15분을 보냅니다. 차단 기록도 계정 실패 횟수만 남겨, 주소 계수기가 거부한 모든 건이 운영자에게 `failures: 0` 으로 차단됨으로 읽혔습니다. 이제 한 질의에서 두 계수기의 `min(created_at)` 을 각각 읽어 실제로 차단한 쪽의 남은 시간을 쓰고, 둘 다 걸렸으면 늦게 풀리는 쪽을 따릅니다(짧은 쪽을 알려 주면 그 시간 뒤에 같은 거부를 다시 만납니다). 남은 시간 계산은 `windowRemaining` 한 곳으로 모았고, 차단 기록에는 `addressFailures` 를 `failures` 와 함께 남깁니다.
+
+새 시험 2개를 실제 PostgreSQL 위에서 프로덕션 `Handler()` 를 지나는 실제 로그인 요청으로 돌렸습니다 — 한 시험 안의 모든 요청이 같은 클라이언트 주소에서 오는 것이 요점이며, 사무실 NAT 하나와 Reverse Proxy 하나가 주소 계수기가 존재하는 이유입니다. 남의 이름으로 주소 계수기를 채운 뒤 실패 기록이 없는 계정이 맞는 비밀번호로 로그인해, `Retry-After` 가 14분 이상이고 문구가 `15분` 을 말하는지와 `auth.login_blocked` 행의 `failures` 가 0·`addressFailures` 가 3 인지를 봅니다. 고치기 전 코드에서 `Retry-After says 60s, but the address stays blocked for 15 minutes` 와 `reports <nil> failures for the address` 로 먼저 실패하는 것을 확인한 뒤 통과했습니다. 응답 코드·문구 형식·필드와 OpenAPI 는 그대로이며 프런트엔드는 무변경입니다. 마이그레이션·환경변수·설정 변경은 없고, 주소 제한은 기본 비활성이므로 켜지 않은 배치에서는 달라지는 것이 없습니다. 두 제한이 동시에 걸려 늦게 풀리는 쪽을 고르는 경로와 창을 실제로 기다려 차단이 풀리는 것은 시험으로 밟지 않아 검증 범위 밖입니다.
