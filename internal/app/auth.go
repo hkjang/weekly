@@ -194,7 +194,10 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	// Checked before the password is verified, so a blocked account costs an
 	// attacker one cheap query and gives away nothing about the password.
 	if throttle := a.loginThrottleFor(r.Context(), username, address); throttle.Blocked {
-		a.audit(r, nil, "auth.login_blocked", "user", username, map[string]any{"failures": throttle.Failures})
+		// Both counts, because the account's alone reads as "blocked after 0
+		// failures" whenever the address counter was the one that refused it.
+		a.audit(r, nil, "auth.login_blocked", "user", username,
+			map[string]any{"failures": throttle.Failures, "addressFailures": throttle.AddressFailures})
 		writeLoginBlocked(w, throttle.RetryAfter)
 		return
 	}
