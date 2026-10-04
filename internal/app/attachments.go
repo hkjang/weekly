@@ -599,8 +599,9 @@ func (a *App) attachCaptureSlides(ctx context.Context, deck []byte, reportID int
 	return result
 }
 
-// cleanupAttachmentFiles removes stored images whose rows are gone, which
-// happens when a report is deleted and the cascade drops its attachments.
+// cleanupAttachmentFiles removes directories belonging to deleted reports.
+// A live report may have an upload on disk whose attachment rows are not yet
+// committed, so an empty attachment list does not make its directory orphaned.
 func (a *App) cleanupAttachmentFiles(ctx context.Context) {
 	entries, err := os.ReadDir(stateDirectoryAttachments)
 	if err != nil {
@@ -614,11 +615,11 @@ func (a *App) cleanupAttachmentFiles(ctx context.Context) {
 		if convErr != nil {
 			continue
 		}
-		var remaining int
-		if err := a.db.QueryRow(ctx, `SELECT count(*) FROM report_attachments WHERE report_id=$1`, reportID).Scan(&remaining); err != nil {
+		var exists bool
+		if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM weekly_reports WHERE id=$1)`, reportID).Scan(&exists); err != nil {
 			continue
 		}
-		if remaining > 0 {
+		if exists {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(stateDirectoryAttachments, entry.Name())); err != nil {
