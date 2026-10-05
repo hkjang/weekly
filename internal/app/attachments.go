@@ -429,11 +429,35 @@ func (a *App) updateAttachment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A capture that changes sides takes the end of the side it arrives on.
+	// Writing placement alone left sort_order as it was, while the upload route
+	// numbers a new image coalesce(max(sort_order),-1)+1 *within its placement*
+	// — so the number that left one group was handed out again inside it, and
+	// the capture carrying it back collided with a row already sitting in the
+	// destination. Two rows sharing one sort_order are ordered by id instead of
+	// by what the writer chose, in the list and in the exported deck, and the
+	// panel's up/down buttons swap the two sort_orders, which with equal values
+	// changes nothing — so the writer could not correct it either.
+	//
+	// The subquery is the same expression the upload route counts with, so both
+	// entrances read one group's end the same way. One statement, so there is no
+	// second round trip and nothing to race: PostgreSQL evaluates every SET
+	// expression — the subquery included — against the row and the snapshot as
+	// they were before the update, which is why the moving row is still counted
+	// in its old group rather than in the one it is being counted into. A sent
+	// sortOrder is the caller stating a position and still wins, and a placement
+	// equal to the current one is not a move.
 	command, err := a.db.Exec(r.Context(), `UPDATE report_attachments SET
 		caption=coalesce($1,caption),
-		placement=coalesce($2,placement),
-		sort_order=coalesce($3,sort_order)
-		WHERE id=$4 AND report_id=$5`,
+		placement=coalesce($2::text,placement),
+		sort_order=CASE
+			WHEN $3::int IS NOT NULL THEN $3::int
+			WHEN $2::text IS NOT NULL AND $2::text <> placement THEN
+				(SELECT coalesce(max(peer.sort_order),-1)+1 FROM report_attachments peer
+					WHERE peer.report_id=$5::bigint AND peer.placement=$2::text)
+			ELSE sort_order
+		END
+		WHERE id=$4::bigint AND report_id=$5::bigint`,
 		input.Caption, nullableString(placement), input.SortOrder, attachmentID, reportID)
 	if err != nil {
 		a.logger.Error("update attachment", "error", err, "attachmentId", attachmentID, "trace", traceIDFromContext(r.Context()))

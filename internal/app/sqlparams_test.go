@@ -67,6 +67,12 @@ func TestReusedSQLPlaceholdersAreReviewed(t *testing.T) {
 		// and PostgreSQL rejects a recursive union whose column types disagree.
 		// Both ends are cast to text now.
 		"workitemlinks.go": "the reused parameter is the same work item id in all three uses",
+		// PREPARE deduces {character varying, text, integer, bigint, bigint}:
+		// the capture move reuses the requested placement, cast to text in the
+		// coalesce, in the comparison against the current value and in the
+		// subquery that counts the destination group, and the report id as the
+		// same bigint in the WHERE and in that subquery.
+		"attachments.go": "the reused placement is cast to text in every use and the report id is one bigint",
 	}
 	placeholder := regexp.MustCompile(`\$(\d+)`)
 	sqlLiteral := regexp.MustCompile("(?s)`([^`]*)`")
