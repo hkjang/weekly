@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.317.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.318.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8652,3 +8652,11 @@ Keycloak 26 을 띄우고 브라우저로 세 경우를 끝까지 따라갔습�
 `cleanupAttachmentFiles` 는 `report_attachments` 의 행 수로 디렉터리가 고아인지 판단했습니다. 첨부 행은 모든 파일 검사가 끝난 뒤 한 트랜잭션에서 들어가므로, **첫 업로드가 디스크에 쓰이는 동안 그 보고서의 행 수는 0** 입니다. 기동 후와 30분 유지보수 주기에 도는 정리가 그 틈에 겹치면 저장 중인 이미지를 디렉터리째 지웠습니다. 이제 `weekly_reports` 에 그 보고서가 **있는지**를 묻고, 살아 있으면 첨부 행이 없거나 디렉터리가 비어 있어도 보존합니다 — 정리의 대상은 처음부터 삭제된 보고서의 디렉터리였고, 조회가 실패하면 역시 보존합니다. 실패한 업로드의 잔여 파일은 보고서가 삭제된 뒤 정리됩니다. 이 동작을 `docs/OPERATIONS.md` 의 보존 절에 적었습니다.
 
 이동 쪽은 새 시험 3개, 정리 쪽은 새 시험 4개를 실제 PostgreSQL 위에서 돌렸습니다. 첨부는 모두 프로덕션 `Handler()` 를 지나는 실제 HTTP 업로드로 만들고, 정리는 그 위에서 `cleanupAttachmentFiles` 를 직접 불러 봅니다 — 행이 아직 보이지 않는 틈은 `LOCK TABLE report_attachments IN SHARE MODE` 로, 조회 실패는 취소된 컨텍스트로 만듭니다. 이동 쪽은 프런트가 실제로 내는 요청(업로드는 항상 `AFTER`, select 은 `placement` 만)을 그대로 따라 2장 업로드·B 이동·1장 업로드·C 이동의 네 단계로 중복 `sort_order` 를 재현했습니다. 고치기 전 `BEFORE holds b.png and c.png on the same sortOrder 1` 로 실패하고 고친 뒤 통과하며, `CASE` 를 잠시 되돌려 같은 실패가 다시 나는 것까지 확인했습니다. 회귀 시험 2개(보낸 `sortOrder` 가 그대로 저장되는지, 같은 `placement` 재전송이 순서를 건드리지 않는지)는 의도대로 고치기 전에도 통과합니다. 재사용 매개변수는 `PREPARE` 로 형을 확인해 `sqlparams_test.go` 의 허용 목록에 사유와 함께 적었습니다. 응답 본문·OpenAPI·소유권 검사·`caption`/`placement` 의 `coalesce` 동작은 그대로이며 프런트엔드와 `migrations/` 는 한 줄도 바뀌지 않았습니다. 마이그레이션 중 겹치는 정리와 운영 DB 에 이미 들어간 중복 `sort_order` 의 사후 정정은 범위 밖입니다 — 이 릴리즈는 새로 생기는 중복을 막습니다.
+
+### v0.318.0 — 임베딩 현황이 읽지 못한 집계를 "0건" 으로 답하지 않습니다
+
+`embeddingStatus`(`internal/app/semantic.go`)는 `items`·`embedded`·`stale` 세 count 를 한 번에 읽는 `Scan` 의 오류를 `_ =` 로 버려, 질의가 실패하면 세 값이 제로값 그대로 `200` 으로 나갔습니다. 관리자 화면에서 그 응답은 "임베딩 0/0건" 이고, 그 한 문장이 **"임베딩할 항목이 하나도 없다"(=할 일 없음)와 "집계를 읽지 못했다"(=가서 고쳐야 함)를 글자 그대로 같게** 만들었습니다. 같은 파일의 `pendingEmbeddingCount` 도 같은 모양으로 0 을 돌려줬고, 그 값은 `rebuildEmbeddings` 가 화면에 "남은 건수" 로 쓰는 숫자라서 backlog 가 10만 건이어도 집계가 실패하면 "임베딩 4건을 생성했습니다. 남은 항목이 없습니다." 로 보고했습니다 — 운영자가 버튼을 다시 누르지 않게 만드는 한 문장입니다. 이제 `status` 에 `countsUnread`(`omitempty`)를 더하고 `Warn` 을 남기며, 부분 `Scan` 이 남긴 값까지 0 으로 되돌립니다(읽은 한 값이 읽지 못한 두 값 옆에 서면 같은 거짓말이 작은 글씨로 남습니다). `vectorAvailable`·`enabled`·`model` 은 그대로 보냅니다 — `500` 으로 바꾸면 그 세 값이 같이 사라져 읽지 못한 집계와 pgvector 없는 배포가 다시 같아지고, 둘은 가서 고칠 것이 다릅니다. `pendingEmbeddingCount` 는 `(int, error)` 가 되어 실패를 호출자에게 넘기고, `rebuildEmbeddings` 는 실패 시 `remaining` 을 키째로 빼고 `remainingUnread: true` 를 담으며 `200` 을 유지합니다(방금 생성한 건수는 사실입니다). 이름과 모양은 `rollup_handlers.go:227` 의 기존 `Unread` 관례를 따랐습니다.
+
+새 시험 2개를 손으로 만든 대역 없이 프로덕션 `app.Handler()` 와 실제 PostgreSQL(pgvector) 위에서 돌렸습니다. 현황 쪽은 `report_item_embeddings` 를 rename 해 집계만 실패시킵니다. 다시 만들기 쪽은 두 질의가 같은 테이블을 읽어 그냥 rename 하면 배치가 먼저 실패해 `502` 가 되므로, **배치가 임베딩 게이트웨이에 가 있는 동안** `report_items` 를 rename 해 "배치는 성공하고 뒤따르는 집계만 실패하는" 모양을 만들었습니다 — 응답의 `embedded: 4` 가 배치의 성공을 증명하므로 실패한 단계가 집계임이 고정됩니다. 둘 다 `t.Cleanup` 으로 복원하며 `t.Parallel()` 을 붙이지 않습니다. 고치기 전 두 시험이 각각 `the counts could not be read and the card does not say so` 와 `the backlog count failed and the answer reports remaining=0 as a fact` 로 실패하고, 고친 뒤 플래그 한 줄씩을 되돌려 같은 실패가 다시 나는 것까지 확인했습니다. 정상 경로의 응답 본문은 그대로이며 시험이 정상 카드의 키 집합을 직접 단정해 고정합니다.
+
+이 응답을 읽는 자리가 저장소 안에 실제로 두 곳(`AdminPage.tsx:44` 카드, `:47` 다시 만들기 알림) 있어 둘 다 분기를 더하고 `types.ts` 에 선택 필드를 더했습니다. 프런트엔드는 타입 검사·프로덕션 빌드·기존 vitest 까지만 확인했고 `AdminPage` 렌더 시험이 없어 화면 문구를 UI 행동으로 증명하지는 않았습니다 — 그 보강은 다음 회차의 몫입니다. `remaining` 을 키째로 빼는 설계이므로 이 키를 필수로 읽는 저장소 밖 클라이언트는 `undefined` 를 보게 되며, 외부 통합은 확인할 길이 없어 OpenAPI 설명에 적었습니다. `migrations/`·환경변수·설정은 무변경이고, 같은 파일의 다른 `_ =`(`searchSemantic` 등)는 범위 밖으로 두었습니다.
