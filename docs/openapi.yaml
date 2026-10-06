@@ -2115,6 +2115,9 @@ paths:
         지금은 존재하지 않는 문장으로 답하므로 별도로 센다.
         비활성 상태이면 reason에 사유를 담는다. 코사인 점수 범위는 임베딩 모델마다
         다르므로 search.semantic_threshold를 조정할 때 이 값을 기준으로 삼는다.
+        집계 질의가 실패하면 items·embedded·stale은 0이고 `countsUnread: true`가 함께 온다 —
+        임베딩할 항목이 없는 것이 아니라 세 값을 읽지 못한 것이므로 0으로 읽지 않는다.
+        이때도 vectorAvailable·enabled·model은 그대로 온다. 정상 응답에는 이 필드가 없다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
   /admin/embeddings/rebuild:
@@ -2126,6 +2129,8 @@ paths:
         같은 모델로 임베딩됐고 그 뒤 수정되지 않은 항목은 다시 만들지 않는다.
         요청 하나는 끝나야 하므로 한 번에 최대 200배치(6,400건)까지만 처리하고,
         남은 건수를 `remaining` 으로 돌려준다. 나머지는 배경 작업이 이어서 처리한다.
+        남은 건수를 세는 질의가 실패하면 `remaining` 을 빼고 `remainingUnread: true` 를 담는다 —
+        생성한 건수는 사실이지만 남은 건수는 읽지 못한 것이므로 0으로 보고하지 않는다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
         "400": { $ref: "#/components/responses/Error" }

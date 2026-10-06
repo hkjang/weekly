@@ -153,7 +153,11 @@ func TestTheRebuildSaysHowMuchIsStillMissing(t *testing.T) {
 		`UPDATE report_items SET current_result = '내용이 바뀌었습니다' WHERE report_id = $1 AND sort_order = 0`, reportID); err != nil {
 		t.Fatal(err)
 	}
-	if remaining := server.app.pendingEmbeddingCount(server.ctx(), "rebuild-1"); remaining != 1 {
+	remaining, err := server.app.pendingEmbeddingCount(server.ctx(), "rebuild-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
 		t.Errorf("본문이 바뀐 항목 하나가 남아야 하는데 %d건이라고 합니다", remaining)
 	}
 
