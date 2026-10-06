@@ -416,8 +416,15 @@ func (a *App) embeddingStatus(w http.ResponseWriter, r *http.Request) {
 		// has since edited. Those items are still searchable, but they answer
 		// for wording that no longer exists, so an operator needs to see the
 		// number rather than infer it from a coverage percentage that looks full.
-		Stale  int    `json:"stale"`
-		Reason string `json:"reason,omitempty"`
+		Stale int `json:"stale"`
+		// CountsUnread says the three figures above were not read, which is a
+		// different fact from a corpus with nothing in it. Both leave them at
+		// zero, and the card turns that zero into "임베딩 0/0건" — work already
+		// done. The card survives a failure here rather than losing
+		// vectorAvailable and model with it, since an unreadable count and a
+		// deployment without pgvector are different things to go and fix.
+		CountsUnread bool   `json:"countsUnread,omitempty"`
+		Reason       string `json:"reason,omitempty"`
 	}
 	result := status{VectorAvailable: a.capabilities.Vector}
 	cfg, err := a.embeddingConfig(r.Context())
@@ -428,28 +435,42 @@ func (a *App) embeddingStatus(w http.ResponseWriter, r *http.Request) {
 		result.Model = cfg.Model
 	}
 	if a.capabilities.Vector {
-		_ = a.db.QueryRow(r.Context(), `SELECT
+		if err := a.db.QueryRow(r.Context(), `SELECT
 			(SELECT count(*) FROM report_items WHERE length(trim(title)) > 0),
 			(SELECT count(*) FROM report_item_embeddings WHERE model = $1),
 			(SELECT count(*) FROM report_items i
 				JOIN report_item_embeddings e ON e.report_item_id = i.id AND e.model = $1
 				WHERE e.content_hash IS DISTINCT FROM encode(sha256(convert_to(
 					concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex'))`, cfg.Model).
-			Scan(&result.Items, &result.Embedded, &result.Stale)
+			Scan(&result.Items, &result.Embedded, &result.Stale); err != nil {
+			a.logger.Warn("embedding status counts", "error", err)
+			// A partial Scan leaves whichever figures it reached behind, and
+			// one read figure beside two unread ones is the same lie in
+			// smaller print.
+			result.Items, result.Embedded, result.Stale = 0, 0, 0
+			result.CountsUnread = true
+		}
 	}
 	writeData(w, 200, result)
 }
 
 // pendingEmbeddingCount is how many items still need embedding for a model.
-func (a *App) pendingEmbeddingCount(ctx context.Context, model string) int {
+//
+// It answers with the error rather than a zero, because zero is the answer a
+// caller acts on: it means the backlog is clear. A count that was refused and
+// a backlog that is clear have to be told apart by whoever reports the figure.
+func (a *App) pendingEmbeddingCount(ctx context.Context, model string) (int, error) {
 	remaining := 0
-	_ = a.db.QueryRow(ctx, `SELECT count(*) FROM report_items i
+	err := a.db.QueryRow(ctx, `SELECT count(*) FROM report_items i
 		LEFT JOIN report_item_embeddings e ON e.report_item_id = i.id AND e.model = $1
 		WHERE length(trim(i.title)) > 0
 			AND (e.report_item_id IS NULL OR e.content_hash IS DISTINCT FROM encode(sha256(convert_to(
 				concat_ws(E'\n', i.title, i.category, i.current_result, i.next_plan, i.issue), 'UTF8')), 'hex'))`, model).
 		Scan(&remaining)
-	return remaining
+	if err != nil {
+		return 0, err
+	}
+	return remaining, nil
 }
 
 // rebuildEmbeddings embeds what it can inside one request, rather than waiting
@@ -482,7 +503,19 @@ func (a *App) rebuildEmbeddings(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	remaining := a.pendingEmbeddingCount(r.Context(), cfg.Model)
-	a.logger.Info("embedding rebuild pass", "items", total, "remaining", remaining, "model", cfg.Model)
-	writeData(w, 200, map[string]any{"embedded": total, "remaining": remaining, "model": cfg.Model})
+	answer := map[string]any{"embedded": total, "model": cfg.Model}
+	remaining, err := a.pendingEmbeddingCount(r.Context(), cfg.Model)
+	if err != nil {
+		// The embedding that just happened is worth reporting, so this is not
+		// an error response. But the figure is missing rather than zero: a
+		// remaining of 0 is read as "남은 항목이 없습니다", and said on behalf
+		// of a count that was refused it is the one sentence that stops an
+		// operator from pressing the button again.
+		a.logger.Warn("embedding backlog count", "error", err, "embedded", total, "model", cfg.Model)
+		answer["remainingUnread"] = true
+	} else {
+		a.logger.Info("embedding rebuild pass", "items", total, "remaining", remaining, "model", cfg.Model)
+		answer["remaining"] = remaining
+	}
+	writeData(w, 200, answer)
 }

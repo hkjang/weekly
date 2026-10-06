@@ -236,6 +236,10 @@ export interface ConfluenceSyncStatus {
 export interface EmbeddingStatus {
   vectorAvailable: boolean; enabled: boolean; model: string
   items: number; embedded: number; stale: number; reason?: string
+  // countsUnread says the three figures above were not read. Absent on a
+  // healthy answer, so a zero that came from an empty corpus and a zero that
+  // came from a refused count stop looking identical here too.
+  countsUnread?: boolean
 }
 
 // --- 회의 모드 · 경영 요약 · 업무 인사이트 -----------------------------------
