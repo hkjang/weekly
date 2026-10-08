@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.318.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.319.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8660,3 +8660,10 @@ Keycloak 26 을 띄우고 브라우저로 세 경우를 끝까지 따라갔습�
 새 시험 2개를 손으로 만든 대역 없이 프로덕션 `app.Handler()` 와 실제 PostgreSQL(pgvector) 위에서 돌렸습니다. 현황 쪽은 `report_item_embeddings` 를 rename 해 집계만 실패시킵니다. 다시 만들기 쪽은 두 질의가 같은 테이블을 읽어 그냥 rename 하면 배치가 먼저 실패해 `502` 가 되므로, **배치가 임베딩 게이트웨이에 가 있는 동안** `report_items` 를 rename 해 "배치는 성공하고 뒤따르는 집계만 실패하는" 모양을 만들었습니다 — 응답의 `embedded: 4` 가 배치의 성공을 증명하므로 실패한 단계가 집계임이 고정됩니다. 둘 다 `t.Cleanup` 으로 복원하며 `t.Parallel()` 을 붙이지 않습니다. 고치기 전 두 시험이 각각 `the counts could not be read and the card does not say so` 와 `the backlog count failed and the answer reports remaining=0 as a fact` 로 실패하고, 고친 뒤 플래그 한 줄씩을 되돌려 같은 실패가 다시 나는 것까지 확인했습니다. 정상 경로의 응답 본문은 그대로이며 시험이 정상 카드의 키 집합을 직접 단정해 고정합니다.
 
 이 응답을 읽는 자리가 저장소 안에 실제로 두 곳(`AdminPage.tsx:44` 카드, `:47` 다시 만들기 알림) 있어 둘 다 분기를 더하고 `types.ts` 에 선택 필드를 더했습니다. 프런트엔드는 타입 검사·프로덕션 빌드·기존 vitest 까지만 확인했고 `AdminPage` 렌더 시험이 없어 화면 문구를 UI 행동으로 증명하지는 않았습니다 — 그 보강은 다음 회차의 몫입니다. `remaining` 을 키째로 빼는 설계이므로 이 키를 필수로 읽는 저장소 밖 클라이언트는 `undefined` 를 보게 되며, 외부 통합은 확인할 길이 없어 OpenAPI 설명에 적었습니다. `migrations/`·환경변수·설정은 무변경이고, 같은 파일의 다른 `_ =`(`searchSemantic` 등)는 범위 밖으로 두었습니다.
+
+
+### v0.319.0 — 첨부 순서를 읽지 못한 업로드가 이미지를 저장하지 않습니다
+
+`uploadAttachments` 가 다음 순서의 `Scan` 오류를 버려, 순서를 읽지 못해도 0번 이미지로 저장하고 `201` 을 반환했습니다. 공개 PATCH 로 `sortOrder=2147483647` 을 저장하면 PostgreSQL 의 `max(sort_order)+1` 이 넘쳐 이 경로를 재현할 수 있습니다. 이제 조회가 실패하면 트랜잭션과 이미지 파일 쓰기 전에 `500 QUERY_FAILED` 와 "첨부 이미지의 순서를 조회할 수 없습니다." 를 반환합니다.
+
+실제 PostgreSQL 과 `newTestServer`/`App.Handler()` 를 거치는 새 시험 두 개로 거절 전후 ID·순서·건수·디스크 파일 목록·기존 이미지 GET 200 및 바이트 보존, PATCH 복구 뒤 같은 이미지의 단일 저장·그룹 끝 배치, BEFORE/AFTER 독립 max+1 과 201 응답을 검증했습니다. 고치기 전 실패·고친 뒤 통과·원본 복원 시 재실패를 확인했습니다. 프로덕션 변경은 `attachments.go` 한 파일이며 마이그레이션·환경변수·설정 변경은 없습니다. 기존 중복 순서 정리, PATCH 상한 제한, 동시 업로드 개수 상한은 이번 범위 밖이고 UI 클릭·새 오류 시나리오의 PPTX 출력은 별도로 검증하지 않았습니다.
