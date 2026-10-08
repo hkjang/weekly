@@ -266,7 +266,10 @@ func (a *App) uploadAttachments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var nextOrder int
-	_ = a.db.QueryRow(r.Context(), `SELECT coalesce(max(sort_order),-1)+1 FROM report_attachments WHERE report_id=$1 AND placement=$2`, id, placement).Scan(&nextOrder)
+	if err := a.db.QueryRow(r.Context(), `SELECT coalesce(max(sort_order),-1)+1 FROM report_attachments WHERE report_id=$1 AND placement=$2`, id, placement).Scan(&nextOrder); err != nil {
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "첨부 이미지의 순서를 조회할 수 없습니다.")
+		return
+	}
 
 	// One transaction for the rows, so a database that refuses the third insert
 	// leaves none of them behind either. The files it wrote before that stay on
