@@ -494,9 +494,17 @@ func (a *App) deleteAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	// The same bytes can back two rows after a duplicate upload, so only remove
 	// the file once nothing references it any more.
+	//
+	// A count that could not be read is not a count of zero. Dropping this error
+	// left remaining at zero — the one value that means delete — so a refused
+	// aggregate removed a file another row was still pointing at, and os.Remove
+	// does not come back. The row is already gone by now, so the answer stays
+	// 204; what changes is that the file stays and the operator gets a line.
 	var remaining int
-	_ = a.db.QueryRow(r.Context(), `SELECT count(*) FROM report_attachments WHERE stored_path=$1`, storedPath).Scan(&remaining)
-	if remaining == 0 {
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM report_attachments WHERE stored_path=$1`, storedPath).Scan(&remaining); err != nil {
+		a.logger.Warn("count attachment references", "error", err, "attachmentId", attachmentID,
+			"trace", traceIDFromContext(r.Context()))
+	} else if remaining == 0 {
 		if err := os.Remove(safeAttachmentPath(storedPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			a.logger.Warn("remove attachment file", "error", err, "attachmentId", attachmentID)
 		}
