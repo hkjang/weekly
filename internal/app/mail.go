@@ -685,7 +685,26 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 
 	report, err := a.loadReport(ctx, reportID)
 	if err != nil || report == nil {
-		a.markMailFailed(ctx, deliveryID, "보고서를 읽을 수 없습니다.")
+		// Two unlike things arrive here. A report that is no longer there will
+		// not be there in an hour either, so that delivery is over. Anything
+		// else is the store having been unreachable for a moment — a dropped
+		// connection, a statement that timed out, a failover — and giving up on
+		// the first of those spent a whole week's report on a blip that the
+		// send path below would have waited out over three hours. There is no
+		// way to put a failed delivery back in the queue, so that mail never
+		// went at all.
+		//
+		// The error is what tells them apart, and it has to be asked first:
+		// loadReport returns a nil report alongside every error it has, so a
+		// nil report on its own says nothing about which of the two happened.
+		if err != nil && !errors.Is(err, errNotFound) {
+			a.logger.Error("load report for mail", "delivery", deliveryID, "attempts", attempts, "error", err)
+			a.deferMailRetry(ctx, deliveryID, attempts, settings, mailReportUnreadable)
+			// Keep sweeping: the relay is not the thing that failed, so the
+			// next row in the queue may well go out.
+			return true
+		}
+		a.markMailFailed(ctx, deliveryID, mailReportUnreadable)
 		return true
 	}
 	subject := reportMailSubject(a.setting(ctx, "service.name", "Weekly"), report)
@@ -695,30 +714,53 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 	body := note + reportMailBody(report, reportStatusLabel(report.Status))
 
 	if err := a.sendMail(ctx, settings, address, subject, body, attachments...); err != nil {
-		if attempts >= settings.MaxAttempts {
+		spent := attempts >= settings.MaxAttempts
+		if spent {
 			a.logger.Error("report mail gave up", "delivery", deliveryID, "attempts", attempts, "error", err)
-			a.markMailFailed(ctx, deliveryID, mailUserMessage(err))
-			return true
+		} else {
+			a.logger.Warn("report mail retry", "delivery", deliveryID, "attempts", attempts, "error", err)
 		}
-		// Left QUEUED with the reason on it, so the writer sees why it has not
-		// arrived yet rather than only that it has not, and dated so the next
-		// try is far enough away to outlast the outage that caused this one.
-		if _, dbErr := a.db.Exec(ctx, `UPDATE report_mail_deliveries
-			SET error_message=$2, next_attempt_at = now() + $3::interval WHERE id=$1`,
-			deliveryID, trimRunes(mailUserMessage(err), 1000), retryDelay(attempts).String()); dbErr != nil {
-			// Without the new time this row is due again immediately and the
-			// queue spins on it, so a write that failed is worth saying.
-			a.logger.Error("defer mail retry", "delivery", deliveryID, "error", dbErr)
-		}
-		a.logger.Warn("report mail retry", "delivery", deliveryID, "attempts", attempts, "error", err)
-		// Stop the sweep: the next one would fail the same way against the same
-		// relay, and hammering it is not a retry policy.
-		return false
+		a.deferMailRetry(ctx, deliveryID, attempts, settings, mailUserMessage(err))
+		// A row that has been given up on is behind us, so the sweep goes on.
+		// One that is waiting for the same relay is not: the next row would
+		// fail the same way, and hammering it is not a retry policy.
+		return spent
 	}
 	if _, err := a.db.Exec(ctx, `UPDATE report_mail_deliveries SET status='SENT',sent_at=now(),error_message='' WHERE id=$1`, deliveryID); err != nil {
 		a.logger.Error("mark mail sent", "delivery", deliveryID, "error", err)
 	}
 	return true
+}
+
+// mailReportUnreadable is what a writer reads when the report behind a queued
+// mail could not be loaded.
+//
+// The same wording whether the report is gone or the store was unreachable for
+// a moment: the difference decides whether to try again, which is the worker's
+// business, and the detail that tells them apart is a store error whose text
+// belongs in the operator's log rather than on somebody's settings card.
+const mailReportUnreadable = "보고서를 읽을 수 없습니다."
+
+// deferMailRetry leaves a delivery queued for another try, or gives up on it
+// when its attempts are spent.
+//
+// reason is what the writer sees on their own card, so it is a sentence written
+// here rather than anything a relay or the store said. A deferred row keeps the
+// reason so they read why it has not arrived yet rather than only that it has
+// not, and is dated far enough out that the next try outlasts the outage that
+// caused this one.
+func (a *App) deferMailRetry(ctx context.Context, deliveryID int64, attempts int, settings mailSettings, reason string) {
+	if attempts >= settings.MaxAttempts {
+		a.markMailFailed(ctx, deliveryID, reason)
+		return
+	}
+	if _, err := a.db.Exec(ctx, `UPDATE report_mail_deliveries
+		SET error_message=$2, next_attempt_at = now() + $3::interval WHERE id=$1`,
+		deliveryID, trimRunes(reason, 1000), retryDelay(attempts).String()); err != nil {
+		// Without the new time this row is due again immediately and the queue
+		// spins on it, so a write that failed is worth saying.
+		a.logger.Error("defer mail retry", "delivery", deliveryID, "error", err)
+	}
 }
 
 // retryDelay spaces the attempts so the budget outlives an ordinary outage.
