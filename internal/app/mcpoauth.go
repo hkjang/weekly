@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -27,11 +28,22 @@ import (
 //
 // The personal key stays. It is what an automation with no person behind it
 // uses, and what a deployment without Keycloak uses. A token from SSO is a
-// second door into the same room: it authenticates an *existing* Weekly
-// account, carries the read-only scopes the administrator chose, and is held
-// to the same read-only rule a key is. It never creates an account — signing
-// in to the web once is what provisions one, and a machine presenting a token
-// is not the moment to decide who somebody is.
+// second door into the same room: it authenticates a Weekly account, carries
+// the read-only scopes the administrator chose, and is held to the same
+// read-only rule a key is.
+//
+// Whether a person Keycloak vouches for may *become* an account is the
+// administrator's `사용자 자동 등록` (oidc.auto_provision), and that answer is
+// the same at both doors. This path used to refuse everybody who had not yet
+// signed in to the web, on the theory that a program presenting a token is not
+// the moment to decide who somebody is. In practice the agent is often the
+// first thing a person points at Weekly: every one of its calls came back 401,
+// the message said "sign in to the web first", and an agent cannot do that.
+// The identity in a verified access token is the same identity the web sign-in
+// would have read, so the account it would have made is made here instead —
+// and never more than that: a writer in the default organisation, nothing the
+// web sign-in would not also have created, and never a deactivated account
+// brought back.
 
 type mcpOAuthSettings struct {
 	Enabled bool
@@ -51,6 +63,10 @@ type mcpOAuthSettings struct {
 	// the administrator states the ceiling once instead.
 	Scopes        []string
 	UsernameClaim string
+	// AutoProvision is the web sign-in's `사용자 자동 등록`, read here too so a
+	// person the administrator lets in through one door is not turned away at
+	// the other.
+	AutoProvision bool
 }
 
 func (a *App) mcpOAuthSettings(ctx context.Context) mcpOAuthSettings {
@@ -62,6 +78,7 @@ func (a *App) mcpOAuthSettings(ctx context.Context) mcpOAuthSettings {
 		Audiences:     strings.Fields(a.setting(ctx, "mcp.oauth.audience", "")),
 		Scopes:        strings.Fields(a.setting(ctx, "mcp.oauth.scopes", "mcp:read reports:read analytics:read")),
 		UsernameClaim: a.setting(ctx, "oidc.username_claim", "preferred_username"),
+		AutoProvision: a.settingBool(ctx, "oidc.auto_provision", true),
 	}
 }
 
@@ -203,22 +220,96 @@ func (a *App) oauthPrincipal(ctx context.Context, r *http.Request, token string)
 			message: "SSO 토큰에 사용자 식별 정보(sub·" + settings.UsernameClaim + ")가 없습니다.",
 		}
 	}
-	// The same lookup the web sign-in uses, without the provisioning half.
-	p := &principal{AuthType: "oauth", Scopes: settings.Scopes}
-	err = a.db.QueryRow(ctx, `SELECT u.id,u.username,u.display_name,coalesce(u.email,''),u.role,u.organization_id,u.key_version
-		FROM users u WHERE (u.oidc_subject=$1 OR lower(u.username)=lower($2)) AND u.active=true
-		ORDER BY u.oidc_subject=$1 DESC LIMIT 1`, subject, username).
-		Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion)
-	if errors.Is(err, pgx.ErrNoRows) {
+	return a.oauthAccount(ctx, r, settings, claims, subject, username)
+}
+
+// oauthAccount finds the Weekly account an SSO identity names, and creates it
+// when there is none and the administrator lets Keycloak identities become
+// accounts.
+func (a *App) oauthAccount(ctx context.Context, r *http.Request, settings mcpOAuthSettings, claims map[string]any, subject, username string) (*principal, error) {
+	// The web sign-in's match — the subject first, then the username — but
+	// over every account, active or not. Filtering on active here would make a
+	// deactivated person look like a stranger, and a stranger is provisioned.
+	//
+	// The subject test is coalesced because oidc_subject is NULL on every
+	// account that has never used SSO, NULL = $1 is NULL, and DESC sorts NULL
+	// first: a local account that merely shared the username would outrank
+	// the account the subject actually belongs to.
+	lookup := func() (*principal, bool, error) {
+		p := &principal{AuthType: "oauth", Scopes: settings.Scopes}
+		var active bool
+		err := a.db.QueryRow(ctx, `SELECT u.id,u.username,u.display_name,coalesce(u.email,''),u.role,u.organization_id,u.key_version,u.active
+			FROM users u WHERE u.oidc_subject=$1 OR lower(u.username)=lower($2)
+			ORDER BY coalesce(u.oidc_subject=$1,false) DESC, u.id LIMIT 1`, subject, username).
+			Scan(&p.ID, &p.Username, &p.DisplayName, &p.Email, &p.Role, &p.OrganizationID, &p.KeyVersion, &active)
+		return p, active, err
+	}
+	admit := func(p *principal, active bool) (*principal, error) {
+		if !active {
+			return nil, refusalReason{
+				err:     fmt.Errorf("%w: weekly account for sso subject is inactive", errNoSession),
+				message: "이 SSO 계정에 연결된 Weekly 계정이 비활성 상태입니다. 관리자에게 계정을 다시 켜 달라고 요청하세요.",
+			}
+		}
+		return p, nil
+	}
+
+	p, active, err := lookup()
+	if err == nil {
+		return admit(p, active)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if !settings.AutoProvision {
 		return nil, refusalReason{
-			err:     fmt.Errorf("%w: no weekly account for sso subject", errNoSession),
-			message: "이 SSO 계정은 Weekly 에 등록되지 않았거나 비활성입니다. 먼저 웹으로 한 번 로그인하세요.",
+			err:     fmt.Errorf("%w: no weekly account for sso subject and auto provisioning is off", errNoSession),
+			message: "이 SSO 계정은 Weekly 에 등록되지 않았고, 이 서버는 사용자 자동 등록을 꺼 두었습니다. 관리자에게 계정 등록을 요청하세요.",
+		}
+	}
+
+	// What the web sign-in would have created, minus the administrator group:
+	// whether that claim reaches an access token depends on a mapper setting
+	// the web sign-in never needed, so honouring it here would make the same
+	// person an administrator or not depending on which door they came in
+	// first. A writer is what nobody can be surprised by; the next web sign-in
+	// promotes them exactly as it always has.
+	//
+	// An agent's first connection is several requests at once, so two of them
+	// can both find nobody. The unique username and subject decide which one
+	// inserts; the other inserts nothing and reads the winner's row below.
+	displayName := claimString(claims, "name")
+	if displayName == "" {
+		displayName = username
+	}
+	email := claimString(claims, "email")
+	var createdID int64
+	err = a.db.QueryRow(ctx, `INSERT INTO users(username,display_name,email,role,organization_id,oidc_subject)
+		VALUES($1,$2,NULLIF($3::text,''),'USER',(SELECT id FROM organizations WHERE code='DEFAULT'),$4)
+		ON CONFLICT DO NOTHING RETURNING id`, username, displayName, email, subject).Scan(&createdID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	p, active, err = lookup()
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The insert collided with an account this lookup cannot see, which
+		// the unique constraints and the lookup's own predicate rule out — say
+		// so rather than answer as though the store were down.
+		return nil, refusalReason{
+			err:     fmt.Errorf("%w: sso account could not be provisioned", errNoSession),
+			message: "이 SSO 계정으로 Weekly 계정을 만들지 못했습니다. 관리자에게 알리세요.",
 		}
 	}
 	if err != nil {
 		return nil, err
 	}
-	return p, nil
+	if createdID != 0 && createdID == p.ID {
+		a.logger.Info("mcp oauth provisioned user", "user_id", p.ID, "username", p.Username)
+		a.audit(r, p, "user.sso_provision", "user", strconv.FormatInt(p.ID, 10),
+			map[string]any{"username": p.Username, "via": "mcp"})
+	}
+	return admit(p, active)
 }
 
 // protectedResourceMetadata is RFC 9728: the document a refused MCP client
