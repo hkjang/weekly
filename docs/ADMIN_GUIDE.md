@@ -111,7 +111,7 @@ Compose 파일은 `WEEKLY_VERSION`(이미지 태그, 기본 `0.321.0`)도 읽습
 
 1. 관리자로 로그인 → `관리자 설정 → 서비스 설정 → 인증 · Keycloak OIDC`.
 2. Keycloak 클라이언트의 Valid Redirect URI 에 `https://<weekly 주소>/api/v1/auth/oidc/callback` 을 등록합니다(라우트는 `GET`).
-3. Issuer URL·Client ID·Client Secret 을 넣고, 그룹 Claim 과 `관리자 그룹`을 지정하면 그 그룹의 사용자가 자동으로 ADMIN 이 됩니다. `사용자 자동 등록`을 켜면 처음 로그인하는 사용자가 계정을 얻습니다.
+3. Issuer URL·Client ID·Client Secret 을 넣고, 그룹 Claim 과 `관리자 그룹`을 지정하면 그 그룹의 사용자가 자동으로 ADMIN 이 됩니다. `사용자 자동 등록`을 켜면 처음 로그인하는 사용자가 계정을 얻습니다. 이 스위치는 MCP SSO 토큰에도 똑같이 적용됩니다(4.5 절).
 4. `OIDC 연결 시험` → `설정 저장` → `Keycloak OIDC 사용`을 켭니다.
 5. 이미 Keycloak 에 로그인한 사람이 로그인 화면 없이 바로 들어오게 하려면 `Keycloak 세션 자동 로그인 (prompt=none)` 을 켭니다. **기본값은 꺼짐**이며, 꺼진 설치에서는 아래 자동 확인이 일어나지 않고 로그인 화면의 `조직 계정으로 로그인` 버튼만 남습니다.
 
@@ -257,11 +257,11 @@ MCP 인가 규격은 OAuth 2.1 입니다. 이 설정을 켜면 Weekly 는 **리�
 2. **MCP 클라이언트가 쓸 클라이언트.** 두 길이 있습니다.
    - **동적 등록(DCR)**: 대부분의 MCP 클라이언트는 인증 서버의 `registration_endpoint` 로 스스로 등록합니다. Keycloak 에서는 realm 의 `Client registration` → `Anonymous access policies` 에서 `Trusted Hosts` 로 허용 호스트를 열거나, 초기 접근 토큰(Initial access token)을 발급해 클라이언트에 줍니다.
    - **미리 만든 공개 클라이언트**: `Client authentication` 끔, `Standard flow` 켬, `PKCE Method` `S256`, `Valid redirect URIs` 에 클라이언트가 쓰는 루프백 주소(`http://127.0.0.1:*/callback` 등)를 넣고, 그 Client ID 를 MCP 클라이언트 설정에 지정합니다.
-3. **사용자.** 토큰은 **이미 등록된** Weekly 계정만 인증합니다(`sub` 또는 사용자명 claim 으로 찾음). 처음 쓰는 사람은 웹으로 한 번 로그인해 계정을 만들어 두어야 합니다.
+3. **사용자.** 토큰의 `sub` 또는 사용자명 claim 으로 Weekly 계정을 찾습니다. 계정이 없으면 `인증 · Keycloak OIDC` 의 `사용자 자동 등록`(기본 켜짐)을 따릅니다 — 켜져 있으면 **첫 MCP 호출에서 계정을 만들고**(이름·이메일은 토큰의 `name`·`email`, 역할 `USER`, 기본 조직, `sub` 연결), 꺼져 있으면 관리자에게 등록을 요청하라는 `401` 로 거절합니다. 그래서 에이전트를 먼저 연결한 사람도 웹에 한 번 들어와 둘 필요가 없습니다. 이 길로 만든 계정은 관리자 그룹에 속해도 `USER` 로 시작합니다 — 그룹 claim 이 액세스 토큰에 실리는지는 웹 로그인이 쓰지 않는 매퍼 설정에 달려 있기 때문이며, 그 사람이 웹으로 로그인하면 지금처럼 `ADMIN` 으로 올라갑니다. 비활성 계정은 되살리지 않고 이유를 말해 거절합니다. 감사 이벤트 `user.sso_provision`(`detail.via=mcp`).
 
 **확인하는 법**: `curl -i https://<host>/.well-known/oauth-protected-resource/mcp` 가 리소스와 인증 서버를 돌려주고, 토큰 없이 `curl -i -X POST https://<host>/mcp` 가 `401` 과 `WWW-Authenticate: Bearer … resource_metadata="…"` 를 돌려주면 클라이언트가 길을 찾을 수 있습니다. 토큰이 거부되면 응답 메시지가 이유를 말합니다 — 이 서버를 위한 토큰이 아니면 그 토큰의 `aud` 와 `azp` 가 무엇이었는지와 어느 값을 더해야 하는지까지. 이 절차는 실제 Keycloak 26 을 띄워 두 길(허용 대상, Audience 매퍼) 모두 확인한 것입니다.
 
-**보안**: SSO 토큰은 개인 키와 같은 읽기 전용 규칙을 따르고 계정을 만들지 않습니다. 검증은 Keycloak 의 JWKS 로 하며 발급자 정보는 서버가 한 번 읽어 두고 키가 바뀌면 다시 읽습니다. 이 서버는 토큰을 저장하지 않습니다.
+**보안**: SSO 토큰은 개인 키와 같은 읽기 전용 규칙을 따르고, 계정은 `사용자 자동 등록` 이 허락할 때만 웹 로그인이 만들었을 것과 같은 일반 사용자로 만듭니다. 검증은 Keycloak 의 JWKS 로 하며 발급자 정보는 서버가 한 번 읽어 두고 키가 바뀌면 다시 읽습니다. 이 서버는 토큰을 저장하지 않습니다.
 
 ---
 

@@ -177,10 +177,13 @@ func TestATokenIsRefusedForTheRightReason(t *testing.T) {
 	refusedWith("wrong audience",
 		accessToken(t, idp, "https://other-app.example.test", map[string]any{"preferred_username": known}), "발급된 것이 아닙니다")
 
-	// A person Keycloak knows and Weekly does not. The web sign-in would
-	// provision them; a program presenting a token is not that moment.
+	// A person Keycloak knows and Weekly does not, on a deployment whose
+	// administrator turned automatic registration off. The web sign-in would
+	// refuse them too, so the refusal must not send them there.
+	server.useIDP(t, idp, "weekly-web", map[string]string{"mcp.oauth.enabled": "true", "oidc.auto_provision": "false"})
 	refusedWith("unknown account",
-		accessToken(t, idp, resource, map[string]any{"preferred_username": "nobody-here", "sub": "stranger"}), "등록되지 않았")
+		accessToken(t, idp, resource, map[string]any{"preferred_username": "nobody-here", "sub": "stranger"}), "자동 등록을 꺼")
+	server.useIDP(t, idp, "weekly-web", map[string]string{"mcp.oauth.enabled": "true", "oidc.auto_provision": "true"})
 
 	// An expired token, and one from a different issuer's key.
 	refusedWith("expired",
