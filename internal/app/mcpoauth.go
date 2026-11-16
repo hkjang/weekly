@@ -34,16 +34,18 @@ import (
 //
 // Whether a person Keycloak vouches for may *become* an account is the
 // administrator's `사용자 자동 등록` (oidc.auto_provision), and that answer is
-// the same at both doors. This path used to refuse everybody who had not yet
+// the same at both doors. So is where the new account is placed: the
+// department claim (oidc.department_claim) is honoured at creation here exactly
+// as the web sign-in honours it. This path used to refuse everybody who had not yet
 // signed in to the web, on the theory that a program presenting a token is not
 // the moment to decide who somebody is. In practice the agent is often the
 // first thing a person points at Weekly: every one of its calls came back 401,
 // the message said "sign in to the web first", and an agent cannot do that.
 // The identity in a verified access token is the same identity the web sign-in
 // would have read, so the account it would have made is made here instead —
-// and never more than that: a writer in the default organisation, nothing the
-// web sign-in would not also have created, and never a deactivated account
-// brought back.
+// and never more than that: a writer, in the default organisation unless the
+// department setting places them, nothing the web sign-in would not also have
+// created, and never a deactivated account brought back.
 
 type mcpOAuthSettings struct {
 	Enabled bool
@@ -308,6 +310,17 @@ func (a *App) oauthAccount(ctx context.Context, r *http.Request, settings mcpOAu
 		a.logger.Info("mcp oauth provisioned user", "user_id", p.ID, "username", p.Username)
 		a.audit(r, p, "user.sso_provision", "user", strconv.FormatInt(p.ID, 10),
 			map[string]any{"username": p.Username, "via": "mcp"})
+		// The account the web sign-in would have made would also have been
+		// placed by department, so this one is too — once, at creation. Every
+		// MCP call passes through here, and a write per call is not a price
+		// the lookup should pay; later moves happen at the web sign-in or from
+		// the administrator's department screen.
+		if department := departmentClaim(claims, a.departmentSettings(ctx).Claim); department != "" {
+			a.syncUserDepartment(r, p.ID, department, a.departmentSettings(ctx), "mcp")
+			if refreshed, stillActive, err := lookup(); err == nil {
+				p, active = refreshed, stillActive
+			}
+		}
 	}
 	return admit(p, active)
 }

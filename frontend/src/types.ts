@@ -33,9 +33,24 @@ export interface Report { id: number; userId: number; username: string; displayN
 export interface ReportListItem { id: number; userId: number; username: string; displayName: string; weekStart: string; status: ReportStatus; sourceType: ReportSource; summary: string; version: number; submittedAt?: string; updatedAt: string }
 export interface AnalyticsOverview { weekStart: string; totalUsers: number; submittedUsers: number; submissionRate: number; statusCounts: Record<string, number>; openIssues: number; averageProgress: number }
 export interface KeyView { id: number; name: string; prefix: string; keyVersion: number; scopes: string[]; lastUsedAt?: string; expiresAt?: string; createdAt: string }
-export interface AdminUser extends User { managerId?: number; active: boolean; lastLoginAt?: string; createdAt: string }
+export interface AdminUser extends User {
+  managerId?: number; active: boolean; lastLoginAt?: string; createdAt: string
+  /** Linked to Keycloak / has a local password — how this person signs in. */
+  sso?: boolean; localPassword?: boolean
+  /** What Keycloak last said about where this person sits, and the organisation it resolves to. */
+  ssoDepartment?: string | null; ssoDepartmentAt?: string | null; departmentOrganizationId?: number | null; departmentMatch?: string
+  /** An administrator's choice the department sync must not undo. */
+  organizationLocked?: boolean
+}
+export type DepartmentSyncMode = 'OFF' | 'FILL' | 'ALWAYS'
+export interface DepartmentRow {
+  department: string; users: number; inOrganization: number; locked: number; pending: number
+  organizationId?: number | null; organizationName?: string; via: 'alias' | 'code' | 'name' | 'ambiguous' | 'unmatched'
+  candidates?: { id: number; name: string }[]; suggestedCode: string; lastSeenAt?: string | null
+}
+export interface DepartmentOverview { mode: DepartmentSyncMode; claim: string; create: boolean; items: DepartmentRow[]; withoutDepartment: number; pending: number }
 /** A page of accounts with the size of the directory it came from. */
-export interface AdminUserPage { items: AdminUser[]; total: number; limit: number; offset: number; query?: string; roles?: string[]; unassigned: number; organization?: string }
+export interface AdminUserPage { items: AdminUser[]; total: number; limit: number; offset: number; query?: string; roles?: string[]; unassigned: number; organization?: string; departmentSync?: DepartmentSyncMode }
 export interface Organization { id: number; parentId?: number; name: string; code: string; userCount: number }
 export interface Setting { key: string; value?: string; secret: boolean; configured: boolean; available: boolean; updatedAt: string }
 export type AIReportItem = {

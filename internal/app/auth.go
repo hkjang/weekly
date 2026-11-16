@@ -645,6 +645,15 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "OIDC_PROVISION_FAILED", "OIDC 사용자를 등록할 수 없습니다.")
 		return
 	}
+	// Where the directory says this person sits. Recorded at every sign-in so
+	// the administrator can see it; acted on only as far as the department
+	// setting allows. Never a reason to refuse the sign-in.
+	departments := a.departmentSettings(r.Context())
+	department := departmentClaim(claims, departments.Claim)
+	if department == "" && departments.Claim != "" && departments.Mode != departmentSyncOff {
+		department = userInfoDepartment(r.Context(), provider, token, departments.Claim)
+	}
+	a.syncUserDepartment(r, userID, department, departments, "web")
 	if err := a.issueSession(w, r, userID); err != nil {
 		if silent {
 			redirectFromSilentOIDC(w, r, returnTo, "unavailable")
@@ -674,6 +683,27 @@ func redirectFromSilentOIDC(w http.ResponseWriter, r *http.Request, returnTo, re
 	}
 	target += safeOIDCReturnTo(returnTo)
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// userInfoDepartment asks the userinfo endpoint for the department when the ID
+// token did not carry it. Keycloak's User Attribute mapper has three switches —
+// ID token, access token, userinfo — and a deployment that turned only the last
+// one on would otherwise look like one whose people have no department.
+//
+// Bounded and silent: the person is waiting on a redirect, and a provider with
+// no userinfo endpoint answers no department, not an error.
+func userInfoDepartment(ctx context.Context, provider *oidc.Provider, token *oauth2.Token, claim string) string {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	info, err := provider.UserInfo(ctx, oauth2.StaticTokenSource(token))
+	if err != nil {
+		return ""
+	}
+	var claims map[string]any
+	if err := info.Claims(&claims); err != nil {
+		return ""
+	}
+	return departmentClaim(claims, claim)
 }
 
 func claimString(claims map[string]any, key string) string {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"net/http"
@@ -49,6 +50,12 @@ var settingDefinitions = map[string]settingDefinition{
 	"oidc.groups_claim":              {Validate: bounded(1, 120)},
 	"oidc.admin_group":               {Validate: bounded(0, 255)},
 	"oidc.auto_provision":            {Validate: booleanValue},
+	// Keycloak 부서로 소속 조직 자동 지정. The claim is recorded at every sign-in
+	// whatever the mode, so an administrator can see what the directory says
+	// before letting it move anybody. See department.go.
+	"oidc.department_claim":  {Validate: bounded(0, 120)},
+	"oidc.department_sync":   {Validate: oneOf(departmentSyncOff, departmentSyncFill, departmentSyncAlways)},
+	"oidc.department_create": {Validate: booleanValue},
 	// Off by default: the silent prompt=none attempt sends every anonymous
 	// visitor's browser to the provider before the login screen is drawn, and
 	// only the administrator decides whether that redirect exists at all.
@@ -430,6 +437,23 @@ type userView struct {
 	KeyVersion     int        `json:"keyVersion"`
 	LastLoginAt    *time.Time `json:"lastLoginAt"`
 	CreatedAt      time.Time  `json:"createdAt"`
+	// How this person signs in. An account linked to Keycloak and one with a
+	// local password are managed differently — resetting the password of an
+	// SSO-only account does nothing anybody will notice — and the screen had
+	// no way to tell them apart.
+	SSO           bool `json:"sso"`
+	LocalPassword bool `json:"localPassword"`
+	// What Keycloak last said about where this person sits, and the
+	// organisation that value resolves to. Set side by side with
+	// organizationId, the two answer "is this person where the directory says"
+	// without a second request.
+	SSODepartment            *string    `json:"ssoDepartment"`
+	SSODepartmentAt          *time.Time `json:"ssoDepartmentAt"`
+	DepartmentOrganizationID *int64     `json:"departmentOrganizationId"`
+	DepartmentMatch          string     `json:"departmentMatch,omitempty"`
+	// OrganizationLocked keeps an administrator's choice of organisation from
+	// being undone by the department sync at the person's next sign-in.
+	OrganizationLocked bool `json:"organizationLocked"`
 }
 
 // userListView carries a page of accounts with the size of the set it came
@@ -450,6 +474,12 @@ type userListView struct {
 	Unassigned int `json:"unassigned"`
 	// Only string here so an empty filter stays out of the payload.
 	Organization string `json:"organization,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Activity     string `json:"activity,omitempty"`
+	Sort         string `json:"sort,omitempty"`
+	// DepartmentSync is the department mode in force, so the screen can say
+	// whether moving somebody by hand will last past their next sign-in.
+	DepartmentSync string `json:"departmentSync"`
 }
 
 const (
@@ -466,71 +496,23 @@ const (
 // no way to look something up is worse than an unbounded one, because the
 // account you need is simply gone.
 //
-// The search matches login, display name and email, because an administrator
-// arrives with whichever of the three they were given.
+// The search matches login, display name, email and the Keycloak department,
+// because an administrator arrives with whichever of them they were given.
 func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := clampQueryInt(r, "limit", userPageDefault, 1, userPageMaximum)
 	offset := clampQueryInt(r, "offset", 0, 0, 1_000_000)
-
-	// A role filter, because one caller is not browsing the directory at all:
-	// the 검토 책임자 picker needs the handful of people who can review, and
-	// building it from whichever page of the table happened to load would
-	// silently drop reviewers as the organisation grew.
-	roles := []string{}
-	for _, role := range strings.Split(r.URL.Query().Get("role"), ",") {
-		role = strings.ToUpper(strings.TrimSpace(role))
-		if validRole(role) {
-			roles = append(roles, role)
-		}
-	}
-
-	where, args := "", []any{}
-	conditions := []string{}
-	if query != "" {
-		args = append(args, "%"+strings.ToLower(query)+"%")
-		conditions = append(conditions, fmt.Sprintf(
-			`(lower(username) LIKE $%d OR lower(display_name) LIKE $%d OR lower(coalesce(email,'')) LIKE $%d)`,
-			len(args), len(args), len(args)))
-	}
-	if len(roles) > 0 {
-		args = append(args, roles)
-		conditions = append(conditions, fmt.Sprintf(`role = ANY($%d)`, len(args)))
-	}
-	organization := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("organization")))
-	if organization != "none" {
-		organization = ""
-	}
-	if organization == "none" {
-		conditions = append(conditions, `organization_id IS NULL`)
-	}
-	if len(conditions) > 0 {
-		where = " WHERE " + strings.Join(conditions, " AND ")
-	}
+	filter := adminUserFilterFrom(r)
+	where, args := filter.clause()
 	var total int
 	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users`+where, args...).Scan(&total); err != nil {
 		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
 		return
 	}
 	args = append(args, limit, offset)
-	statement := `SELECT id,username,display_name,coalesce(email,''),role,organization_id,manager_id,active,key_version,last_login_at,created_at
-		FROM users` + where + fmt.Sprintf(` ORDER BY display_name, id LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
-	rows, err := a.db.Query(r.Context(), statement, args...)
+	statement := adminUserColumns + where + ` ORDER BY ` + filter.order() +
+		fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+	result, err := a.scanAdminUsers(r, statement, args...)
 	if err != nil {
-		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
-		return
-	}
-	defer rows.Close()
-	result := []userView{}
-	for rows.Next() {
-		var user userView
-		if err := rows.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role, &user.OrganizationID, &user.ManagerID, &user.Active, &user.KeyVersion, &user.LastLoginAt, &user.CreatedAt); err != nil {
-			writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
-			return
-		}
-		result = append(result, user)
-	}
-	if err := rows.Err(); err != nil {
 		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
 		return
 	}
@@ -538,8 +520,153 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM users WHERE organization_id IS NULL`).Scan(&unassigned); err != nil {
 		a.logger.Warn("count accounts without an organisation", "error", err)
 	}
-	writeData(w, 200, userListView{Items: result, Total: total, Limit: limit, Offset: offset, Query: query, Roles: roles,
-		Unassigned: unassigned, Organization: organization})
+	writeData(w, 200, userListView{Items: result, Total: total, Limit: limit, Offset: offset, Query: filter.query, Roles: filter.roles,
+		Unassigned: unassigned, Organization: filter.organizationLabel, Status: filter.status, Activity: filter.activity,
+		Sort: filter.sort, DepartmentSync: a.departmentSettings(r.Context()).Mode})
+}
+
+// staleLoginDays is when an account that still signs in counts as one that
+// has stopped. A quarter: long enough for leave, short enough that a departed
+// colleague's account is found before the next audit asks about it.
+const staleLoginDays = 90
+
+const adminUserColumns = `SELECT id,username,display_name,coalesce(email,''),role,organization_id,manager_id,active,key_version,
+	last_login_at,created_at,oidc_subject IS NOT NULL,password_hash IS NOT NULL,
+	nullif(btrim(sso_department),''),sso_department_at,organization_locked
+	FROM users`
+
+// adminUserFilter is the directory's filters, shared by the page and its CSV
+// so the file an administrator downloads is the list they were looking at.
+type adminUserFilter struct {
+	query string
+	roles []string
+	// organization is an id, or nil with unassigned for "none".
+	organization      *int64
+	unassigned        bool
+	organizationLabel string
+	status            string
+	activity          string
+	sort              string
+}
+
+func adminUserFilterFrom(r *http.Request) adminUserFilter {
+	values := r.URL.Query()
+	filter := adminUserFilter{query: strings.TrimSpace(values.Get("q")), roles: []string{}}
+	// A role filter, because one caller is not browsing the directory at all:
+	// the 검토 책임자 picker needs the handful of people who can review, and
+	// building it from whichever page of the table happened to load would
+	// silently drop reviewers as the organisation grew.
+	for _, role := range strings.Split(values.Get("role"), ",") {
+		role = strings.ToUpper(strings.TrimSpace(role))
+		if validRole(role) && !slices.Contains(filter.roles, role) {
+			filter.roles = append(filter.roles, role)
+		}
+	}
+	// An unrecognised value is ignored rather than answered with nobody: a typo
+	// that silently empties the list reads as a deployment with no accounts.
+	switch organization := strings.ToLower(strings.TrimSpace(values.Get("organization"))); {
+	case organization == "none":
+		filter.unassigned, filter.organizationLabel = true, "none"
+	case organization != "":
+		if id, err := strconv.ParseInt(organization, 10, 64); err == nil && id > 0 {
+			filter.organization, filter.organizationLabel = &id, organization
+		}
+	}
+	switch status := strings.ToLower(strings.TrimSpace(values.Get("status"))); status {
+	case "active", "inactive":
+		filter.status = status
+	}
+	// never: has not signed in once. stale: has not signed in for a quarter,
+	// counting never — both are the accounts an access review asks about.
+	switch activity := strings.ToLower(strings.TrimSpace(values.Get("activity"))); activity {
+	case "never", "stale":
+		filter.activity = activity
+	}
+	switch sort := strings.ToLower(strings.TrimSpace(values.Get("sort"))); sort {
+	case "recent", "created", "username":
+		filter.sort = sort
+	}
+	return filter
+}
+
+func (f adminUserFilter) clause() (string, []any) {
+	args, conditions := []any{}, []string{}
+	if f.query != "" {
+		args = append(args, "%"+strings.ToLower(f.query)+"%")
+		conditions = append(conditions, fmt.Sprintf(
+			`(lower(username) LIKE $%d OR lower(display_name) LIKE $%d OR lower(coalesce(email,'')) LIKE $%d OR lower(coalesce(sso_department,'')) LIKE $%d)`,
+			len(args), len(args), len(args), len(args)))
+	}
+	if len(f.roles) > 0 {
+		args = append(args, f.roles)
+		conditions = append(conditions, fmt.Sprintf(`role = ANY($%d)`, len(args)))
+	}
+	if f.unassigned {
+		conditions = append(conditions, `organization_id IS NULL`)
+	}
+	if f.organization != nil {
+		args = append(args, *f.organization)
+		conditions = append(conditions, fmt.Sprintf(`organization_id = $%d`, len(args)))
+	}
+	switch f.status {
+	case "active":
+		conditions = append(conditions, `active`)
+	case "inactive":
+		conditions = append(conditions, `NOT active`)
+	}
+	switch f.activity {
+	case "never":
+		conditions = append(conditions, `last_login_at IS NULL`)
+	case "stale":
+		conditions = append(conditions, fmt.Sprintf(`(last_login_at IS NULL OR last_login_at < now() - interval '%d days')`, staleLoginDays))
+	}
+	if len(conditions) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// order always ends on id, so a page boundary between two equal names cannot
+// show one account twice and the other never.
+func (f adminUserFilter) order() string {
+	switch f.sort {
+	case "recent":
+		return `last_login_at DESC NULLS LAST, display_name, id`
+	case "created":
+		return `created_at DESC, id DESC`
+	case "username":
+		return `lower(username), id`
+	}
+	return `display_name, id`
+}
+
+func (a *App) scanAdminUsers(r *http.Request, statement string, args ...any) ([]userView, error) {
+	rows, err := a.db.Query(r.Context(), statement, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []userView{}
+	for rows.Next() {
+		var user userView
+		if err := rows.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role, &user.OrganizationID,
+			&user.ManagerID, &user.Active, &user.KeyVersion, &user.LastLoginAt, &user.CreatedAt, &user.SSO,
+			&user.LocalPassword, &user.SSODepartment, &user.SSODepartmentAt, &user.OrganizationLocked); err != nil {
+			return nil, err
+		}
+		result = append(result, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// The department column is a convenience; a chart that cannot be read
+	// leaves it blank rather than taking the directory down with it.
+	if directory, err := loadDepartmentDirectory(r.Context(), a.db); err == nil {
+		departmentOrganizations(directory, result)
+	} else {
+		a.logger.Warn("resolve departments for the directory", "error", err)
+	}
+	return result, nil
 }
 
 // updateOrganization renames an organisation or moves it under another.
@@ -665,6 +792,7 @@ func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Username, DisplayName, Email, Password, Role string
 		OrganizationID, ManagerID                    *int64
+		OrganizationLocked                           bool
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -695,7 +823,7 @@ func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 		passwordHash = hash
 	}
 	var id int64
-	err := a.db.QueryRow(r.Context(), `INSERT INTO users(username,display_name,email,password_hash,role,organization_id,manager_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, input.Username, input.DisplayName, strings.TrimSpace(input.Email), passwordHash, input.Role, input.OrganizationID, input.ManagerID).Scan(&id)
+	err := a.db.QueryRow(r.Context(), `INSERT INTO users(username,display_name,email,password_hash,role,organization_id,manager_id,organization_locked) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, input.Username, input.DisplayName, strings.TrimSpace(input.Email), passwordHash, input.Role, input.OrganizationID, input.ManagerID, input.OrganizationLocked).Scan(&id)
 	if err != nil {
 		// The constraint by name, from the structured error rather than the
 		// message text. Two unique constraints live on this table — username
@@ -726,6 +854,7 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 		DisplayName, Email, Password, Role string
 		OrganizationID, ManagerID          *int64
 		Active                             *bool
+		OrganizationLocked                 *bool
 	}
 	// Every column below is rewritten, so a caller who mentions only the field
 	// it means to change used to blank the rest. Resetting a password wiped the
@@ -776,13 +905,15 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 			organization_id=CASE WHEN $5 THEN $6 ELSE organization_id END,
 			manager_id=CASE WHEN $7 THEN $8 ELSE manager_id END,
 			active=CASE WHEN $9 THEN $10 ELSE active END,
+			organization_locked=CASE WHEN $12 THEN $13 ELSE organization_locked END,
 			updated_at=now() WHERE id=$11`,
 		input.DisplayName,
 		sent["email"], strings.TrimSpace(input.Email),
 		input.Role,
 		sent["organizationid"], input.OrganizationID,
 		sent["managerid"], input.ManagerID,
-		setActive, active, id)
+		setActive, active, id,
+		sent["organizationlocked"] && input.OrganizationLocked != nil, input.OrganizationLocked != nil && *input.OrganizationLocked)
 	if err != nil || command.RowsAffected() == 0 {
 		writeError(w, 404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
 		return
@@ -798,8 +929,216 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "DATABASE_ERROR", "사용자를 저장할 수 없습니다.")
 		return
 	}
-	a.audit(r, currentPrincipal(r.Context()), "user.update", "user", strconv.FormatInt(id, 10), map[string]any{"role": input.Role, "active": active})
+	detail := map[string]any{"role": input.Role, "active": active}
+	if sent["organizationid"] {
+		detail["organizationId"] = input.OrganizationID
+	}
+	if sent["organizationlocked"] && input.OrganizationLocked != nil {
+		detail["organizationLocked"] = *input.OrganizationLocked
+	}
+	a.audit(r, currentPrincipal(r.Context()), "user.update", "user", strconv.FormatInt(id, 10), detail)
 	writeData(w, 200, map[string]int64{"id": id})
+}
+
+// bulkUserLimit is how many accounts one bulk request may touch: a full page
+// of the directory at its largest.
+const bulkUserLimit = userPageMaximum
+
+// bulkUpdateUsers applies one change to many accounts: a reorganisation moves
+// a team, an access review deactivates everybody who left. The single-account
+// dialog made either a hundred round trips through the same form.
+//
+// Only what was sent changes, exactly as in updateUser, and the same
+// self-lockout rule holds — an administrator who selects the whole page and
+// deactivates it must not be included in what they switched off.
+func (a *App) bulkUpdateUsers(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		IDs                []int64 `json:"ids"`
+		OrganizationID     *int64  `json:"organizationId"`
+		ManagerID          *int64  `json:"managerId"`
+		Role               *string `json:"role"`
+		Active             *bool   `json:"active"`
+		OrganizationLocked *bool   `json:"organizationLocked"`
+	}
+	sent, ok := decodeJSONFields(w, r, &input)
+	if !ok {
+		return
+	}
+	ids := make([]int64, 0, len(input.IDs))
+	for _, id := range input.IDs {
+		if id > 0 && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 || len(ids) > bulkUserLimit {
+		writeError(w, 400, "INVALID_SELECTION", fmt.Sprintf("사용자를 1명 이상 %d명 이하로 선택하세요.", bulkUserLimit))
+		return
+	}
+	changing := sent["organizationid"] || sent["managerid"] || (sent["role"] && input.Role != nil) ||
+		(sent["active"] && input.Active != nil) || (sent["organizationlocked"] && input.OrganizationLocked != nil)
+	if !changing {
+		writeError(w, 400, "NOTHING_TO_CHANGE", "바꿀 항목을 하나 이상 보내세요.")
+		return
+	}
+	role := ""
+	if sent["role"] && input.Role != nil {
+		role = strings.ToUpper(strings.TrimSpace(*input.Role))
+		if !validRole(role) {
+			writeError(w, 400, "INVALID_USER", "역할이 올바르지 않습니다.")
+			return
+		}
+	}
+	p := currentPrincipal(r.Context())
+	if slices.Contains(ids, p.ID) && ((role != "" && role != "ADMIN") || (sent["active"] && input.Active != nil && !*input.Active)) {
+		writeError(w, 400, "SELF_LOCKOUT", "선택에 현재 관리자 계정이 들어 있습니다. 자신을 비활성화하거나 관리자 권한을 제거할 수 없습니다.")
+		return
+	}
+	if sent["managerid"] && input.ManagerID != nil && slices.Contains(ids, *input.ManagerID) {
+		writeError(w, 400, "INVALID_MANAGER", "자기 자신을 검토 책임자로 지정할 수 없습니다. 검토 책임자를 선택에서 빼세요.")
+		return
+	}
+	command, err := a.db.Exec(r.Context(), `UPDATE users SET
+			organization_id=CASE WHEN $2 THEN $3 ELSE organization_id END,
+			manager_id=CASE WHEN $4 THEN $5 ELSE manager_id END,
+			role=CASE WHEN $6 THEN $7 ELSE role END,
+			active=CASE WHEN $8 THEN $9 ELSE active END,
+			organization_locked=CASE WHEN $10 THEN $11 ELSE organization_locked END,
+			updated_at=now()
+		WHERE id = ANY($1)`,
+		ids,
+		sent["organizationid"], input.OrganizationID,
+		sent["managerid"], input.ManagerID,
+		role != "", role,
+		sent["active"] && input.Active != nil, input.Active != nil && *input.Active,
+		sent["organizationlocked"] && input.OrganizationLocked != nil, input.OrganizationLocked != nil && *input.OrganizationLocked)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			writeError(w, 400, "INVALID_REFERENCE", "선택한 조직이나 검토 책임자를 찾을 수 없습니다.")
+			return
+		}
+		a.logger.Error("bulk update users", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, 500, "DATABASE_ERROR", "사용자를 저장할 수 없습니다.")
+		return
+	}
+	detail := map[string]any{"users": ids, "updated": command.RowsAffected()}
+	if sent["organizationid"] {
+		detail["organizationId"] = input.OrganizationID
+	}
+	if sent["managerid"] {
+		detail["managerId"] = input.ManagerID
+	}
+	if role != "" {
+		detail["role"] = role
+	}
+	if sent["active"] && input.Active != nil {
+		detail["active"] = *input.Active
+	}
+	if sent["organizationlocked"] && input.OrganizationLocked != nil {
+		detail["organizationLocked"] = *input.OrganizationLocked
+	}
+	a.audit(r, p, "user.bulk_update", "user", "bulk", detail)
+	writeData(w, 200, map[string]any{"updated": command.RowsAffected()})
+}
+
+// userExportLimit bounds the CSV. It is the whole directory of any deployment
+// this product is built for, and a file that says it was cut is better than a
+// request that takes the server with it.
+const userExportLimit = 20000
+
+// exportUsers is the directory as a spreadsheet, with the same filters as the
+// screen. An access review, an HR reconciliation or a reorganisation plan all
+// start from a list of people in a file, and until now the only way to get one
+// was to copy a hundred rows at a time off the page.
+func (a *App) exportUsers(w http.ResponseWriter, r *http.Request) {
+	filter := adminUserFilterFrom(r)
+	where, args := filter.clause()
+	args = append(args, userExportLimit+1)
+	users, err := a.scanAdminUsers(r, adminUserColumns+where+` ORDER BY `+filter.order()+
+		fmt.Sprintf(` LIMIT $%d`, len(args)), args...)
+	if err != nil {
+		a.logger.Error("export users", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, 500, "QUERY_FAILED", "사용자를 조회할 수 없습니다.")
+		return
+	}
+	truncated := len(users) > userExportLimit
+	if truncated {
+		users = users[:userExportLimit]
+	}
+	names := map[int64]string{}
+	if rows, err := a.db.Query(r.Context(), `SELECT id, name FROM organizations`); err == nil {
+		for rows.Next() {
+			var id int64
+			var name string
+			if rows.Scan(&id, &name) == nil {
+				names[id] = name
+			}
+		}
+		rows.Close()
+	}
+	managers := map[int64]string{}
+	if rows, err := a.db.Query(r.Context(), `SELECT id, display_name FROM users WHERE id IN (SELECT manager_id FROM users WHERE manager_id IS NOT NULL)`); err == nil {
+		for rows.Next() {
+			var id int64
+			var name string
+			if rows.Scan(&id, &name) == nil {
+				managers[id] = name
+			}
+		}
+		rows.Close()
+	}
+	roleNames := map[string]string{"USER": "사용자", "TEAM_LEADER": "팀장", "ORG_MANAGER": "조직장", "ADMIN": "관리자"}
+	organization := func(id *int64) string {
+		if id == nil {
+			return ""
+		}
+		return names[*id]
+	}
+	timestamp := func(value *time.Time) string {
+		if value == nil {
+			return ""
+		}
+		return value.In(a.serviceLocation(r.Context())).Format("2006-01-02 15:04")
+	}
+	yes := func(value bool) string {
+		if value {
+			return "Y"
+		}
+		return "N"
+	}
+	filename := fmt.Sprintf("weekly-users-%s.csv", time.Now().In(a.serviceLocation(r.Context())).Format("20060102"))
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+	writer := csv.NewWriter(w)
+	_ = writer.Write([]string{"아이디", "표시 이름", "이메일", "역할", "조직", "조직 고정", "Keycloak 부서", "부서 기준 조직",
+		"검토 책임자", "SSO 연결", "로컬 비밀번호", "상태", "최근 로그인", "등록일"})
+	for _, user := range users {
+		department, departmentOrganization := "", ""
+		if user.SSODepartment != nil {
+			department = *user.SSODepartment
+			departmentOrganization = organization(user.DepartmentOrganizationID)
+		}
+		manager := ""
+		if user.ManagerID != nil {
+			manager = managers[*user.ManagerID]
+		}
+		status := "활성"
+		if !user.Active {
+			status = "비활성"
+		}
+		_ = writer.Write([]string{
+			csvSafe(user.Username), csvSafe(user.DisplayName), csvSafe(user.Email), roleNames[user.Role],
+			csvSafe(organization(user.OrganizationID)), yes(user.OrganizationLocked), csvSafe(department), csvSafe(departmentOrganization),
+			csvSafe(manager), yes(user.SSO), yes(user.LocalPassword), status, timestamp(user.LastLoginAt), timestamp(&user.CreatedAt),
+		})
+	}
+	if truncated {
+		_ = writer.Write([]string{fmt.Sprintf("※ 상한 %d명에서 잘렸습니다. 필터를 좁혀 나눠 받으세요.", userExportLimit)})
+	}
+	writer.Flush()
+	a.audit(r, currentPrincipal(r.Context()), "user.export", "user", "csv", map[string]any{"rows": len(users), "truncated": truncated})
 }
 
 type organizationView struct {
