@@ -227,6 +227,16 @@ func appendSlidesToPPTX(template []byte, before, after []builtSlide) ([]byte, er
 	// Image parts are written straight from disk when the package is assembled,
 	// so at most one capture is in memory at a time.
 	mediaLoaders := map[string]func() ([]byte, error){}
+	// A name goes into the archive once. A template that carried a stray
+	// slide2.xml.rels — left behind by a page dropped upstream — used to get a
+	// second entry of that name when the new slide2 was added, and a zip with
+	// two entries of one name is a file PowerPoint repairs.
+	put := func(name string, body []byte) {
+		if _, exists := parts[name]; !exists {
+			order = append(order, name)
+		}
+		parts[name] = body
+	}
 	build := func(slides []builtSlide) string {
 		addedIDs := ""
 		for _, slide := range slides {
@@ -247,11 +257,9 @@ func appendSlidesToPPTX(template []byte, before, after []builtSlide) ([]byte, er
 					newDefaults[item.Extension] = item.ContentType
 				}
 			}
-			parts[slideName] = []byte(slideDocument(slide.Shapes))
-			order = append(order, slideName)
+			put(slideName, []byte(slideDocument(slide.Shapes)))
 			relsName := fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", number)
-			parts[relsName] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + relations + `</Relationships>`)
-			order = append(order, relsName)
+			put(relsName, []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+relations+`</Relationships>`))
 			addedIDs += fmt.Sprintf(`<p:sldId id="%d" r:id="rId%d"/>`, nextSlideID, nextRelID)
 			addedRels += fmt.Sprintf(`<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide%d.xml"/>`, nextRelID, number)
 			addedOverrides += fmt.Sprintf(`<Override PartName="/ppt/slides/slide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, number)
