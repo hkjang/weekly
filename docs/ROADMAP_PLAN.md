@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.322.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.323.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8694,3 +8694,14 @@ Keycloak 26 을 띄우고 브라우저로 세 경우를 끝까지 따라갔습�
 함께 고친 것은 조회 정렬입니다. `ORDER BY u.oidc_subject=$1 DESC` 는 SSO 를 쓴 적 없는 계정의 `NULL` 을 `DESC` 에서 맨 앞에 두므로, Keycloak 에서 이름이 바뀐 사람의 새 이름이 다른 로컬 계정과 같으면 토큰이 그 로컬 계정으로 MCP 를 열었습니다. `coalesce(u.oidc_subject=$1,false) DESC, u.id` 로 바꿨습니다. 웹 콜백(`oidcCallback`)의 같은 정렬은 이어지는 `UPDATE` 가 유일 제약에 걸려 `OIDC_PROVISION_FAILED` 로 끝나 다른 계정으로 들어가지는 않으며, 이번 범위 밖입니다.
 
 시험 네 개(`internal/app/mcpoauthprovision_test.go`)는 가짜 IdP 가 서명한 액세스 토큰으로 실제 `/mcp` 와 PostgreSQL 을 지납니다: 첫 호출의 등록과 그 내용·감사 한 줄·두 번째 호출의 무등록, 동시 첫 호출 8개의 단일 계정, 비활성 계정 세 경우의 거절과 무등록, 이름이 바뀐 SSO 사용자의 자기 계정 인증. 자동 등록 분기 차단·`ON CONFLICT` 제거·`AND u.active` 복원·비활성 판정 제거·정렬 원복·감사 제거의 여섯 돌연변이가 각각 해당 시험을 실패시키는 것을 확인하고 원복했습니다. 기존 거절 시험의 "모르는 계정" 사례는 자동 등록을 끈 배포의 거절로 바꿨습니다. 마이그레이션·환경변수·새 설정은 없습니다. 웹 로그인과 MCP 의 자동 등록을 따로 정하는 스위치, 실제 Keycloak·MCP 클라이언트로 한 끝까지의 재확인은 이번 범위 밖입니다.
+
+
+### v0.323.0 — Keycloak 부서로 소속 조직을 자동 지정하고, PPTX 가 복구 창 없이 열립니다
+
+SSO 로 만들어진 계정은 `기본 조직` 에 놓였고 관리자가 한 명씩 옮기기 전까지 그 보고서는 어느 팀장에게도 보이지 않았습니다. `internal/app/department.go` 가 Keycloak 사용자 속성 `department` 를 ID 토큰(없으면 userinfo 한 번)에서 읽어 조직으로 바꿉니다 — 관리자의 수동 매핑(`organization_department_aliases`), 조직 코드, 그 이름의 조직이 하나뿐일 때의 조직 이름 순서이며, 같은 이름의 조직이 둘 이상이면 추측하지 않고 계정을 그대로 둡니다. `oidc.department_sync` 는 `OFF`(값만 기록, 기본)·`FILL`(조직이 없거나 기본 조직일 때만)·`ALWAYS`(로그인할 때마다)이고, `oidc.department_create` 를 켜면 일치하는 조직이 없을 때 부서 이름으로 최상위 조직을 만듭니다. 자동 지정은 로그인을 막지 않고 옮길 때마다 `user.department_sync` 를 남기며, `users.organization_locked` 로 고정한 계정은 건드리지 않습니다. MCP SSO 로 처음 만든 계정도 생성 때 한 번 배치합니다. 마이그레이션 `031_sso_department.sql`.
+
+관리자 `사용자` 탭은 `AdminUsersTab.tsx` 로 옮겼습니다. 받은 부서 값마다 사용자 수·연결된 조직·이동 대기 인원을 보여 주고 매핑·조직 만들기·즉시 적용을 하는 부서 → 조직 카드(`GET /admin/departments`, `PUT /admin/departments/mapping`, `POST /admin/departments/apply`), 역할·조직·상태·접속 이력 필터와 정렬, 최대 500명 일괄 변경(`POST /admin/users/bulk`, 자기 계정이 선택에 있으면 비활성화와 관리자 권한 제거는 거절), 같은 필터의 CSV(`GET /admin/users/export`), 한글 역할 배지·SSO/로컬 배지·검토 책임자 열을 더했습니다.
+
+함께 고친 것은 내려받은 PPTX 가 PowerPoint 에서 "복구" 를 묻던 결함입니다. 실제 운영 템플릿으로 재현한 원인은 넷이었습니다 — 내용이 적은 주에 빼는 슬라이드의 `.rels` 가 남았고(PowerPoint 는 `.rels` 를 슬라이드보다 먼저 저장해 뺄지 정하기 전에 이미 복사됨), 덧붙인 이슈·캡처 슬라이드가 빠진 번호를 다시 써 ZIP 항목이 중복됐고, 빠진 슬라이드를 가리키는 노트 슬라이드가 남았고, 코드로 만드는 덱의 레이아웃 id·테마 스타일 목록·`viewProps` 가 규격을 어겼습니다. 이제 뺄 슬라이드를 복사 전에 `presentation.xml` 순서로 정하고 모든 덱이 `finalizePPTX`(`pptx_package.go`)를 거칩니다. 수정 후 파일은 PowerPoint 2016 에서 복구 창 없이 열리는 것을 확인했습니다.
+
+시험은 부서 연동 아홉 개(`department_test.go`, 가짜 IdP 로 실제 콜백과 PostgreSQL)와 PPTX 구조 검사(`pptxpackage_test.go`·`pptxrepair_test.go`, 고치기 전 소스는 실패)입니다. 남은 것은 실제 Keycloak 과의 끝까지의 연동과 새 사용자 관리 화면의 브라우저 조작 확인, 사용자 지정 템플릿의 `{{TOKEN}}` 치환이 여러 줄 값의 둘째 줄부터 서식을 잃는 별건, 그리고 CI 의 `backup-check.sh` 가 러너의 pg18 클라이언트와 pg16 서버 차이로 멈춰 그 뒤 단계가 돌지 않는 문제입니다.
