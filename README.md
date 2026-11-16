@@ -24,6 +24,8 @@
 - 관리자 설정에 따라 켜지는 팀장 검토·승인·반려 흐름
 - Keycloak 호환 OIDC Discovery, Authorization Code + PKCE, nonce 검증과 기존 Keycloak 세션의 `prompt=none` 자동 로그인
 - 조직 계층 기반 RBAC: `USER`, `TEAM_LEADER`, `ORG_MANAGER`, `ADMIN`
+- Keycloak 사용자 속성 `department` 로 소속 조직을 자동 지정하고, 연결되지 않은 부서 값을 관리자가 매핑·일괄 적용하는 부서 연동
+- 역할·조직·상태·접속 이력 필터, 일괄 변경, CSV 내려받기를 갖춘 관리자 사용자 관리
 - Argon2id 로컬 인증, DB 세션, 감사 로그, 낙관적 잠금
 - 개인 API/MCP 키 발급·폐기 및 전체 즉시 폐기형 개인 키 회전
 - 세션이 만료돼도 작성 중인 내용을 지키고, 화면 오류가 앱 전체를 멈추지 않게 하는 오류 처리

@@ -59,7 +59,11 @@ func buildRollupDeck(view rollupView) ([]byte, error) {
 		slides = append(slides, *risk)
 	}
 	title := fmt.Sprintf("%s %s 업무보고", view.Label, view.ScopeLabel)
-	return buildPPTX(rollupCanvasWidth, rollupCanvasHeight, title, slides)
+	deck, err := buildPPTX(rollupCanvasWidth, rollupCanvasHeight, title, slides)
+	if err != nil {
+		return nil, err
+	}
+	return finalizePPTX(deck)
 }
 
 func rollupHeader(id int, title, subtitle string) string {

@@ -396,6 +396,12 @@ func (a *App) reportDeck(ctx context.Context, report *reportView) ([]byte, strin
 		}
 	}
 	result = a.attachCaptureSlides(ctx, result, report.ID)
+	// Every deck leaves through the same check, whichever template and
+	// whichever additions it was built from: closed under its relationships,
+	// typed, counted. See finalizePPTX for why this is not optional.
+	if result, err = finalizePPTX(result); err != nil {
+		return nil, "", err
+	}
 	filename := fmt.Sprintf("%s_%s_주간업무보고.pptx", strings.ReplaceAll(report.WeekStart, "-", ""), report.DisplayName)
 	return result, filename, nil
 }
@@ -439,19 +445,38 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 	if err != nil {
 		return nil, err
 	}
-	slideCount := 0
+	parts := map[string][]byte{}
+	modified := map[string]time.Time{}
+	order := []string{}
 	for _, file := range reader.File {
-		if isSlideXML(file.Name) {
-			slideCount++
+		if strings.HasSuffix(file.Name, "/") {
+			continue
 		}
+		source, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(source)
+		source.Close()
+		if err != nil {
+			return nil, err
+		}
+		if _, seen := parts[file.Name]; !seen {
+			order = append(order, file.Name)
+		}
+		parts[file.Name] = data
+		modified[file.Name] = file.Modified
 	}
+	// The slides in the order the deck shows them, which is the order the
+	// presentation lists them in — not the order the zip happens to store them.
+	slides := presentationSlideOrder(parts)
 	// Only as many slides as there is work to put on them.
 	//
 	// The template is four pages. A week with one task used to export four,
 	// three of them holding nothing but the column headers and a pair of
 	// dashes. That deck goes into a meeting, and nobody reads past the first
 	// blank page wondering whether the rest failed to load.
-	groups := distributeReferenceItems(report.Items, slideCount)
+	groups := distributeReferenceItems(report.Items, len(slides))
 	used := 0
 	for _, group := range groups {
 		if len(group) > 0 {
@@ -463,51 +488,52 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 		// than a zip with no slides in it.
 		used = 1
 	}
+	if used > len(slides) {
+		used = len(slides)
+	}
+	position := map[string]int{}
+	for index, name := range slides {
+		position[name] = index
+	}
+	// Decided before a single part is copied. It used to be decided while
+	// copying, as each dropped slide went past — and a PowerPoint-saved
+	// template stores ppt/slides/_rels/slide3.xml.rels before slide3.xml, so
+	// by the time slide 3 was known to be dropped its relationships had
+	// already been written. The deck then carried relationships for slides it
+	// did not have, and the next step that added a page named it slide2.xml
+	// and wrote slide2.xml.rels a second time: two zip entries with one name.
+	// PowerPoint answers either with its repair prompt.
+	dropped := slides[used:]
+	droppedSet := map[string]bool{}
+	for _, name := range dropped {
+		droppedSet[name] = true
+	}
+	droppedIDs := droppedRelationshipIDs(string(parts["ppt/_rels/presentation.xml.rels"]), dropped)
+
 	currentHeader := fmt.Sprintf("추진실적 (%s ~ %s)", formatReferenceDate(weekStart), formatReferenceDate(weekStart.AddDate(0, 0, 6)))
 	nextStart := weekStart.AddDate(0, 0, 7)
 	nextHeader := fmt.Sprintf("추진계획 (%s ~ %s)", formatReferenceDate(nextStart), formatReferenceDate(nextStart.AddDate(0, 0, 6)))
 	var output bytes.Buffer
 	writer := zip.NewWriter(&output)
-	slideIndex := 0
-	dropped := []string{}
-	deferred := map[string][]byte{}
-	for _, file := range reader.File {
-		source, err := file.Open()
-		if err != nil {
-			return nil, err
+	// In the template's own order, never map order: two exports of one
+	// unchanged report have to be the same file, byte for byte.
+	for _, name := range order {
+		if droppedSet[name] || droppedSet[relationshipSource(name)] {
+			continue
 		}
-		data, err := io.ReadAll(source)
-		source.Close()
-		if err != nil {
-			return nil, err
-		}
-		if isSlideXML(file.Name) {
-			if slideIndex >= used {
-				// Past the last slide that carries anything. Dropping the part
-				// alone would leave a deck PowerPoint refuses, so the removal
-				// is finished below by dropSlidesAfter.
-				dropped = append(dropped, file.Name)
-				slideIndex++
-				continue
-			}
+		data := parts[name]
+		if index, isSlide := position[name]; isSlide {
 			items := []reportItem{}
-			if slideIndex < len(groups) {
-				items = groups[slideIndex]
+			if index < len(groups) {
+				items = groups[index]
 			}
 			data = []byte(renderReferenceSlide(string(data), team, currentHeader, nextHeader, items))
-			slideIndex++
 		}
-		if relatesToDroppedSlide(file.Name, dropped) {
-			continue
-		}
-		if file.Name == "[Content_Types].xml" || file.Name == "ppt/presentation.xml" || file.Name == "ppt/_rels/presentation.xml.rels" {
-			// Rewritten after the loop, once the dropped set is known.
-			deferred[file.Name] = data
-			continue
-		}
-		header := file.FileHeader
-		header.Method = zip.Deflate
-		destination, err := writer.CreateHeader(&header)
+		// The three parts that name every slide lose the dropped ones. A slide
+		// removed from the zip but left in these is a deck that downloads and
+		// will not open.
+		data = []byte(removeDroppedSlides(name, string(data), dropped, droppedIDs))
+		destination, err := writer.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate, Modified: modified[name]})
 		if err != nil {
 			return nil, err
 		}
@@ -515,55 +541,51 @@ func renderReferencePPTX(template []byte, report *reportView, team string, weekS
 			return nil, err
 		}
 	}
-	// The three parts that name every slide, rewritten now that the dropped set
-	// is known. A slide removed from the zip but left in these is a deck that
-	// downloads and will not open.
-	// The relationship ids the dropped slides are reached through, read before
-	// anything is rewritten: the slide order names ids, not file names.
-	droppedIDs := droppedRelationshipIDs(string(deferred["ppt/_rels/presentation.xml.rels"]), dropped)
-	// In name order, not map order. Go shuffles map iteration, so these three
-	// parts went into the archive in a different order almost every time and
-	// two exports of one unchanged report were different files: measured on a
-	// deployment, twenty downloads of the same report produced four distinct
-	// files and three distinct entry orders. The contents were identical every
-	// time — only the order moved — so nothing was wrong with the deck, and
-	// nothing could tell that by comparing them either. Somebody asking "did
-	// this change since the copy I kept?" got a false yes about a fifth of the
-	// time, and a content hash could never deduplicate two identical exports.
-	deferredNames := make([]string, 0, len(deferred))
-	for name := range deferred {
-		deferredNames = append(deferredNames, name)
-	}
-	sort.Strings(deferredNames)
-	for _, name := range deferredNames {
-		data := deferred[name]
-		rewritten := removeDroppedSlides(name, string(data), dropped, droppedIDs)
-		header := zip.FileHeader{Name: name, Method: zip.Deflate}
-		destination, err := writer.CreateHeader(&header)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := destination.Write([]byte(rewritten)); err != nil {
-			return nil, err
-		}
-	}
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-	return output.Bytes(), nil
+	// What hung off the dropped slides — the template's notes slides, which
+	// point back at the slide they annotate — goes with them.
+	return finalizePPTX(output.Bytes())
 }
 
-// relatesToDroppedSlide reports whether this part belongs to a slide that is not
-// being written — its own relationship file.
-func relatesToDroppedSlide(name string, dropped []string) bool {
-	for _, slide := range dropped {
-		base := strings.TrimPrefix(slide, "ppt/slides/")
-		if name == "ppt/slides/_rels/"+base+".rels" {
-			return true
+// presentationSlideOrder lists the slide parts in the order the presentation
+// shows them. A package whose slide list cannot be read falls back to the
+// slide number in the part name, which is how every generator names them.
+func presentationSlideOrder(parts map[string][]byte) []string {
+	targets := map[string]string{}
+	for _, relation := range parseRelationships(parts["ppt/_rels/presentation.xml.rels"]) {
+		targets[relation.ID] = resolvePartTarget("ppt/presentation.xml", relation.Target)
+	}
+	result := []string{}
+	seen := map[string]bool{}
+	if list := presentationSlideList.FindStringSubmatch(string(parts["ppt/presentation.xml"])); list != nil {
+		for _, match := range slideRelationshipPattern.FindAllStringSubmatch(list[1], -1) {
+			name := targets[match[1]]
+			if _, exists := parts[name]; exists && isSlideXML(name) && !seen[name] {
+				result = append(result, name)
+				seen[name] = true
+			}
 		}
 	}
-	return false
+	if len(result) > 0 {
+		return result
+	}
+	numbered := []string{}
+	for name := range parts {
+		if slideNumberPattern.MatchString(name) {
+			numbered = append(numbered, name)
+		}
+	}
+	sort.Slice(numbered, func(i, j int) bool {
+		left, _ := strconv.Atoi(slideNumberPattern.FindStringSubmatch(numbered[i])[1])
+		right, _ := strconv.Atoi(slideNumberPattern.FindStringSubmatch(numbered[j])[1])
+		return left < right
+	})
+	return numbered
 }
+
+var slideRelationshipPattern = regexp.MustCompile(`<p:sldId\s[^>]*?r:id="([^"]+)"`)
 
 // removeDroppedSlides takes the dropped slides out of the three parts that list
 // them: the content types, the slide order, and the presentation's own
@@ -1094,7 +1116,7 @@ func generatedReferenceSlide(_ int) string {
 	headerPlan := "추진계획 (2026.2.2 ~ 2026.2.6)"
 	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>` +
 		generatedReferenceLabel(2, "Team", 8171160, 304608, 1534394, 292388, "AI엔지니어링 파트", 1300, true, "r") +
-		`<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Weekly actual and plan table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="272480" y="764704"/><a:ext cx="9433050" cy="5616625"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr><a:noFill/><a:tableStyleId>{9B8FA427-CB96-4E00-B161-538A03E3D982}</a:tableStyleId></a:tblPr><a:tblGrid><a:gridCol w="4716525"/><a:gridCol w="4716525"/></a:tblGrid><a:tr h="267825">` +
+		`<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Weekly actual and plan table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="272480" y="764704"/><a:ext cx="9433050" cy="5616625"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr><a:noFill/><a:tableStyleId>{2D5ABB26-0587-4C30-8999-92F81FD0307C}</a:tableStyleId></a:tblPr><a:tblGrid><a:gridCol w="4716525"/><a:gridCol w="4716525"/></a:tblGrid><a:tr h="267825">` +
 		generatedReferenceHeaderCell(headerActual) + generatedReferenceHeaderCell(headerPlan) +
 		`</a:tr><a:tr h="5348800">` + generatedReferenceContentCell() + generatedReferenceContentCell() + `</a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>` +
 		generatedReferenceLabel(4, "Footer", 272480, 6470000, 3500000, 260000, "주간업무 추진실적 및 계획", 1100, true, "l") +
@@ -1135,14 +1157,14 @@ const defaultCoreProps = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 const defaultPresentation = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst><p:sldSz cx="12192000" cy="6858000" type="screen16x9"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle/></p:presentation>`
 const defaultPresentationRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps" Target="presProps.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps" Target="viewProps.xml"/><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles" Target="tableStyles.xml"/></Relationships>`
 const defaultPresProps = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`
-const defaultViewProps = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:viewPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:normalViewPr/><p:slideViewPr/><p:notesTextViewPr/><p:gridSpacing cx="78028800" cy="78028800"/></p:viewPr>`
+const defaultViewProps = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:viewPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:normalViewPr><p:restoredLeft sz="15620"/><p:restoredTop sz="94660"/></p:normalViewPr><p:slideViewPr><p:cSldViewPr><p:cViewPr varScale="1"><p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr><p:guideLst/></p:cSldViewPr></p:slideViewPr><p:notesTextViewPr><p:cViewPr><p:scale><a:sx n="1" d="1"/><a:sy n="1" d="1"/></p:scale><p:origin x="0" y="0"/></p:cViewPr></p:notesTextViewPr><p:gridSpacing cx="72008" cy="72008"/></p:viewPr>`
 const defaultTableStyles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`
 const defaultSlideRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`
 const defaultSlideLayout = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`
 const defaultSlideLayoutRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`
-const defaultSlideMaster = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMap accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" bg1="lt1" bg2="lt2" folHlink="folHlink" hlink="hlink" tx1="dk1" tx2="dk2"/><p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>`
+const defaultSlideMaster = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMap accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" bg1="lt1" bg2="lt2" folHlink="folHlink" hlink="hlink" tx1="dk1" tx2="dk2"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>`
 const defaultSlideMasterRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`
-const defaultTheme = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Weekly"><a:themeElements><a:clrScheme name="Weekly"><a:dk1><a:srgbClr val="0F172A"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="172554"/></a:dk2><a:lt2><a:srgbClr val="F8FAFC"/></a:lt2><a:accent1><a:srgbClr val="2563EB"/></a:accent1><a:accent2><a:srgbClr val="0D9488"/></a:accent2><a:accent3><a:srgbClr val="F59E0B"/></a:accent3><a:accent4><a:srgbClr val="7C3AED"/></a:accent4><a:accent5><a:srgbClr val="EC4899"/></a:accent5><a:accent6><a:srgbClr val="64748B"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Weekly"><a:majorFont><a:latin typeface="Aptos Display"/><a:ea typeface="Noto Sans KR"/><a:cs typeface="Arial"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/><a:ea typeface="Noto Sans KR"/><a:cs typeface="Arial"/></a:minorFont></a:fontScheme><a:fmtScheme name="Weekly"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`
+const defaultTheme = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Weekly"><a:themeElements><a:clrScheme name="Weekly"><a:dk1><a:srgbClr val="0F172A"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="172554"/></a:dk2><a:lt2><a:srgbClr val="F8FAFC"/></a:lt2><a:accent1><a:srgbClr val="2563EB"/></a:accent1><a:accent2><a:srgbClr val="0D9488"/></a:accent2><a:accent3><a:srgbClr val="F59E0B"/></a:accent3><a:accent4><a:srgbClr val="7C3AED"/></a:accent4><a:accent5><a:srgbClr val="EC4899"/></a:accent5><a:accent6><a:srgbClr val="64748B"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Weekly"><a:majorFont><a:latin typeface="Aptos Display"/><a:ea typeface="Noto Sans KR"/><a:cs typeface="Arial"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/><a:ea typeface="Noto Sans KR"/><a:cs typeface="Arial"/></a:minorFont></a:fontScheme><a:fmtScheme name="Weekly"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`
 
 var defaultSlide = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>` +
 	shapeXML(2, "Title", 500000, 280000, 7600000, 650000, "주간업무보고", "172554", "FFFFFF", 2600, true) +

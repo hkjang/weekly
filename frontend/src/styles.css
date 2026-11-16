@@ -469,3 +469,21 @@ a.sr-tag:hover{background:#cbd5e1;text-decoration:underline}
    보였고, 접근성 검사는 그 27행을 키보드로 닿지 않는 조작으로 셌습니다. 행을 여는
    곳은 모두 openable() 을 쓰고 그것이 role=button 을 달기 때문에, 커서는 그 표시를
    따라갑니다. */
+.card-actions{display:flex;gap:8px;align-items:center}
+.user-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 14px}
+.user-filters .search-inline{flex:1 1 220px;min-width:180px}
+.user-filters select,.bulk-bar select,.department-table select{height:36px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:#fff;max-width:220px}
+.user-create{padding:14px;margin-bottom:14px;background:#f8fafc;border:1px solid var(--line);border-radius:10px}
+.bulk-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin-bottom:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px}
+.bulk-bar strong{margin-right:6px;color:#1d4ed8}
+.table-wrap tr.row-selected{background:#f5f9ff}
+.table-wrap td input[type=checkbox],.table-wrap th input[type=checkbox]{min-width:0;width:16px;height:16px;padding:0}
+.badge.role-user{background:var(--status-draft-bg);color:var(--status-draft-ink)}
+.badge.role-team_leader{background:var(--status-submitted-bg);color:var(--status-submitted-ink)}
+.badge.role-org_manager{background:#ede9fe;color:#5b21b6}
+.badge.role-admin{background:var(--status-revision-bg);color:var(--status-revision-ink)}
+.badge.login-sso{background:var(--status-approved-bg);color:var(--status-approved-ink);margin-right:4px}
+.badge.login-local{background:var(--status-draft-bg);color:var(--status-draft-ink)}
+.badge.pin-badge{background:var(--state-stalled-bg);color:var(--state-stalled-ink);margin-left:6px}
+.row-actions{white-space:nowrap}.row-actions .text-button{color:var(--blue);margin-right:8px}
+.modal-form .modal-wide{grid-column:1/-1;margin:0}
