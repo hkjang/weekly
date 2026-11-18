@@ -1,6 +1,6 @@
 # Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)
 
-- **문서 버전**: v0.324.0 (현재) ~ v1.0-VISION
+- **문서 버전**: v0.325.0 (현재) ~ v1.0-VISION
 - **작성일자**: 2026년 8월 9일
 - **최종 정렬**: 2026년 8월 21일 (v0.25.0 기준)
 - **문서 분류**: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)
@@ -8715,3 +8715,13 @@ SSO 로 만들어진 계정은 `기본 조직` 에 놓였고 관리자가 한 �
 `organizations.mail_blocked` 와 SQL 함수 `organization_mail_blocked()`(깊이 16 으로 묶은 위쪽 걷기)로 조직 단위 메일 발송 제외를 더했습니다. 제외 조직과 하위 조직 소속에게는 작성 권고·마감 알림·제출 사본·개인 시험 발송을 큐에 넣을 때와 보내기 직전에 모두 막습니다. 이름이 임원실인 조직은 처음부터 제외이고(`defaultMailBlocked`, 부서 연동의 자동 생성 포함), 마이그레이션 `032_mail_exclusions.sql` 이 기존 임원실을 제외로 바꿉니다. 조직 탭에서 켜고 끄며 수동 발송 결과에 `skippedExcluded` 가 더해졌습니다.
 
 시험은 `mailexclusion_test.go` 의 넷(수신 선택, 가까운 리더 우선, 임원실 차단, 업그레이드 시 기존 임원실 제외)과 수신을 켠 상태로 고친 기존 권고 시험입니다. 남은 것은 개인 설정·조직 탭의 브라우저 조작 확인과 실제 사내 릴레이 발송, 그리고 CI 의 `backup-check.sh` 가 러너의 pg18 클라이언트와 pg16 서버 차이로 멈춰 그 뒤 단계가 돌지 않는 문제입니다.
+
+### v0.325.0 — 메일은 원할 때만, 끄는 것은 메일 안에서 한 번에. 그리고 복구가 끝까지 갑니다
+
+v0.324.0 의 옵트인 원칙을 끝까지 밀었습니다. `internal/app/mailunsubscribe.go` 가 제출 사본·마감 알림·작성 권고 메일에 같은 꼬리말(`mailFooter` — 어느 스위치를 켜 두어서 왔는지, 로그인 없이 끄는 링크, 개인 설정 링크)과 `List-Unsubscribe`(HTTPS 이면 RFC 8058 원클릭 `List-Unsubscribe-Post`)를 답니다. 링크는 한 사람·한 메일 종류에 대한 서명 토큰이며 서명 키는 암호화 키에서 파생한 `secretBox.linkKey` 라 저장소가 따로 없고, 토큰으로 할 수 있는 일은 그 사람의 메일을 끄는 것뿐입니다. `GET /mail/unsubscribe` 는 확인 페이지만 보이고(메일 검사기가 링크를 미리 열어도 무변경), `POST` 가 끄면서 대기 중인 발송을 지웁니다. 링크 주소는 새 설정 `service.public_url`, 없으면 `oidc.redirect_url` 의 주소로 만듭니다. 감사 이벤트 `mail.unsubscribe`.
+
+권고 메일이 기본 미발송이 되자 팀장이 버튼을 누른 뒤에야 아무에게도 가지 않았음을 알게 되는 일이 생겼습니다. `GET /me/team-reminders/preview` 는 버튼과 같은 트랜잭션(`planTeamReminders`)을 실행하고 되돌려 지금 보내면 몇 명에게 가는지와 수신 안 함·발송 제외·이미 발송 인원을 주고, 받을 사람이 없으면 버튼을 막습니다. 관리자 메일 카드는 `/admin/mail/health` 의 `subscribers` 로 종류별 수신 인원을, 개인 설정 메일 카드는 세 종류를 모두 센 상태를 보여 줍니다. 원칙 자체는 `TestANewAccountReceivesNoMailUntilItAsks` 가 지킵니다.
+
+`weekly-backup.sh restore` 는 서버보다 새 `pg_restore`(17·18)가 보내는 `SET transaction_timeout = 0` 한 줄의 거부로 종료 코드 1 을 받아, DB 를 복원한 직후 상태 볼륨(첨부·`instance.key`)을 복원하기 전에 멈췄습니다 — 이 스크립트가 막으려는 바로 그 반쪽 복구입니다. 이제 그 한 가지 거부만 안내하고 넘어가며, 다른 오류는 상태 볼륨을 건드리지 않고 종료 코드 5 로 멈춥니다. CI 러너가 정확히 이 조합(클라이언트 18, 서버 16)이라 v0.322.0 부터 `backup-check.sh` 가 실패하고 그 뒤 단계가 돌지 않았는데, 이 수정으로 CI 가 다시 끝까지 돕니다.
+
+남은 것은 실제 메일 프로그램(Outlook 등)의 수신 거부 단추·원클릭 동작 확인과 새 화면의 브라우저 조작 확인입니다.

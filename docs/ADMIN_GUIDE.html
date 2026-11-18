@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ADMIN_GUIDE.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 관리자 가이드</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.324.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: 구성 요소, 릴리즈 자산으로 설치, 환경 변수와 관리자 설정, 계정과 권한, 운영(백업·상태·업그레이드), 장애 대응, 보안. 화면을 쓰는 사람의 안내는 [사용자 가이드](USER_GUIDE.md)에 있습니다.</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.325.0</div><div class="meta-item"><strong>대상</strong>: 시스템 관리자, Security/DevOps 엔지니어, 데이터 보안 담당자</div><div class="meta-item"><strong>문서 개요</strong>: 구성 요소, 릴리즈 자산으로 설치, 환경 변수와 관리자 설정, 계정과 권한, 운영(백업·상태·업그레이드), 장애 대응, 보안. 화면을 쓰는 사람의 안내는 [사용자 가이드](USER_GUIDE.md)에 있습니다.</div></div></div>
 <p>이 문서의 그림은 실제로 띄운 Weekly v0.295.0 을 headless Chrome 이 1440×900 으로 찍은 것입니다(<code>scripts/guide-captures.py</code>). 화면의 이름·조직은 시험용 씨앗 데이터이며 실제 사람이 아닙니다. 운영 세부(백업 순서, 보안 통제 목록, 업그레이드 절차)는 [운영 및 보안 가이드](OPERATIONS.md)가 정본이고 여기서는 가리킵니다.</p>
 <hr>
 <h2>1. 구성 요소</h2>
@@ -61,12 +61,12 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <p>자원: Compose 기본값은 <code>mem_limit: 1g</code>, <code>cpus: 2</code>, <code>/tmp</code> tmpfs 512MiB 입니다. PPTX 내보내기는 한 요청이 <code>보고서당 최대 캡처 수 × 캡처 파일당 최대 MB × 3.5</code> 만큼 메모리를 쓰므로 첨부를 많이 허용하면 한도를 그만큼 올립니다(관리자 화면 <code>화면 캡처 첨부</code> 카드가 같은 계산을 보여 줍니다).</p>
 <hr>
 <h2>2. 설치</h2>
-<p>GitHub Release 에서 <code>weekly-v0.324.0.tar.gz</code> 하나만 반입합니다. 자세한 검증 근거(파일 해시와 이미지 다이제스트가 왜 둘 다 필요한지)는 [README 오프라인 설치](../README.md#오프라인-설치)에 있고, 여기서는 순서대로 붙여 넣을 명령만 적습니다.</p>
+<p>GitHub Release 에서 <code>weekly-v0.325.0.tar.gz</code> 하나만 반입합니다. 자세한 검증 근거(파일 해시와 이미지 다이제스트가 왜 둘 다 필요한지)는 [README 오프라인 설치](../README.md#오프라인-설치)에 있고, 여기서는 순서대로 붙여 넣을 명령만 적습니다.</p>
 <div class="phase-box"># 1. 파일이 온전히 왔는지 — 릴리즈에 적힌 SHA-256 과 비교
-sha256sum weekly-v0.324.0.tar.gz
+sha256sum weekly-v0.325.0.tar.gz
 
-# 2. 이미지 적재. 같은 버전의 weekly:v0.324.0 이 생깁니다
-gzip -dc weekly-v0.324.0.tar.gz | docker load
+# 2. 이미지 적재. 같은 버전의 weekly:v0.325.0 이 생깁니다
+gzip -dc weekly-v0.325.0.tar.gz | docker load
 
 # 3. 환경 파일. deploy/.env.example 을 복사해 값을 채웁니다
 cp deploy/.env.example deploy/.env
@@ -89,7 +89,7 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 <h3>3.1 환경 변수 (전수)</h3>
 <p>프로세스가 읽는 환경 변수는 아래 다섯 개가 전부입니다(<code>internal/app/config.go</code>). 나머지 설정은 모두 관리자 화면에 있고 PostgreSQL 에 저장됩니다.</p>
 <table><thead><tr><th>이름</th><th>기본값</th><th>필수</th><th>설명</th></tr></thead><tbody><tr><td><code>WEEKLY_POSTGRES_DSN</code></td><td>없음</td><td><strong>필수</strong></td><td>PostgreSQL 연결 문자열. 예: <code>postgres://weekly:비밀번호@db.example.internal:5432/weekly?sslmode=require</code></td></tr><tr><td><code>WEEKLY_BOOTSTRAP_ADMIN</code></td><td>없음</td><td>첫 기동만</td><td>관리자가 하나도 없는 DB 에서만 읽습니다. 최초 관리자 아이디</td></tr><tr><td><code>WEEKLY_BOOTSTRAP_ADMIN_PASSWORD</code></td><td>없음</td><td>첫 기동만</td><td>최초 관리자 비밀번호. <strong>12자 이상</strong>이 아니면 기동을 거절합니다. 기동 뒤 화면에서 바꿀 수 있습니다</td></tr><tr><td><code>WEEKLY_ENCRYPTION_KEY</code></td><td>없음 (볼륨의 <code>instance.key</code> 로 대체)</td><td>강력 권장</td><td>관리자 화면에서 입력한 OIDC Client Secret·AI API Key·Confluence 비밀번호·ITSM 토큰·SMTP 비밀번호를 보호하는 마스터 키. <code>openssl rand -base64 32</code> 로 한 번 만들고 업그레이드마다 같은 값을 유지합니다. 비우면 키가 상태 볼륨에만 저장되는 하위 호환 모드이며 기동 로그가 그 사실을 적습니다</td></tr><tr><td><code>WEEKLY_ALLOW_SECRET_RESET</code></td><td><code>false</code></td><td>선택</td><td>비밀 설정을 복호화할 수 없는 상태에서 기동을 강행하고 모두 다시 입력하기로 했을 때만 <code>true</code>. 기존 암호문은 지우지 않고 화면에 <code>다시 입력 필요</code>로 표시합니다</td></tr></tbody></table>
-<p>Compose 파일은 <code>WEEKLY_VERSION</code>(이미지 태그, 기본 <code>0.324.0</code>)도 읽습니다. 이것은 프로세스가 아니라 <code>deploy/compose.yaml</code>의 변수입니다.</p>
+<p>Compose 파일은 <code>WEEKLY_VERSION</code>(이미지 태그, 기본 <code>0.325.0</code>)도 읽습니다. 이것은 프로세스가 아니라 <code>deploy/compose.yaml</code>의 변수입니다.</p>
 <h3>3.2 관리자 화면의 서비스 설정</h3>
 <p><code>관리자 설정 → 서비스 설정</code> 탭입니다. 카드마다 그 설정이 하는 일이 화면에 적혀 있고, <code>설정 저장</code>은 화면 전체를 한 번에 저장합니다. 비밀값(Client Secret, API Key, 비밀번호, 토큰)은 암호화되어 저장되고 브라우저로 다시 내려가지 않으며, 입력란을 비워 저장하면 기존 값이 유지됩니다. <code>지우기</code>로만 지웁니다.</p>
 <figure><img src="assets/guide/admin-settings.png" alt="관리자 설정 — 서비스 설정 탭. 일반·워크플로 카드와 인증·Keycloak OIDC 카드"><figcaption>관리자 설정 — 서비스 설정 탭. 일반·워크플로 카드와 인증·Keycloak OIDC 카드</figcaption></figure>
@@ -132,10 +132,19 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 <p><code>주간보고 메일 발송</code> 카드에서 <code>주간보고 메일 발송 사용</code>, 호스트·포트·보안·계정·보내는 주소를 저장하고 <code>메일 발송 시험</code>(<code>POST /api/v1/admin/settings/mail/test</code>, 관리자 본인 주소로 짧은 메일)을 통과시킨 뒤 사용자에게 안내합니다. 사내 릴레이가 포트 25 에 인증 없이 열려 있는 경우가 흔해 보안 <code>없음(평문)</code>이 기본이지만, <strong>계정을 쓰려면 STARTTLS 나 TLS 가 필요합니다</strong> — 평문 연결에는 비밀번호를 싣지 않습니다.</p>
 <p>이 설정 하나가 세 가지 메일을 보냅니다. 발송은 모두 제출 트랜잭션 밖의 큐이므로 릴레이가 죽어 있어도 제출은 실패하지 않습니다.</p>
 <p><strong>메일은 보수적으로 나갑니다.</strong> 세 가지 모두 <strong>받는 사람 본인이 개인 설정에서 켠 경우에만</strong> 가고, 처음에는 모두 꺼져 있습니다(<code>user_mail_settings</code> 의 <code>on_submit</code>·<code>schedule_reminder</code>·<code>team_reminder</code>, 기본 <code>false</code>). 계정 이메일이 있거나 받을 주소를 저장한 것만으로는 아무것도 보내지 않습니다. 수신 여부를 바꾸는 경로는 본인의 <code>PUT /api/v1/me/mail</code> 하나뿐이며 관리자·SSO 자동 등록·부서 연동은 남의 수신을 켜지 않습니다. 팀장이 권고 메일을 예약하거나 직접 눌러도 수신을 켜지 않은 사람에게는 가지 않습니다. 시험 발송은 누른 사람 본인에게만 갑니다. 이 원칙은 시험 <code>TestANewAccountReceivesNoMailUntilItAsks</code> 가 지킵니다.</p>
+<p><strong>메일마다 수신 끄기 링크가 붙습니다.</strong> 세 메일의 하단에 왜 받았는지(어느 스위치를 켜 두어서인지)와 <strong>로그인 없이 그 메일을 끄는 링크</strong>, 개인 설정 링크가 붙고, 메일 헤더에 <code>List-Unsubscribe</code>(HTTPS 이면 원클릭 <code>List-Unsubscribe-Post</code> 도)가 붙어 메일 프로그램이 자체 <code>수신 거부</code> 단추를 보여 줍니다.</p>
+<ul>
+<li>링크 주소는 <code>서비스 설정 → 일반 · 워크플로 → 서비스 주소</code>(<code>service.public_url</code>)로 만듭니다. 비워 두면 <code>oidc.redirect_url</code> 의 주소(스킴·호스트)를 씁니다. 둘 다 없으면 링크 대신 "개인 설정에서 끄십시오" 문장만 넣습니다. 사용자가 실제로 여는 주소(리버스 프록시 바깥 주소)를 넣으십시오.</li>
+<li>링크(<code>/mail/unsubscribe?t=…</code>)는 한 사람·한 메일 종류에 대한 서명 토큰입니다. 서명 키는 암호화 키(<code>WEEKLY_ENCRYPTION_KEY</code> 또는 <code>instance.key</code>)에서 파생하므로 별도 저장소가 없고, 키를 바꾸면 이전 링크는 "링크가 올바르지 않습니다" 로 끝납니다. 토큰으로 할 수 있는 일은 <strong>그 사람의 메일을 끄는 것뿐</strong>입니다(켜기·다른 변경 불가).</li>
+<li>링크를 열면(<code>GET</code>) 확인 페이지만 보이고 아무것도 바뀌지 않습니다 — 메일 보안 검사기가 링크를 미리 열기 때문입니다. <code>이 메일만 끄기</code>·<code>모든 메일 끄기</code> 단추(<code>POST</code>)나 메일 프로그램의 원클릭 요청이 실제로 끄며, 그 종류의 발송 대기 행도 지웁니다. 감사 이벤트 <code>mail.unsubscribe</code>(<code>detail.via</code> = <code>page</code>/<code>one-click</code>).</li>
+<li>리버스 프록시가 <code>/api</code> 와 정적 파일만 넘기도록 경로를 제한해 두었다면 <code>/mail/unsubscribe</code> 도 넘기도록 추가하십시오.</li>
+</ul>
+<p><strong>누가 무엇을 받는지.</strong> 카드 아래 발송 현황에 이어 <code>수신을 켠 사람 — 제출 사본 N명 · 마감 알림 N명 · 작성 권고 N명 (활성 사용자 N명 중)</code> 이 표시되고, 메일 발송 제외 조직 소속이 있으면 그 인원도 함께 나옵니다(<code>GET /api/v1/admin/mail/health</code> 의 <code>subscribers</code>).</p>
 <table><thead><tr><th>메일</th><th>누가 켜나</th><th>언제</th><th>큐 테이블</th></tr></thead><tbody><tr><td>제출 메일 (본문 + PPTX 첨부)</td><td>사용자 개인 설정 <code>제출할 때 보내기</code></td><td>제출 직후</td><td><code>report_mail_deliveries</code></td></tr><tr><td>팀원 작성 권고</td><td>팀장 이상 개인 설정, 또는 <code>지금 권고 메일 보내기</code> — <strong>받는 사람이 <code>작성 권고 메일 받기</code>를 켠 경우에만</strong></td><td>선택 요일 09:00 이후 주 1회 / 즉시</td><td><code>team_reminder_deliveries</code> (<code>origin</code> AUTO/MANUAL)</td></tr><tr><td>상황판 마감 임박 알림</td><td>사용자 개인 설정 <code>마감 임박 알림 받기</code></td><td>매일 09:00 이후, 보낼 것이 있을 때만</td><td><code>schedule_reminder_deliveries</code> (<code>UNIQUE(user_id, reminder_on)</code>)</td></tr></tbody></table>
 <ul>
 <li>제출 메일의 첨부는 <code>GET /api/v1/reports/{id}/export.pptx</code>와 같은 렌더링 경로라 바이트 단위로 같은 파일입니다. 상한 10MiB 를 넘거나 렌더링에 실패하면 <strong>메일은 그대로 보내고</strong> 본문 첫 줄에 이유를 적으며 로그(<code>report mail deck</code>, <code>report mail deck too large</code>)에 남깁니다. 300명이 같은 월요일에 제출하면 사람당 수백 KB~수 MB 가 추가로 나가니 릴레이의 메시지 크기 제한과 큐 용량을 확인하십시오.</li>
 <li>사용자 <code>시험 발송</code>(<code>POST /api/v1/me/mail/test</code>)은 언제나 요청한 본인에게 가장 최근 보고서를 제출 때와 같은 본문·첨부로 보냅니다. 한 사용자당 30초에 한 번(<code>429 TOO_MANY_ATTEMPTS</code>), SMTP 미설정이면 <code>400 MAIL_CONFIGURATION_INVALID</code>, 릴레이 거부면 <code>502 MAIL_SEND_FAILED</code>. 감사 이벤트 <code>mail.test</code>.</li>
+<li>팀장 이상은 개인 설정의 수동 발송 카드에서 <strong>누르기 전에</strong> "지금 보내면 N명에게 갑니다" 와 미제출·수신 안 함·발송 제외·이미 발송 인원을 봅니다(<code>GET /api/v1/me/team-reminders/preview</code> — 같은 트랜잭션을 실행하고 되돌리므로 누른 결과와 같음). 받을 사람이 없으면 버튼이 비활성화됩니다.</li>
 <li>팀원 권고(<code>POST /api/v1/me/team-reminders</code>, <code>TEAM_LEADER</code>·<code>ORG_MANAGER</code>·<code>ADMIN</code>)는 서버가 발송 직전 역할·조직 범위·제출 여부를 다시 계산합니다. 팀장·조직장은 본인 조직과 하위 조직, 관리자는 전체 활성 사용자, 본인 제외. <code>recipient_user_id + week_start</code> 유일 제약으로 같은 주에 한 통만 만들고, SMTP 가 준비되지 않았으면 <code>409 MAIL_RELAY_NOT_READY</code>. 감사 이벤트 <code>mail.team_reminders_queued</code>·<code>mail.team_reminders_manual</code>.</li>
 <li><strong>권고 메일은 옵트인입니다.</strong> 사용자가 <code>개인 설정 → 주간보고 메일 발송</code>에서 <code>작성 권고 메일 받기</code>를 켠 경우에만 갑니다(<code>user_mail_settings.team_reminder</code>, 기본 <code>false</code>). v0.324.0 으로 올리면 <strong>기존 사용자도 모두 꺼진 상태</strong>로 시작하므로, 권고 메일을 계속 쓰려면 사용자에게 켜 달라고 안내해야 합니다. 켜지 않은 사람은 수동 발송 결과의 <code>수신 안 함</code>(<code>skippedNotOptedIn</code>)으로 집계됩니다. 끄면 대기 중인 권고도 지웁니다.</li>
 <li><strong>메일 본문에 권고자 이름이 없습니다.</strong> 받는 사람 이름·주차·끄는 방법만 있고, 누가 예약하거나 눌렀는지는 <code>team_reminder_deliveries.requested_by</code>와 감사 로그에 남습니다. 이전에는 관리자 계정이 자동 발송을 켜 두면 거의 모든 메일이 <code>권고한 사람: 관리자</code>로 나갔습니다.</li>
@@ -209,7 +218,7 @@ curl -fsS http://127.0.0.1:8080/readyz</div>
 {&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;bootstrap administrator ensured&quot;,&quot;username&quot;:&quot;admin&quot;}
 {&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;database capabilities detected&quot;,&quot;pg_trgm&quot;:true,&quot;pgvector&quot;:false}
 {&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;password hashing pool sized&quot;,&quot;workers&quot;:8,&quot;reserved_mib&quot;:512,&quot;container_limit_mib&quot;:0}
-{&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;Weekly started&quot;,&quot;address&quot;:&quot;:8080&quot;,&quot;version&quot;:&quot;0.324.0&quot;}</div>
+{&quot;level&quot;:&quot;INFO&quot;,&quot;msg&quot;:&quot;Weekly started&quot;,&quot;address&quot;:&quot;:8080&quot;,&quot;version&quot;:&quot;0.325.0&quot;}</div>
 <p><code>key_source</code>가 <code>environment</code>가 아니라 볼륨이면 <code>WEEKLY_ENCRYPTION_KEY</code>가 없는 하위 호환 모드입니다. <code>container_limit_mib</code>가 0 이면 메모리 한도 없이 호스트 메모리를 상속한 것이니 Compose 의 <code>mem_limit</code>를 확인하십시오.</p>
 <h3>5.3 백업과 복구</h3>
 <p>같은 복구 시점의 <strong>PostgreSQL 데이터베이스</strong>와 <strong><code>/var/lib/weekly</code> 볼륨</strong>을 함께 백업하고, <code>WEEKLY_ENCRYPTION_KEY</code>는 Secret Manager 에 따로 보관합니다. <code>scripts/weekly-backup.sh</code>가 두 대상을 한 번에 처리합니다.</p>

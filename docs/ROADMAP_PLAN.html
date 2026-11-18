@@ -53,7 +53,7 @@ blockquote { margin: 16px 0; padding: 12px 16px; background: #fffbeb;
 <div class="doc-card">
 <a class="print-btn" href="ROADMAP_PLAN.pdf">PDF 내려받기</a>
 <div class="header-meta"><h1>Weekly 엔터프라이즈 중장기 기술 로드맵 (Product Roadmap Plan)</h1>
-<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.324.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
+<div class="meta-grid"><div class="meta-item"><strong>문서 버전</strong>: v0.325.0 (현재) ~ v1.0-VISION</div><div class="meta-item"><strong>작성일자</strong>: 2026년 8월 9일</div><div class="meta-item"><strong>최종 정렬</strong>: 2026년 8월 21일 (v0.25.0 기준)</div><div class="meta-item"><strong>문서 분류</strong>: 비즈니스 및 아키텍처 중장기 로드맵 (Strategic Product Roadmap)</div></div></div>
 <h2>1. 현재 위치와 다음 방향</h2>
 <p>v0.10.0까지 <strong>"주간보고를 잘 만드는 시스템"</strong> 은 상당 부분 완성됐습니다. 작성·승인, 기간 집계, 경영 인사이트, PPTX 내보내기, Confluence 근거 기반 초안, 내용 검색, 관리자 분석이 모두 동작합니다.</p>
 <p>다음 단계의 성격은 다릅니다. <strong>"회사가 지금 무슨 일을 하고 있고, 무엇이 바뀌었고, 무엇이 막혀 있고, 왜 그렇게 결정했는지 아는 시스템"</strong> 으로 전환합니다. 이를 위한 핵심 축은 네 개입니다.</p>
@@ -4454,6 +4454,11 @@ never executed bootstrapAdmin          (v0.275.0 에서 내가 더함)</div>
 <p><code>user_mail_settings.team_reminder</code>(기본 <code>false</code>)로 받는 사람이 권고 메일을 켭니다 — 마감 임박 알림이 030 부터 지켜 온 옵트인 규칙을 권고 메일에도 적용한 것이며 기존 사용자도 꺼진 채로 시작합니다. <code>PUT /me/mail</code> 에서 키를 생략하면 값을 유지해 옛 화면이 수신 여부를 바꾸지 않고, 끄면 대기 중인 권고를 지우며, 발송 직전 <code>reminderStillWanted</code> 가 다시 확인합니다. 수동 발송 결과에 <code>skippedNotOptedIn</code> 이 더해졌습니다.</p>
 <p><code>organizations.mail_blocked</code> 와 SQL 함수 <code>organization_mail_blocked()</code>(깊이 16 으로 묶은 위쪽 걷기)로 조직 단위 메일 발송 제외를 더했습니다. 제외 조직과 하위 조직 소속에게는 작성 권고·마감 알림·제출 사본·개인 시험 발송을 큐에 넣을 때와 보내기 직전에 모두 막습니다. 이름이 임원실인 조직은 처음부터 제외이고(<code>defaultMailBlocked</code>, 부서 연동의 자동 생성 포함), 마이그레이션 <code>032_mail_exclusions.sql</code> 이 기존 임원실을 제외로 바꿉니다. 조직 탭에서 켜고 끄며 수동 발송 결과에 <code>skippedExcluded</code> 가 더해졌습니다.</p>
 <p>시험은 <code>mailexclusion_test.go</code> 의 넷(수신 선택, 가까운 리더 우선, 임원실 차단, 업그레이드 시 기존 임원실 제외)과 수신을 켠 상태로 고친 기존 권고 시험입니다. 남은 것은 개인 설정·조직 탭의 브라우저 조작 확인과 실제 사내 릴레이 발송, 그리고 CI 의 <code>backup-check.sh</code> 가 러너의 pg18 클라이언트와 pg16 서버 차이로 멈춰 그 뒤 단계가 돌지 않는 문제입니다.</p>
+<h3>v0.325.0 — 메일은 원할 때만, 끄는 것은 메일 안에서 한 번에. 그리고 복구가 끝까지 갑니다</h3>
+<p>v0.324.0 의 옵트인 원칙을 끝까지 밀었습니다. <code>internal/app/mailunsubscribe.go</code> 가 제출 사본·마감 알림·작성 권고 메일에 같은 꼬리말(<code>mailFooter</code> — 어느 스위치를 켜 두어서 왔는지, 로그인 없이 끄는 링크, 개인 설정 링크)과 <code>List-Unsubscribe</code>(HTTPS 이면 RFC 8058 원클릭 <code>List-Unsubscribe-Post</code>)를 답니다. 링크는 한 사람·한 메일 종류에 대한 서명 토큰이며 서명 키는 암호화 키에서 파생한 <code>secretBox.linkKey</code> 라 저장소가 따로 없고, 토큰으로 할 수 있는 일은 그 사람의 메일을 끄는 것뿐입니다. <code>GET /mail/unsubscribe</code> 는 확인 페이지만 보이고(메일 검사기가 링크를 미리 열어도 무변경), <code>POST</code> 가 끄면서 대기 중인 발송을 지웁니다. 링크 주소는 새 설정 <code>service.public_url</code>, 없으면 <code>oidc.redirect_url</code> 의 주소로 만듭니다. 감사 이벤트 <code>mail.unsubscribe</code>.</p>
+<p>권고 메일이 기본 미발송이 되자 팀장이 버튼을 누른 뒤에야 아무에게도 가지 않았음을 알게 되는 일이 생겼습니다. <code>GET /me/team-reminders/preview</code> 는 버튼과 같은 트랜잭션(<code>planTeamReminders</code>)을 실행하고 되돌려 지금 보내면 몇 명에게 가는지와 수신 안 함·발송 제외·이미 발송 인원을 주고, 받을 사람이 없으면 버튼을 막습니다. 관리자 메일 카드는 <code>/admin/mail/health</code> 의 <code>subscribers</code> 로 종류별 수신 인원을, 개인 설정 메일 카드는 세 종류를 모두 센 상태를 보여 줍니다. 원칙 자체는 <code>TestANewAccountReceivesNoMailUntilItAsks</code> 가 지킵니다.</p>
+<p><code>weekly-backup.sh restore</code> 는 서버보다 새 <code>pg_restore</code>(17·18)가 보내는 <code>SET transaction_timeout = 0</code> 한 줄의 거부로 종료 코드 1 을 받아, DB 를 복원한 직후 상태 볼륨(첨부·<code>instance.key</code>)을 복원하기 전에 멈췄습니다 — 이 스크립트가 막으려는 바로 그 반쪽 복구입니다. 이제 그 한 가지 거부만 안내하고 넘어가며, 다른 오류는 상태 볼륨을 건드리지 않고 종료 코드 5 로 멈춥니다. CI 러너가 정확히 이 조합(클라이언트 18, 서버 16)이라 v0.322.0 부터 <code>backup-check.sh</code> 가 실패하고 그 뒤 단계가 돌지 않았는데, 이 수정으로 CI 가 다시 끝까지 돕니다.</p>
+<p>남은 것은 실제 메일 프로그램(Outlook 등)의 수신 거부 단추·원클릭 동작 확인과 새 화면의 브라우저 조작 확인입니다.</p>
 </div>
 </body>
 </html>
