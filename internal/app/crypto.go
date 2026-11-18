@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -29,7 +30,22 @@ import (
 // is a variable so tests can redirect it to a temporary path.
 var stateDirectory = "/var/lib/weekly"
 
-type secretBox struct{ aead cipher.AEAD }
+type secretBox struct {
+	aead cipher.AEAD
+	// linkKey signs links the service puts in mail (mail unsubscribe). Derived
+	// from the instance key rather than stored, so it needs no table of its own,
+	// travels with a backup exactly as the key does, and every link signed with
+	// a retired key stops working when the key is rotated — which is the right
+	// failure for a link that can only turn mail off.
+	linkKey []byte
+}
+
+// linkSignature is HMAC-SHA256 of message under the link key.
+func (s *secretBox) linkSignature(message string) []byte {
+	mac := hmac.New(sha256.New, s.linkKey)
+	mac.Write([]byte(message))
+	return mac.Sum(nil)
+}
 
 // errSecretKeyMissing reports that the only key able to decrypt the stored
 // secrets is gone. Minting a replacement here would start the service with
@@ -104,7 +120,9 @@ func newSecretBox(key []byte) (*secretBox, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &secretBox{aead: aead}, nil
+	derive := hmac.New(sha256.New, key)
+	derive.Write([]byte("weekly/mail-link/v1"))
+	return &secretBox{aead: aead, linkKey: derive.Sum(nil)}, nil
 }
 
 func readInstanceKey() ([]byte, error) {

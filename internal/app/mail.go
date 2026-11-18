@@ -240,6 +240,13 @@ type mailAttachment struct {
 // always was: a reader whose client shows an empty paperclip on every mail is a
 // reader who stops noticing the paperclip.
 func buildMailMessage(from, fromName, to, subject, body string, attachments ...mailAttachment) []byte {
+	return buildMailMessageWithHeaders(from, fromName, to, subject, body, nil, attachments...)
+}
+
+// buildMailMessageWithHeaders is buildMailMessage with extra header lines —
+// List-Unsubscribe and its one-click partner (mailunsubscribe.go). Each line is
+// passed through headerSafe, so nothing in one can start another.
+func buildMailMessageWithHeaders(from, fromName, to, subject, body string, extra []string, attachments ...mailAttachment) []byte {
 	sender := from
 	// Trimmed, because a name that is only spaces is not a name: it would write
 	// a display name of whitespace in front of the address, which is one more
@@ -254,6 +261,9 @@ func buildMailMessage(from, fromName, to, subject, body string, attachments ...m
 		"Message-ID: " + mailMessageID(from),
 		"Subject: " + mime.BEncoding.Encode("UTF-8", headerSafe(subject)),
 		"MIME-Version: 1.0",
+	}
+	for _, line := range extra {
+		headers = append(headers, headerSafe(line))
 	}
 	if len(attachments) == 0 {
 		headers = append(headers,
@@ -407,6 +417,11 @@ var mailTLSConfig = func(host string) *tls.Config { return &tls.Config{ServerNam
 
 // sendMail delivers one message and returns the relay's own refusal on failure.
 func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, body string, attachments ...mailAttachment) error {
+	return a.sendMailWithHeaders(ctx, settings, to, subject, body, nil, attachments...)
+}
+
+// sendMailWithHeaders is sendMail with extra header lines.
+func (a *App) sendMailWithHeaders(ctx context.Context, settings mailSettings, to, subject, body string, extra []string, attachments ...mailAttachment) error {
 	if reason := settings.unusable(); reason != "" {
 		return errors.New(reason)
 	}
@@ -458,7 +473,7 @@ func (a *App) sendMail(ctx context.Context, settings mailSettings, to, subject, 
 	if err != nil {
 		return fmt.Errorf("본문을 보낼 수 없습니다: %w", err)
 	}
-	if _, err := writer.Write(buildMailMessage(settings.From, settings.FromName, to, subject, body, attachments...)); err != nil {
+	if _, err := writer.Write(buildMailMessageWithHeaders(settings.From, settings.FromName, to, subject, body, extra, attachments...)); err != nil {
 		return fmt.Errorf("본문을 보낼 수 없습니다: %w", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -727,9 +742,10 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 	// The deck is what the reader forwards into a meeting; the text is what they
 	// read on a phone. The mail carries both, and says so when it cannot.
 	attachments, note := a.reportMailAttachments(ctx, report)
-	body := note + reportMailBody(report, reportStatusLabel(report.Status))
+	links := a.mailLinksFor(ctx, writerID, mailKindReport)
+	body := note + reportMailBody(report, reportStatusLabel(report.Status)) + mailFooter(mailKindReport, links)
 
-	if err := a.sendMail(ctx, settings, address, subject, body, attachments...); err != nil {
+	if err := a.sendMailWithHeaders(ctx, settings, address, subject, body, mailUnsubscribeHeaders(links), attachments...); err != nil {
 		spent := attempts >= settings.MaxAttempts
 		if spent {
 			a.logger.Error("report mail gave up", "delivery", deliveryID, "attempts", attempts, "error", err)
@@ -1208,6 +1224,21 @@ type mailHealthView struct {
 	LastError  string           `json:"lastError"`
 	LastFailed *time.Time       `json:"lastFailedAt"`
 	ByKind     mailHealthByKind `json:"byKind"`
+	// Subscribers is who would receive each kind today. Every kind is off
+	// until its reader turns it on, so the operator's question after "does the
+	// relay work" is "does anybody want this" — and a reminder schedule that
+	// reaches three people out of three hundred is worth knowing before Monday.
+	Subscribers mailSubscribers `json:"subscribers"`
+}
+
+// mailSubscribers counts active people who will receive each kind: switched
+// on, an address it can go to, and not in an organisation excluded from mail.
+type mailSubscribers struct {
+	ActiveUsers      int `json:"activeUsers"`
+	ExcludedUsers    int `json:"excludedUsers"`
+	Report           int `json:"report"`
+	ScheduleReminder int `json:"scheduleReminder"`
+	TeamReminder     int `json:"teamReminder"`
 }
 
 type mailHealthByKind struct {
@@ -1271,6 +1302,27 @@ func (a *App) adminMailHealth(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC LIMIT 1`, mailHealthDays).
 		Scan(&view.LastError, &view.LastFailed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		a.logger.Error("mail health reason", "error", err, "trace", traceIDFromContext(r.Context()))
+	}
+	// The same conditions the queues use: the report copy and the digest need a
+	// saved address, the reminder falls back to the account address.
+	if err := a.db.QueryRow(r.Context(), `
+		WITH people AS (
+			SELECT u.id, organization_mail_blocked(u.organization_id) AS excluded,
+				coalesce(m.on_submit,false) AND coalesce(m.address,'') <> '' AS report,
+				coalesce(m.schedule_reminder,false) AND coalesce(m.address,'') <> '' AS schedule,
+				coalesce(m.team_reminder,false)
+					AND COALESCE(NULLIF(btrim(m.address),''), btrim(coalesce(u.email,''))) <> '' AS team
+			FROM users u LEFT JOIN user_mail_settings m ON m.user_id = u.id
+			WHERE u.active)
+		SELECT count(*), count(*) FILTER (WHERE excluded),
+			count(*) FILTER (WHERE report AND NOT excluded),
+			count(*) FILTER (WHERE schedule AND NOT excluded),
+			count(*) FILTER (WHERE team AND NOT excluded)
+		FROM people`).Scan(&view.Subscribers.ActiveUsers, &view.Subscribers.ExcludedUsers,
+		&view.Subscribers.Report, &view.Subscribers.ScheduleReminder, &view.Subscribers.TeamReminder); err != nil {
+		a.logger.Error("mail subscribers", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 수신 현황을 읽을 수 없습니다.")
+		return
 	}
 	writeData(w, http.StatusOK, view)
 }

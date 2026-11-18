@@ -143,8 +143,9 @@ func scheduleReminderBody(recipientName, today string, tasks []dueSoonTask, labe
 			}
 		}
 	}
-	out.WriteString("\n--\n이 메일은 업무 상황판의 마감 임박 알림입니다. 끝낸 일은 상황판에서 체크하면 다음 알림에서 빠집니다.\n")
-	out.WriteString("받지 않으려면 개인 설정에서 마감 임박 알림을 끄십시오.\n")
+	// Why it came and how to stop it are the footer's (mailFooter), the same
+	// words on every mail the service sends on its own.
+	out.WriteString("\n끝낸 일은 상황판에서 체크하면 다음 알림에서 빠집니다.\n")
 	return out.String()
 }
 
@@ -287,7 +288,9 @@ func (a *App) sendNextQueuedScheduleReminder(ctx context.Context) bool {
 	subject := scheduleReminderSubject(a.setting(ctx, "service.name", "Weekly"), tasks)
 	body := scheduleReminderBody(name, delivery.day.Format(dateLayout), tasks,
 		itsmLabelOrDefault(a.setting(ctx, "itsm.label", "")))
-	if err := a.sendMail(ctx, settings, address, subject, body); err != nil {
+	links := a.mailLinksFor(ctx, delivery.userID, mailKindSchedule)
+	body += mailFooter(mailKindSchedule, links)
+	if err := a.sendMailWithHeaders(ctx, settings, address, subject, body, mailUnsubscribeHeaders(links)); err != nil {
 		if delivery.attempts >= settings.MaxAttempts {
 			a.logger.Error("schedule reminder gave up", "delivery", delivery.id, "attempts", delivery.attempts, "error", err)
 			if _, dbErr := a.db.Exec(ctx, `UPDATE schedule_reminder_deliveries

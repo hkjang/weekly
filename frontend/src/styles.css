@@ -490,3 +490,7 @@ a.sr-tag:hover{background:#cbd5e1;text-decoration:underline}
 /* 메일 발송 제외 조직 */
 .badge.mail-blocked{background:#fef2f2;color:#b91c1c;margin-left:8px;vertical-align:middle}
 .badge.mail-blocked.inherited{background:var(--status-draft-bg);color:var(--status-draft-ink)}
+/* 권고 메일 수동 발송 — 누르기 전에 몇 명에게 가는지 */
+.manual-reminder-preview{margin:10px 0 0;padding:10px 12px;border:1px dashed #cbd5e1;border-radius:9px;background:#f8fafc;display:flex;flex-direction:column;gap:3px}
+.manual-reminder-preview strong{font-size:13px;color:#1e293b}
+.manual-reminder-preview small{font-size:12px;color:var(--muted)}

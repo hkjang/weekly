@@ -194,7 +194,33 @@ do_restore() {
   fi
 
   echo "1/3 restoring PostgreSQL"
-  pg_restore --clean --if-exists --no-owner --no-privileges --dbname="$dsn" "$archive/database.dump"
+  # A pg_restore newer than the server opens every session with settings the
+  # server does not have yet. PostgreSQL 17 added transaction_timeout and its
+  # pg_restore sends "SET transaction_timeout = 0" whatever it is talking to; a
+  # 16 server refuses that one line, pg_restore carries on and restores every
+  # row, and then exits 1 for the one refusal. Under set -e that exit stopped
+  # this script here — the database restored and the state volume not, the very
+  # half-restore the script exists to prevent. Seen in CI (client 18, server 16)
+  # and on any operator's machine with a newer client than the server.
+  #
+  # So that one refusal, and only that one, is reported and passed over. Any
+  # other error still stops the restore.
+  restore_log=$(mktemp)
+  if pg_restore --clean --if-exists --no-owner --no-privileges --dbname="$dsn" "$archive/database.dump" 2>"$restore_log"; then
+    cat "$restore_log" >&2
+  else
+    cat "$restore_log" >&2
+    if grep -q 'pg_restore: error:' "$restore_log" \
+      && ! grep 'pg_restore: error:' "$restore_log" | grep -qv 'transaction_timeout'; then
+      echo "  pg_restore is newer than the server: it sent SET transaction_timeout, which" >&2
+      echo "  this server does not have. That setting only was skipped; every row was restored." >&2
+    else
+      rm -f "$restore_log"
+      echo "restore: pg_restore failed; the state volume was left untouched" >&2
+      exit 5
+    fi
+  fi
+  rm -f "$restore_log"
 
   echo "2/3 replacing state volume"
   mkdir -p "$state"

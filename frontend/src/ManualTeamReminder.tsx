@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { APIError, errorText, post } from './api'
+import { useEffect, useRef, useState } from 'react'
+import { APIError, api, errorText, post } from './api'
 import { Button } from './components'
 import type { TeamReminderQueueResult } from './types'
 
@@ -20,11 +20,44 @@ export function queueManualTeamReminder(): Promise<TeamReminderQueueResult> {
   return post<TeamReminderQueueResult>('/api/v1/me/team-reminders')
 }
 
-export function manualTeamReminderButtonState(relayReady: boolean, busy: boolean) {
+/** 지금 누르면 무엇이 큐에 들어가는지. 서버가 같은 트랜잭션을 돌리고 되돌린 결과입니다. */
+export function previewManualTeamReminder(): Promise<TeamReminderQueueResult> {
+  return api<TeamReminderQueueResult>('/api/v1/me/team-reminders/preview')
+}
+
+export function manualTeamReminderButtonState(relayReady: boolean, busy: boolean, preview?: TeamReminderQueueResult) {
+  // A preview that says nobody would receive it is a button that would do
+  // nothing; it says so instead of letting the click find out.
+  const nobody = !!preview && preview.queued === 0
   return {
-    disabled: !relayReady || busy,
-    label: busy ? '대상 확인·큐 추가 중…' : '지금 권고 메일 보내기',
+    disabled: !relayReady || busy || nobody,
+    label: busy ? '대상 확인·큐 추가 중…' : nobody ? '지금 보낼 대상이 없습니다' : '지금 권고 메일 보내기',
   }
+}
+
+/** 확인 창 문구. 미리보기가 있으면 몇 명에게 가는지부터 말합니다. */
+export function manualTeamReminderConfirmation(preview?: TeamReminderQueueResult): string {
+  if (!preview) return MANUAL_TEAM_REMINDER_CONFIRMATION
+  return `이번 주 미제출 팀원 중 ${preview.queued}명에게 작성 권고 메일을 보냅니다.\n` + MANUAL_TEAM_REMINDER_CONFIRMATION
+}
+
+/** 미리보기 한 줄: 누가 왜 빠지는지까지. 이름은 싣지 않습니다 — 누가 수신을 껐는지는 그 사람의 일입니다. */
+export function manualTeamReminderPreviewSummary(preview: TeamReminderQueueResult): string {
+  const parts = [`이번 주 미제출 ${preview.eligible}명`]
+  if (preview.skippedNotOptedIn > 0) parts.push(`수신 안 함 ${preview.skippedNotOptedIn}명`)
+  if (preview.skippedExcluded > 0) parts.push(`발송 제외 조직 ${preview.skippedExcluded}명`)
+  if (preview.alreadyQueued > 0) parts.push(`이미 발송·대기 ${preview.alreadyQueued}명`)
+  if (preview.skippedNoAddress > 0) parts.push(`주소 없음 ${preview.skippedNoAddress}명`)
+  return parts.join(' · ')
+}
+
+export function ManualTeamReminderPreview({ preview }: { preview: TeamReminderQueueResult }) {
+  return <div className="manual-reminder-preview" aria-live="polite">
+    <strong>지금 보내면 {preview.queued}명에게 갑니다.</strong>
+    <small>{manualTeamReminderPreviewSummary(preview)}</small>
+    {preview.queued === 0 && preview.skippedNotOptedIn > 0 &&
+      <small>권고 메일은 팀원이 개인 설정에서 <b>작성 권고 메일 받기</b>를 켠 경우에만 갑니다.</small>}
+  </div>
 }
 
 export function manualTeamReminderErrorMessage(error: unknown): string {
@@ -72,15 +105,20 @@ export default function ManualTeamReminder({ available, relayReady, notify }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<TeamReminderQueueResult>()
+  const [preview, setPreview] = useState<TeamReminderQueueResult>()
   const [failed, setFailed] = useState('')
   const inFlight = useRef(false)
+  // A preview that cannot be read leaves the button as it always was: the
+  // server still decides, and the result card still tells.
+  const loadPreview = () => previewManualTeamReminder().then(setPreview).catch(() => setPreview(undefined))
+  useEffect(() => { if (available) void loadPreview() }, [available])
 
   if (!available) return null
   const send = async () => {
     // State is rendered later. The ref changes synchronously, so two clicks in
     // the same render tick cannot both reach the endpoint.
     if (!claimManualTeamReminderRun(inFlight)) return
-    if (!confirmManualTeamReminder(() => window.confirm(MANUAL_TEAM_REMINDER_CONFIRMATION))) {
+    if (!confirmManualTeamReminder(() => window.confirm(manualTeamReminderConfirmation(preview)))) {
       inFlight.current = false
       return
     }
@@ -101,10 +139,11 @@ export default function ManualTeamReminder({ available, relayReady, notify }: {
     } finally {
       inFlight.current = false
       setBusy(false)
+      void loadPreview()
     }
   }
 
-  const button = manualTeamReminderButtonState(relayReady, busy)
+  const button = manualTeamReminderButtonState(relayReady, busy, preview)
 
   return <section className="manual-reminder" aria-busy={busy} aria-labelledby="manual-team-reminder-heading">
     <header className="manual-reminder-head">
@@ -113,6 +152,7 @@ export default function ManualTeamReminder({ available, relayReady, notify }: {
       <p>메일은 개인 설정에서 <strong>작성 권고 메일 받기</strong>를 켠 팀원에게만 가고, 본문에 보낸 사람(권고자) 이름은 들어가지 않습니다.</p>
     </header>
     {!relayReady && <div className="edit-notice">관리자가 메일 서버를 준비하기 전에는 지금 발송할 수 없습니다.</div>}
+    {preview && <ManualTeamReminderPreview preview={preview}/>}
     <div className="manual-reminder-actions"><Button variant="secondary" disabled={button.disabled} onClick={() => { void send() }}>
       {button.label}
     </Button></div>

@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { APIError } from './api'
 import ManualTeamReminder, {
   MANUAL_TEAM_REMINDER_CONFIRMATION,
+  ManualTeamReminderPreview,
   ManualTeamReminderResult,
+  manualTeamReminderConfirmation,
+  manualTeamReminderPreviewSummary,
   claimManualTeamReminderRun,
   confirmManualTeamReminder,
   manualTeamReminderButtonState,
@@ -115,6 +118,20 @@ describe('팀원 작성 권고 처리 결과', () => {
     const markup = renderToStaticMarkup(<ManualTeamReminderResult result={declined}/>)
     expect(markup).toContain('수신 안 함')
     expect(markup).toContain('발송 제외 조직')
+  })
+
+  it('누르기 전에 몇 명에게 가는지 보여 주고, 아무에게도 가지 않으면 버튼을 막는다', () => {
+    const preview = { ...result, eligible: 6, queued: 2, alreadyQueued: 0, skippedNoAddress: 0, skippedNotOptedIn: 3, skippedExcluded: 1 }
+    expect(manualTeamReminderConfirmation(preview)).toContain('2명에게 작성 권고 메일을 보냅니다')
+    expect(manualTeamReminderConfirmation(undefined)).toBe(MANUAL_TEAM_REMINDER_CONFIRMATION)
+    expect(manualTeamReminderPreviewSummary(preview)).toBe('이번 주 미제출 6명 · 수신 안 함 3명 · 발송 제외 조직 1명')
+    expect(manualTeamReminderButtonState(true, false, preview).disabled).toBe(false)
+
+    const nobody = { ...preview, queued: 0, skippedNotOptedIn: 5 }
+    expect(manualTeamReminderButtonState(true, false, nobody)).toEqual({ disabled: true, label: '지금 보낼 대상이 없습니다' })
+    const markup = renderToStaticMarkup(<ManualTeamReminderPreview preview={nobody}/>)
+    expect(markup).toContain('지금 보내면 0명에게 갑니다.')
+    expect(markup).toContain('작성 권고 메일 받기')
   })
 
   it('SMTP와 역할 오류는 상태가 오래된 화면에서도 구체적으로 안내한다', () => {

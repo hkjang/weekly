@@ -183,6 +183,12 @@ func (a *App) routes() {
 	a.mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	a.mux.HandleFunc("GET /api/v1/auth/oidc/start", a.oidcStart)
 	a.mux.HandleFunc("GET /api/v1/auth/oidc/callback", a.oidcCallback)
+	// 메일 안의 수신 끄기 링크(mailunsubscribe.go). No session: the signed token
+	// is the authority, and all it can do is turn that person's mail off. GET
+	// only shows the page; POST — the page's buttons and a mail client's
+	// one-click — makes the change.
+	a.mux.HandleFunc("GET /mail/unsubscribe", a.mailUnsubscribePage)
+	a.mux.HandleFunc("POST /mail/unsubscribe", a.mailUnsubscribe)
 	a.mux.Handle("GET /api/v1/me", a.requireAuth(http.HandlerFunc(a.me)))
 
 	a.mux.Handle("GET /api/v1/reports/current", a.requireAuth(http.HandlerFunc(a.currentReport)))
@@ -257,6 +263,7 @@ func (a *App) routes() {
 	a.mux.Handle("GET /api/v1/me/preferences", a.requireAuth(http.HandlerFunc(a.myWeeklyPreferences)))
 	a.mux.Handle("PUT /api/v1/me/preferences", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyWeeklyPreferences))))
 	a.mux.Handle("POST /api/v1/me/team-reminders", a.requireAuth(a.csrf(http.HandlerFunc(a.sendMyTeamReminders))))
+	a.mux.Handle("GET /api/v1/me/team-reminders/preview", a.requireAuth(http.HandlerFunc(a.previewMyTeamReminders)))
 	a.mux.Handle("GET /api/v1/me/participation", a.requireAuth(http.HandlerFunc(a.myParticipation)))
 	a.mux.Handle("GET /api/v1/me/report-inclusions", a.requireAuth(http.HandlerFunc(a.myReportInclusions)))
 	a.mux.Handle("PUT /api/v1/me/report-inclusions", a.requireAuth(a.csrf(http.HandlerFunc(a.updateMyReportInclusions))))

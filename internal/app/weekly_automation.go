@@ -457,6 +457,22 @@ func (a *App) queueTeamReminderForLeader(ctx context.Context, leader reminderLea
 // explicit profile action. The transaction makes a manual response truthful:
 // it never reports half a team queued after a later recipient insert failed.
 func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week time.Time, origin, scheduledWeekday string) (teamReminderQueueResult, error) {
+	return a.planTeamReminders(ctx, requesterID, week, origin, scheduledWeekday, true)
+}
+
+// previewTeamReminders answers what the leader's button would do now, by doing
+// exactly that and rolling it back.
+//
+// With reminders off until each member turns them on, a leader pressing the
+// button blind would usually learn afterwards that it reached nobody. The
+// preview is the same transaction as the click — not a second count written
+// to agree with it — so the number shown before is the number queued after,
+// unless somebody submits or changes their mind in between.
+func (a *App) previewTeamReminders(ctx context.Context, requesterID int64, week time.Time) (teamReminderQueueResult, error) {
+	return a.planTeamReminders(ctx, requesterID, week, teamReminderOriginManual, "", false)
+}
+
+func (a *App) planTeamReminders(ctx context.Context, requesterID int64, week time.Time, origin, scheduledWeekday string, commit bool) (teamReminderQueueResult, error) {
 	result := teamReminderQueueResult{WeekStart: week.Format("2006-01-02")}
 	if origin != teamReminderOriginAuto && origin != teamReminderOriginManual {
 		return result, fmt.Errorf("unknown team reminder origin %q", origin)
@@ -589,6 +605,10 @@ func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week ti
 				result.AlreadyQueued++
 			}
 		}
+	}
+	if !commit {
+		// The deferred rollback discards every row this pass wrote.
+		return result, nil
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, err
@@ -756,6 +776,30 @@ func (a *App) sendMyTeamReminders(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusAccepted, result)
 }
 
+// previewMyTeamReminders is GET /me/team-reminders/preview: what pressing
+// "지금 권고 메일 보내기" would queue this minute. Nothing is written.
+func (a *App) previewMyTeamReminders(w http.ResponseWriter, r *http.Request) {
+	p := currentPrincipal(r.Context())
+	if p == nil || !canScheduleTeamReminder(p.Role) {
+		writeTeamReminderRoleRequired(w)
+		return
+	}
+	location := a.serviceLocation(r.Context())
+	week := currentWeekStart(time.Now().In(location), a.setting(r.Context(), "workflow.week_start", "MONDAY"))
+	result, err := a.previewTeamReminders(r.Context(), p.ID, week)
+	if errors.Is(err, errTeamReminderRoleRequired) {
+		writeTeamReminderRoleRequired(w)
+		return
+	}
+	if err != nil {
+		a.logger.Error("preview team reminders", "error", err, "userId", p.ID,
+			"trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "권고 대상을 확인할 수 없습니다.")
+		return
+	}
+	writeData(w, http.StatusOK, result)
+}
+
 func teamReminderSubject(serviceName, week string) string {
 	return fmt.Sprintf("[%s] %s 주간보고 작성을 부탁드립니다", serviceName, week)
 }
@@ -772,8 +816,7 @@ func teamReminderSubject(serviceName, week string) string {
 func teamReminderBody(serviceName, week, recipientName string) string {
 	return fmt.Sprintf("%s님, 안녕하세요.\n\n%s 주간보고가 아직 제출되지 않았습니다.\n"+
 		"이번 주 업무와 다음 주 계획을 작성한 뒤 제출해 주세요.\n\n"+
-		"--\n이 메일은 %s 에서 이번 주 주간보고 미제출자에게 보내는 작성 안내입니다.\n"+
-		"받지 않으려면 개인 설정 → 주간보고 메일 발송에서 '작성 권고 메일 받기'를 끄십시오.\n",
+		"이 메일은 %s 에서 이번 주 주간보고 미제출자에게 보내는 작성 안내입니다.\n",
 		recipientName, week, serviceName)
 }
 
@@ -892,8 +935,9 @@ func (a *App) sendNextQueuedReminder(ctx context.Context) bool {
 	}
 	serviceName := a.setting(ctx, "service.name", "Weekly")
 	subject := teamReminderSubject(serviceName, delivery.week.Format("2006-01-02"))
-	body := teamReminderBody(serviceName, delivery.week.Format("2006-01-02"), recipientName)
-	if err := a.sendMail(ctx, settings, delivery.address, subject, body); err != nil {
+	links := a.mailLinksFor(ctx, delivery.recipientID, mailKindTeam)
+	body := teamReminderBody(serviceName, delivery.week.Format("2006-01-02"), recipientName) + mailFooter(mailKindTeam, links)
+	if err := a.sendMailWithHeaders(ctx, settings, delivery.address, subject, body, mailUnsubscribeHeaders(links)); err != nil {
 		if delivery.attempts >= settings.MaxAttempts {
 			a.logger.Error("team reminder mail gave up", "delivery", delivery.id, "attempts", delivery.attempts, "error", err)
 			if _, dbErr := a.db.Exec(ctx, `UPDATE team_reminder_deliveries

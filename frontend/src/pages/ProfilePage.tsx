@@ -12,6 +12,12 @@ const weekdays: { value: WeekdayName; label: string }[] = [
   { value: 'SUNDAY', label: '일요일' },
 ]
 
+/** 저장된 수신 설정 기준으로, 받는 메일이 몇 가지인지. */
+export function mailReceivingLabel(mail: Pick<MailPreference, 'onSubmit' | 'scheduleReminder' | 'teamReminder'>): string {
+  const on = [mail.onSubmit, mail.scheduleReminder, mail.teamReminder].filter(Boolean).length
+  return on ? `받는 메일 ${on}가지` : '모두 꺼짐'
+}
+
 export default function ProfilePage({ session, notify, refreshSession, mcpOAuth = false }: { session: SessionInfo; notify: (message: string, kind?: 'success' | 'error') => void; refreshSession: () => Promise<void>; mcpOAuth?: boolean }) {
   const [keys, setKeys] = useState<KeyView[]>([])
   const [keyVersion, setKeyVersion] = useState(session.user.keyVersion)
@@ -102,7 +108,10 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
       <ManualTeamReminder available relayReady={weekly.relayReady} notify={notify}/>
     </Card>}
     <ReportInclusionSettings session={session} notify={notify}/>
-    <Card title="주간보고 메일 발송" action={mail && <span className="muted-chip">{mail.onSubmit ? '켜짐' : '꺼짐'}</span>}>
+    {/* The chip counts what is saved, all three kinds. It used to read the
+        submit copy alone and said 꺼짐 to somebody receiving two other mails. */}
+    <Card title="주간보고 메일 발송" action={mail && <span className="muted-chip">{mailReceivingLabel(mail)}</span>}>
+      <p className="muted"><strong>아래에서 켠 메일만 보냅니다.</strong> 처음에는 모두 꺼져 있고, 주소를 저장하는 것만으로는 아무것도 보내지 않습니다.</p>
       <p className="muted">주간보고를 <strong>제출할 때</strong> 아래 주소로 본문과 PPTX 파일을 함께 보냅니다. 계정 이메일과 달라도 됩니다.</p>
       {/* A writer who turns this on and receives nothing would otherwise have
           no way to tell their own mistake from an unconfigured server. */}
