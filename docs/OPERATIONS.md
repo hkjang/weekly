@@ -42,6 +42,8 @@ docker run --rm -v weekly-data:/var/lib/weekly -v "$PWD/backups:/backups" \
 
 `restore`는 대상 데이터베이스의 모든 테이블을 지우고 다시 만들며 상태 볼륨을 비우고 덮어쓴다. `--force` 없이 실행하면 데이터베이스 이름을 직접 입력해야 진행한다.
 
+복구하는 PC의 `pg_restore` 가 서버보다 새 버전(예: 클라이언트 17·18, 서버 16)이면 `pg_restore` 가 서버에 없는 설정 `SET transaction_timeout = 0` 을 보내 그 한 줄이 거부된다. 나머지 행은 모두 복원되지만 `pg_restore` 가 종료 코드 1 을 내므로, v0.324.0 까지는 스크립트가 여기서 멈춰 **DB 는 복원되고 상태 볼륨은 복원되지 않은 채** 끝났다. 이제 그 한 가지 거부만 안내하고 넘어가며, 다른 오류가 하나라도 있으면 상태 볼륨을 건드리지 않고 종료 코드 5 로 멈춘다. 가능하면 서버와 같은 메이저 버전의 클라이언트를 쓰는 것이 여전히 가장 안전하다.
+
 ## 보안 통제
 
 - 비루트 컨테이너, 모든 Linux capability 제거, read-only root filesystem

@@ -224,7 +224,7 @@ func relaySettings(relay *fakeRelay) mailSettings {
 		Timeout: 5 * time.Second, MaxAttempts: 3}
 }
 
-// guards: sendMail, buildMailMessage
+// guards: sendMail, buildMailMessageWithHeaders
 func TestAReportMailArrivesAsTheRelayCanReadIt(t *testing.T) {
 	relay := startFakeRelay(t)
 	app := &App{}

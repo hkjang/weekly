@@ -1323,6 +1323,24 @@ paths:
                     $ref: "#/components/schemas/WeeklyPreference"
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /me/team-reminders/preview:
+    get:
+      summary: 지금 권고 메일을 보내면 몇 명에게 가는지 (아무것도 쓰지 않음)
+      description: |
+        `POST /me/team-reminders`와 **같은 트랜잭션을 실행하고 되돌린** 결과다. 별도로 센 숫자가
+        아니므로 그 사이에 누가 제출하거나 수신 설정을 바꾸지 않는 한 버튼을 누른 결과와 같다.
+        `queued`가 지금 보내면 새로 발송 대기열에 들어갈 인원이다. 수신을 켜지 않은 팀원은
+        `skippedNotOptedIn`, 메일 발송 제외 조직 소속은 `skippedExcluded`로 따로 센다. 이름은
+        싣지 않는다.
+
+        - 403 `REMINDER_ROLE_REQUIRED`: 현재 활성 역할이 팀장·조직장·관리자가 아님
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamReminderQueueResponse" }
+        "403": { $ref: "#/components/responses/Error" }
   /me/team-reminders:
     post:
       summary: 이번 주 팀원 작성 권고 메일 수동 발송 요청
@@ -1718,6 +1736,18 @@ paths:
                           report: { type: integer }
                           teamReminder: { type: integer }
                           scheduleReminder: { type: integer }
+                      subscribers:
+                        type: object
+                        description: >-
+                          지금 각 메일을 받을 활성 사용자 수. 모든 메일은 본인이 켠 경우에만 가므로 수신을
+                          켰고, 보낼 주소가 있고(제출 사본·마감 알림은 저장한 주소, 작성 권고는 저장한 주소
+                          또는 계정 이메일), 메일 발송 제외 조직 소속이 아닌 사람만 센다.
+                        properties:
+                          activeUsers: { type: integer }
+                          excludedUsers: { type: integer, description: 메일 발송 제외 조직과 그 하위 조직 소속 활성 사용자 }
+                          report: { type: integer }
+                          scheduleReminder: { type: integer }
+                          teamReminder: { type: integer }
         "403": { $ref: "#/components/responses/Error" }
   /admin/mail/deliveries:
     get:

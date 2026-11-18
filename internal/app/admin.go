@@ -27,6 +27,7 @@ var settingDefinitions = map[string]settingDefinition{
 	"service.name":        {Validate: bounded(1, 80)},
 	"service.notice":      {Validate: bounded(0, 500)},
 	"service.timezone":    {Validate: validTimezone},
+	"service.public_url":  {Validate: validOptionalURL},
 	"workflow.enabled":    {Validate: booleanValue},
 	"workflow.week_start": {Validate: oneOf("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")},
 	// Days after the week start, and the hour of that day. 24 means "by the end

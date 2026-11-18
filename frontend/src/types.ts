@@ -418,7 +418,12 @@ export interface TeamReminderQueueResult {
  * A writer sees their own deliveries; without this a relay refusing everybody
  * looks exactly like one nobody has used yet.
  */
-export interface MailHealth { days: number; sent: number; queued: number; failed: number; writers: number; lastError: string; lastFailedAt: string | null; byKind?: { report: number; teamReminder: number; scheduleReminder: number } }
+export interface MailHealth {
+  days: number; sent: number; queued: number; failed: number; writers: number; lastError: string; lastFailedAt: string | null
+  byKind?: { report: number; teamReminder: number; scheduleReminder: number }
+  /** 지금 각 메일을 받을 활성 사용자 수. 모든 메일은 본인이 켠 경우에만 갑니다. */
+  subscribers?: { activeUsers: number; excludedUsers: number; report: number; scheduleReminder: number; teamReminder: number }
+}
 
 /**
  * One row behind the figures: what went to whom, and why it did not. The three

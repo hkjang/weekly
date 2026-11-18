@@ -408,3 +408,87 @@ func TestTheUpgradeExcludesAnExistingExecutiveOffice(t *testing.T) {
 		t.Errorf("after the upgrade: %v", got)
 	}
 }
+
+// 메일은 보수적으로 나갑니다: 사람이 받겠다고 켠 것만, 처음에는 아무것도.
+//
+// A new account with a perfectly good address, in a team whose leader has the
+// weekly reminder on, who writes and submits a report and has a deadline on
+// the board tomorrow, receives nothing — not the reminder, not the digest, not
+// a copy of the report. Saving an address is not asking for mail either. Every
+// kind this product sends is checked here, so a new kind that starts out on
+// has a place to fail.
+//
+// guards: myMailSettings, updateMyMailSettings, queueTeamReminders, queueDueTeamReminders, queueDueScheduleReminders, queueReportMail
+func TestANewAccountReceivesNoMailUntilItAsks(t *testing.T) {
+	server := newTestServer(t)
+	relay := startFakeRelay(t)
+	server.configureRelay(relay)
+	organization := server.createOrganization("보수적 발송 조직", "QUIETMAIL")
+	leader := createAutomationTestAccount(t, server, "quiet_leader", "TEAM_LEADER", &organization)
+	member := createAutomationTestAccount(t, server, "quiet_member", "USER", &organization)
+	if _, err := server.app.db.Exec(server.ctx(), `UPDATE users SET email=$2 WHERE id=$1`,
+		member.id, "quiet-member@internal.test"); err != nil {
+		t.Fatal(err)
+	}
+	if w := saveAutomationPreference(server, leader, false, true, "MONDAY"); w.Code != http.StatusOK {
+		t.Fatalf("the leader turns the weekly reminder on: %d %s", w.Code, w.Body.String())
+	}
+
+	expectNothingOn := func(when string) {
+		t.Helper()
+		view := decodeData(t, server.request(http.MethodGet, "/api/v1/me/mail", nil, member.cookie))
+		for _, key := range []string{"onSubmit", "scheduleReminder", "teamReminder"} {
+			if view[key] != false {
+				t.Errorf("%s: %s=%v; nothing is sent until the person turns it on", when, key, view[key])
+			}
+		}
+	}
+	location := server.app.serviceLocation(server.ctx())
+	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
+	remind := func(when string) {
+		t.Helper()
+		if err := server.app.queueDueTeamReminders(server.ctx(), reminderDueAt(week, "MONDAY").Add(time.Hour), week); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := server.app.queueTeamReminders(server.ctx(), leader.id, week, teamReminderOriginManual, ""); err != nil {
+			t.Fatal(err)
+		} else if result.Queued != 0 || result.SkippedNotOptedIn < 1 {
+			t.Errorf("%s: the leader's reminder reached somebody who never asked: %+v", when, result)
+		}
+	}
+
+	// No settings row at all: the account address is the only one there is,
+	// and it is not consent.
+	expectNothingOn("a new account")
+	remind("a new account")
+	// An address saved on its own is somewhere to send, not a request to send.
+	if w := server.request(http.MethodPut, "/api/v1/me/mail", map[string]any{
+		"address": "quiet-member@internal.test", "onSubmit": false, "scheduleReminder": false,
+	}, member.cookie); w.Code != http.StatusOK {
+		t.Fatalf("save an address: %d %s", w.Code, w.Body.String())
+	}
+	expectNothingOn("after saving only an address")
+	remind("after saving only an address")
+
+	server.addScheduleTask(member.cookie, map[string]any{"title": "내일 마감",
+		"startDate": dayFromReminder(0), "endDate": dayFromReminder(1)})
+	if err := server.app.queueDueScheduleReminders(server.ctx(), reminderDay.Add(9*time.Hour+30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	server.submitted(member.cookie, week.Format("2006-01-02"), "조용히 제출")
+
+	var queued int
+	if err := server.app.db.QueryRow(server.ctx(), `SELECT
+		(SELECT count(*) FROM team_reminder_deliveries WHERE recipient_user_id=$1) +
+		(SELECT count(*) FROM schedule_reminder_deliveries WHERE user_id=$1) +
+		(SELECT count(*) FROM report_mail_deliveries WHERE user_id=$1)`, member.id).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 0 {
+		t.Errorf("%d mail(s) were queued for somebody who asked for none", queued)
+	}
+	server.app.wakeMailWorker()
+	if messages := relay.awaitRelay(t, 0); len(messages) != 0 {
+		t.Errorf("the relay received %d message(s) for somebody who asked for none", len(messages))
+	}
+}
