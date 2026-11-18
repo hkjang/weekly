@@ -600,12 +600,14 @@ func (a *App) reportMailAttachments(ctx context.Context, report *reportView) ([]
 // the relay is somebody else's machine and a submission must not wait on it.
 //
 // A writer who has not set an address, or has turned sending off, queues
-// nothing — the row exists to be delivered, not to record a preference.
+// nothing — the row exists to be delivered, not to record a preference. Nor
+// does a writer in an organisation excluded from mail (mailexclusion.go).
 func queueReportMail(ctx context.Context, tx pgx.Tx, reportID, userID int64) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO report_mail_deliveries(report_id, user_id, address)
-		SELECT $1, s.user_id, s.address FROM user_mail_settings s
-		WHERE s.user_id = $2 AND s.on_submit = true AND s.address <> ''`, reportID, userID)
+		SELECT $1, s.user_id, s.address FROM user_mail_settings s JOIN users u ON u.id = s.user_id
+		WHERE s.user_id = $2 AND s.on_submit = true AND s.address <> ''
+		  AND NOT organization_mail_blocked(u.organization_id)`, reportID, userID)
 	return err
 }
 
@@ -658,7 +660,7 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 		return false
 	}
 
-	var deliveryID, reportID int64
+	var deliveryID, reportID, writerID int64
 	var address string
 	var attempts int
 	// Only what is due. A row that has just failed carries a time in the future,
@@ -669,7 +671,7 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 		WHERE id = (SELECT id FROM report_mail_deliveries
 		            WHERE status = 'QUEUED' AND next_attempt_at <= now()
 		            ORDER BY next_attempt_at, created_at, id FOR UPDATE SKIP LOCKED LIMIT 1)
-		RETURNING id, report_id, address, attempts`).Scan(&deliveryID, &reportID, &address, &attempts)
+		RETURNING id, report_id, user_id, address, attempts`).Scan(&deliveryID, &reportID, &writerID, &address, &attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The queue is empty. The ordinary case, and not worth a line in a log
 		// that would then carry one every thirty seconds forever.
@@ -681,6 +683,20 @@ func (a *App) sendNextQueuedMail(ctx context.Context) bool {
 		// one. This cost an afternoon in its own test.
 		a.logger.Error("claim queued mail", "error", err)
 		return false
+	}
+
+	// The writer may have been moved into an organisation that receives no
+	// mail, or it may have been marked, while this row waited. Either way the
+	// answer now is the one that counts.
+	blockedBy, err := a.mailBlockedOrganization(ctx, writerID)
+	if err != nil {
+		a.logger.Error("check mail exclusion", "delivery", deliveryID, "error", err)
+		a.deferMailRetry(ctx, deliveryID, attempts, settings, mailReportUnreadable)
+		return true
+	}
+	if blockedBy != "" {
+		a.markMailFailed(ctx, deliveryID, mailBlockedReason)
+		return true
 	}
 
 	report, err := a.loadReport(ctx, reportID)
@@ -840,8 +856,19 @@ type mailPreferenceView struct {
 	OnSubmit   bool   `json:"onSubmit"`
 	// ScheduleReminder is the 업무 상황판 deadline digest: one mail a day listing
 	// this person's own open lines due within five days. Off until asked for.
-	ScheduleReminder bool               `json:"scheduleReminder"`
-	Deliveries       []mailDeliveryView `json:"deliveries"`
+	ScheduleReminder bool `json:"scheduleReminder"`
+	// TeamReminder is whether this person accepts the 주간보고 작성 권고 mail a
+	// leader's schedule or click sends them. Off until they turn it on.
+	TeamReminder bool `json:"teamReminder"`
+	// ReminderAddress is where that mail goes: the address saved here, or the
+	// account address when none is. A reminder needs no saved address, so the
+	// screen says which one it is rather than leaving it to be guessed.
+	ReminderAddress string `json:"reminderAddress"`
+	// MailBlockedOrganization names the organisation that excludes this person
+	// from every mail, or is empty. Every switch above is moot while it is set,
+	// and a person who turns them on is owed the reason nothing arrives.
+	MailBlockedOrganization string             `json:"mailBlockedOrganization"`
+	Deliveries              []mailDeliveryView `json:"deliveries"`
 }
 
 type mailDeliveryView struct {
@@ -870,9 +897,15 @@ func (a *App) myMailSettings(w http.ResponseWriter, r *http.Request) {
 	view.RelayReady = err == nil && settings.unusable() == ""
 
 	if err := a.db.QueryRow(r.Context(),
-		`SELECT address, on_submit, schedule_reminder FROM user_mail_settings WHERE user_id=$1`, p.ID).
-		Scan(&view.Address, &view.OnSubmit, &view.ScheduleReminder); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		`SELECT address, on_submit, schedule_reminder, team_reminder FROM user_mail_settings WHERE user_id=$1`, p.ID).
+		Scan(&view.Address, &view.OnSubmit, &view.ScheduleReminder, &view.TeamReminder); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		a.logger.Error("read mail preference", "error", err, "trace", traceIDFromContext(r.Context()))
+		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 설정을 읽을 수 없습니다.")
+		return
+	}
+	view.ReminderAddress = a.mailRecipientFor(r.Context(), p)
+	if view.MailBlockedOrganization, err = a.mailBlockedOrganization(r.Context(), p.ID); err != nil {
+		a.logger.Error("read mail exclusion", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", "메일 발송 설정을 읽을 수 없습니다.")
 		return
 	}
@@ -909,6 +942,10 @@ func (a *App) updateMyMailSettings(w http.ResponseWriter, r *http.Request) {
 		Address          string `json:"address"`
 		OnSubmit         bool   `json:"onSubmit"`
 		ScheduleReminder bool   `json:"scheduleReminder"`
+		// A pointer, because a client written before this switch existed sends
+		// no such key, and that silence means "leave it as it is" — not "off",
+		// which would unsubscribe whoever saves their address from an old tab.
+		TeamReminder *bool `json:"teamReminder"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -931,20 +968,44 @@ func (a *App) updateMyMailSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED", "마감 임박 알림을 켜려면 받을 주소를 먼저 입력하세요.")
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `
-		INSERT INTO user_mail_settings(user_id, address, on_submit, schedule_reminder, updated_at)
-		VALUES($1, $2, $3, $4, now())
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "메일 발송 설정을 저장할 수 없습니다.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var teamReminder bool
+	if err := tx.QueryRow(r.Context(), `
+		INSERT INTO user_mail_settings(user_id, address, on_submit, schedule_reminder, team_reminder, updated_at)
+		VALUES($1, $2, $3, $4, coalesce($5, false), now())
 		ON CONFLICT (user_id) DO UPDATE SET address=EXCLUDED.address, on_submit=EXCLUDED.on_submit,
-			schedule_reminder=EXCLUDED.schedule_reminder, updated_at=now()`,
-		p.ID, input.Address, input.OnSubmit, input.ScheduleReminder); err != nil {
+			schedule_reminder=EXCLUDED.schedule_reminder,
+			team_reminder=coalesce($5, user_mail_settings.team_reminder), updated_at=now()
+		RETURNING team_reminder`,
+		p.ID, input.Address, input.OnSubmit, input.ScheduleReminder, input.TeamReminder).Scan(&teamReminder); err != nil {
 		a.logger.Error("save mail preference", "error", err, "trace", traceIDFromContext(r.Context()))
 		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "메일 발송 설정을 저장할 수 없습니다.")
 		return
 	}
+	// A reminder already waiting for the relay was queued under the old answer.
+	// The worker would discard it anyway; removing it here means the person who
+	// just said no is not shown, anywhere, a mail on its way to them.
+	if !teamReminder {
+		if _, err := tx.Exec(r.Context(), `DELETE FROM team_reminder_deliveries
+			WHERE recipient_user_id=$1 AND status='QUEUED'`, p.ID); err != nil {
+			a.logger.Error("drop declined team reminders", "error", err, "trace", traceIDFromContext(r.Context()))
+			writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "메일 발송 설정을 저장할 수 없습니다.")
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "메일 발송 설정을 저장할 수 없습니다.")
+		return
+	}
 	a.audit(r, p, "mail.preference", "user", fmt.Sprint(p.ID), map[string]any{
-		"onSubmit": input.OnSubmit, "scheduleReminder": input.ScheduleReminder})
+		"onSubmit": input.OnSubmit, "scheduleReminder": input.ScheduleReminder, "teamReminder": teamReminder})
 	writeData(w, http.StatusOK, map[string]any{"address": input.Address,
-		"onSubmit": input.OnSubmit, "scheduleReminder": input.ScheduleReminder})
+		"onSubmit": input.OnSubmit, "scheduleReminder": input.ScheduleReminder, "teamReminder": teamReminder})
 }
 
 // mailRecipientFor is where this person receives.
@@ -977,6 +1038,9 @@ func (a *App) testMail(w http.ResponseWriter, r *http.Request) {
 	if !validMailAddress(to) {
 		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED",
 			"시험 메일을 받을 주소가 없습니다. 개인 설정에서 받을 주소를 먼저 저장하세요.")
+		return
+	}
+	if a.refuseBlockedMailRecipient(w, r, p.ID) {
 		return
 	}
 	subject := fmt.Sprintf("[%s] 메일 발송 시험", a.setting(r.Context(), "service.name", "Weekly"))
@@ -1063,6 +1127,9 @@ func (a *App) testMyReportMail(w http.ResponseWriter, r *http.Request) {
 	if !validMailAddress(to) {
 		writeError(w, http.StatusBadRequest, "MAIL_ADDRESS_REQUIRED",
 			"시험 메일을 받을 주소가 없습니다. 받을 주소를 입력하고 저장한 뒤 다시 시도하세요.")
+		return
+	}
+	if a.refuseBlockedMailRecipient(w, r, p.ID) {
 		return
 	}
 	if remaining, ok := a.mailTests.take(p.ID, mailTestCooldown, time.Now()); !ok {

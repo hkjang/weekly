@@ -15,6 +15,7 @@ import type { TeamReminderQueueResult } from './types'
 
 const result: TeamReminderQueueResult = {
   weekStart: '2026-08-31', eligible: 8, queued: 3, alreadyQueued: 4, skippedNoAddress: 1,
+  skippedNotOptedIn: 0, skippedExcluded: 0,
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -98,12 +99,22 @@ describe('팀원 작성 권고 처리 결과', () => {
   })
 
   it('대상이 없을 때와 주소가 없어 한 명도 큐잉하지 못했을 때를 구분한다', () => {
-    const empty = { ...result, eligible: 0, queued: 0, alreadyQueued: 0, skippedNoAddress: 0 }
+    const empty = { ...result, eligible: 0, queued: 0, alreadyQueued: 0, skippedNoAddress: 0, skippedNotOptedIn: 0, skippedExcluded: 0 }
     expect(manualTeamReminderResultSummary(empty)).toBe('현재 권고할 미제출 팀원이 없습니다.')
 
     const undeliverable = { ...empty, eligible: 2, skippedNoAddress: 2 }
     expect(manualTeamReminderResultSummary(undeliverable)).toContain('새로 발송 대기열에 추가된 메일이 없습니다.')
     expect(manualTeamReminderResultSummary(undeliverable)).toContain('2명은 유효한 메일 주소가 없어')
+  })
+
+  it('받기를 켜지 않은 사람과 메일 발송 제외 조직을 따로 알린다', () => {
+    const declined = { ...result, queued: 1, alreadyQueued: 0, skippedNoAddress: 0, skippedNotOptedIn: 5, skippedExcluded: 2 }
+    const summary = manualTeamReminderResultSummary(declined)
+    expect(summary).toContain('5명은 개인 설정에서 권고 메일 받기를 켜지 않아')
+    expect(summary).toContain('2명은 메일 발송 제외 조직 소속이라')
+    const markup = renderToStaticMarkup(<ManualTeamReminderResult result={declined}/>)
+    expect(markup).toContain('수신 안 함')
+    expect(markup).toContain('발송 제외 조직')
   })
 
   it('SMTP와 역할 오류는 상태가 오래된 화면에서도 구체적으로 안내한다', () => {

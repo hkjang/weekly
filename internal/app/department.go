@@ -332,8 +332,8 @@ func (a *App) createDepartmentOrganization(ctx context.Context, department strin
 	}
 	code := generatedDepartmentCode(department)
 	var id int64
-	err := a.db.QueryRow(ctx, `INSERT INTO organizations(name, code) VALUES($1, $2)
-		ON CONFLICT (code) DO NOTHING RETURNING id`, name, code).Scan(&id)
+	err := a.db.QueryRow(ctx, `INSERT INTO organizations(name, code, mail_blocked) VALUES($1, $2, $3)
+		ON CONFLICT (code) DO NOTHING RETURNING id`, name, code, defaultMailBlocked(name)).Scan(&id)
 	if err == nil {
 		return id, true, nil
 	}

@@ -51,7 +51,13 @@ export interface DepartmentRow {
 export interface DepartmentOverview { mode: DepartmentSyncMode; claim: string; create: boolean; items: DepartmentRow[]; withoutDepartment: number; pending: number }
 /** A page of accounts with the size of the directory it came from. */
 export interface AdminUserPage { items: AdminUser[]; total: number; limit: number; offset: number; query?: string; roles?: string[]; unassigned: number; organization?: string; departmentSync?: DepartmentSyncMode }
-export interface Organization { id: number; parentId?: number; name: string; code: string; userCount: number }
+export interface Organization {
+  id: number; parentId?: number; name: string; code: string; userCount: number
+  /** 메일 발송 제외: 이 조직과 하위 조직 소속에게는 서비스가 메일을 보내지 않습니다. */
+  mailBlocked?: boolean
+  /** 상위 조직이 이미 제외되어 있어 이 조직도 메일을 받지 않습니다. */
+  mailBlockedByParent?: boolean
+}
 export interface Setting { key: string; value?: string; secret: boolean; configured: boolean; available: boolean; updatedAt: string }
 export type AIReportItem = {
   category: string; title: string; currentResult: string; nextPlan: string; issue: string; progress: number
@@ -384,7 +390,16 @@ export interface EncryptionStatus { keySource: string; storedSecrets: number; re
  * otherwise know.
  */
 export interface MailDelivery { id: number; weekStart: string; address: string; status: 'QUEUED' | 'SENT' | 'FAILED'; attempts: number; error: string; createdAt: string; sentAt: string | null; nextAttemptAt: string | null }
-export interface MailPreference { relayReady: boolean; address: string; onSubmit: boolean; scheduleReminder: boolean; deliveries: MailDelivery[] }
+export interface MailPreference {
+  relayReady: boolean; address: string; onSubmit: boolean; scheduleReminder: boolean
+  /** 주간보고 작성 권고 메일 받기. 켜기 전까지 받지 않습니다. */
+  teamReminder: boolean
+  /** 권고 메일이 가는 주소: 저장한 받을 주소, 없으면 계정 이메일. */
+  reminderAddress: string
+  /** 메일 발송 제외 조직 소속이면 그 조직 이름. 어떤 메일도 발송되지 않습니다. */
+  mailBlockedOrganization: string
+  deliveries: MailDelivery[]
+}
 export type WeekdayName = 'SUNDAY' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY'
 export interface WeeklyPreference {
   autoClonePrevious: boolean; reminderAvailable: boolean; reminderEnabled: boolean
@@ -392,6 +407,10 @@ export interface WeeklyPreference {
 }
 export interface TeamReminderQueueResult {
   weekStart: string; eligible: number; queued: number; alreadyQueued: number; skippedNoAddress: number
+  /** 개인 설정에서 권고 메일 받기를 켜지 않은 사람. */
+  skippedNotOptedIn: number
+  /** 메일 발송 제외 조직(예: 임원실) 소속. */
+  skippedExcluded: number
 }
 
 /**

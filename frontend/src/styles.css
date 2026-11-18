@@ -487,3 +487,6 @@ a.sr-tag:hover{background:#cbd5e1;text-decoration:underline}
 .badge.pin-badge{background:var(--state-stalled-bg);color:var(--state-stalled-ink);margin-left:6px}
 .row-actions{white-space:nowrap}.row-actions .text-button{color:var(--blue);margin-right:8px}
 .modal-form .modal-wide{grid-column:1/-1;margin:0}
+/* 메일 발송 제외 조직 */
+.badge.mail-blocked{background:#fef2f2;color:#b91c1c;margin-left:8px;vertical-align:middle}
+.badge.mail-blocked.inherited{background:var(--status-draft-bg);color:var(--status-draft-ink)}

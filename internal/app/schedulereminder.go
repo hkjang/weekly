@@ -182,6 +182,7 @@ func (a *App) queueDueScheduleReminders(ctx context.Context, localNow time.Time)
 		FROM user_mail_settings m
 		JOIN users u ON u.id = m.user_id AND u.active
 		WHERE m.schedule_reminder = true AND m.address <> ''
+		  AND NOT organization_mail_blocked(u.organization_id)
 		  AND EXISTS (SELECT 1 FROM schedule_tasks s
 		              WHERE s.user_id = m.user_id AND s.done_at IS NULL
 		                AND s.end_date BETWEEN $1 AND $2)
@@ -260,11 +261,12 @@ func (a *App) sendNextQueuedScheduleReminder(ctx context.Context) bool {
 	// off, change their address, or simply finish the work while the relay was
 	// down — none of those authorise yesterday's mail going out today.
 	var name, address string
-	var wanted, active bool
+	var wanted, active, blocked bool
 	if err := a.db.QueryRow(ctx, `SELECT u.display_name, u.active,
-		coalesce(m.schedule_reminder,false), coalesce(m.address,'')
+		coalesce(m.schedule_reminder,false), coalesce(m.address,''),
+		organization_mail_blocked(u.organization_id)
 		FROM users u LEFT JOIN user_mail_settings m ON m.user_id=u.id WHERE u.id=$1`,
-		delivery.userID).Scan(&name, &active, &wanted, &address); err != nil {
+		delivery.userID).Scan(&name, &active, &wanted, &address, &blocked); err != nil {
 		a.logger.Error("read schedule reminder recipient", "delivery", delivery.id, "error", err)
 		return false
 	}
@@ -273,7 +275,7 @@ func (a *App) sendNextQueuedScheduleReminder(ctx context.Context) bool {
 		a.logger.Error("read due schedule tasks", "delivery", delivery.id, "error", err)
 		return false
 	}
-	if !wanted || !active || !validMailAddress(address) || len(tasks) == 0 {
+	if !wanted || !active || blocked || !validMailAddress(address) || len(tasks) == 0 {
 		// Nothing to say any more. The row is removed rather than marked sent,
 		// so tomorrow starts clean and nobody reads a "SENT" that never was.
 		if _, err := a.db.Exec(ctx, `DELETE FROM schedule_reminder_deliveries WHERE id=$1`, delivery.id); err != nil {

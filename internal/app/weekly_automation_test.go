@@ -33,10 +33,26 @@ func saveAutomationPreference(server *testServer, account automationTestAccount,
 	}, account.cookie)
 }
 
+// setAutomationTestEmail gives a reminder recipient an address and, because a
+// team reminder only reaches somebody who asked for it, the asking too. A test
+// about who is excluded says so with its own account.
 func setAutomationTestEmail(t *testing.T, server *testServer, account automationTestAccount, address string) {
 	t.Helper()
 	if _, err := server.app.db.Exec(server.ctx(), `UPDATE users SET email=$2 WHERE id=$1`, account.id, address); err != nil {
 		t.Fatalf("set %s email: %v", account.username, err)
+	}
+	optInTeamReminder(t, server, account)
+}
+
+// optInTeamReminder turns on 작성 권고 메일 받기 for each account, the way the
+// person would on 개인 설정.
+func optInTeamReminder(t *testing.T, server *testServer, accounts ...automationTestAccount) {
+	t.Helper()
+	for _, account := range accounts {
+		if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_mail_settings(user_id,team_reminder)
+			VALUES($1,true) ON CONFLICT (user_id) DO UPDATE SET team_reminder=true`, account.id); err != nil {
+			t.Fatalf("opt %s in to team reminders: %v", account.username, err)
+		}
 	}
 }
 
@@ -344,7 +360,8 @@ func TestWeeklyTeamReminderTargetsOnlyUnsubmittedActiveTeamMembersOnce(t *testin
 	setAutomationTestEmail(t, server, outside, "outside@internal.test")
 	setAutomationTestEmail(t, server, inactive, "inactive@internal.test")
 	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_mail_settings(user_id,address,on_submit)
-		VALUES($1,'preferred-same@internal.test',false)`, sameTeam.id); err != nil {
+		VALUES($1,'preferred-same@internal.test',false)
+		ON CONFLICT (user_id) DO UPDATE SET address=EXCLUDED.address`, sameTeam.id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.app.db.Exec(server.ctx(), `UPDATE users SET active=false WHERE id=$1`, inactive.id); err != nil {
@@ -516,10 +533,14 @@ func TestWeeklyQueuedReminderIsDeliveredAndCannotBeQueuedAgainThatWeek(t *testin
 		t.Fatalf("relay received %d reminder messages, want 1", len(messages))
 	}
 	body := decodedBody(t, messages[0])
-	for _, fragment := range []string{week.Format("2006-01-02"), recipient.username, leader.username, "제출해 주세요", "선택한 요일에 자동으로 발송했습니다"} {
+	for _, fragment := range []string{week.Format("2006-01-02"), recipient.username, "제출해 주세요", "작성 안내", "작성 권고 메일 받기"} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("reminder body does not contain %q:\n%s", fragment, body)
 		}
+	}
+	// The reminder names nobody but its reader.
+	if strings.Contains(body, leader.username) || strings.Contains(body, "권고한 사람") {
+		t.Errorf("reminder body names the requester:\n%s", body)
 	}
 	if envelope := strings.Join(relay.envelopeLines(), " "); !strings.Contains(envelope, "reminder-delivery@internal.test") {
 		t.Errorf("reminder went to the wrong SMTP recipient: %s", envelope)
@@ -641,13 +662,14 @@ func TestManualTeamReminderQueuesTheCurrentScopedTeamAndSendsWithoutAnAutomaticP
 	setAutomationTestEmail(t, server, inactive, "manual-inactive@internal.test")
 	setAutomationTestEmail(t, server, invalidPreferred, "valid-account-fallback@internal.test")
 	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_mail_settings(user_id,address,on_submit)
-		VALUES($1,'invalid preferred address',false)`, invalidPreferred.id); err != nil {
+		VALUES($1,'invalid preferred address',false)
+		ON CONFLICT (user_id) DO UPDATE SET address=EXCLUDED.address`, invalidPreferred.id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.app.db.Exec(server.ctx(), `UPDATE users SET active=false WHERE id=$1`, inactive.id); err != nil {
 		t.Fatal(err)
 	}
-	_ = noAddress
+	optInTeamReminder(t, server, noAddress)
 
 	location := server.app.serviceLocation(server.ctx())
 	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
@@ -691,10 +713,13 @@ func TestManualTeamReminderQueuesTheCurrentScopedTeamAndSendsWithoutAnAutomaticP
 	}
 	for index, message := range messages {
 		body := decodedBody(t, message)
-		for _, fragment := range []string{week.Format("2006-01-02"), leader.username, "개인 설정에서 직접 발송했습니다"} {
+		for _, fragment := range []string{week.Format("2006-01-02"), "작성 안내"} {
 			if !strings.Contains(body, fragment) {
 				t.Errorf("manual reminder %d lost %q:\n%s", index, fragment, body)
 			}
+		}
+		if strings.Contains(body, leader.username) {
+			t.Errorf("manual reminder %d names the leader who pressed the button:\n%s", index, body)
 		}
 	}
 	var manualRows int
@@ -751,6 +776,7 @@ func TestManualTeamReminderRestartsFailedRowsButKeepsSentRowsDeduplicated(t *tes
 	sent := createAutomationTestAccount(t, server, "manual_retry_sent", "USER", &organization)
 	failedNoAddress := createAutomationTestAccount(t, server, "manual_retry_no_address", "USER", &organization)
 	setAutomationTestEmail(t, server, failed, "manual-retry-new@internal.test")
+	optInTeamReminder(t, server, sent, failedNoAddress)
 	location := server.app.serviceLocation(server.ctx())
 	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
 	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO team_reminder_deliveries
@@ -821,6 +847,7 @@ func TestManualTeamReminderPromotesAQueuedAutomaticRowBeforeAutomationIsDisabled
 	recipient := createAutomationTestAccount(t, server, "manual_promote_recipient", "USER", &organization)
 	invalidAddress := createAutomationTestAccount(t, server, "manual_promote_no_address", "USER", &organization)
 	setAutomationTestEmail(t, server, recipient, "manual-promoted@internal.test")
+	optInTeamReminder(t, server, invalidAddress)
 	if _, err := server.app.db.Exec(server.ctx(), `INSERT INTO user_weekly_preferences
 		(user_id,auto_clone_previous,team_reminder_enabled,team_reminder_weekday)
 		VALUES($1,false,true,'FRIDAY')`, leader.id); err != nil {
@@ -900,6 +927,7 @@ func TestManualTeamReminderDuplicateKeepsTheFirstManualRequester(t *testing.T) {
 	duplicate := createAutomationTestAccount(t, server, "manual_owner_duplicate", "TEAM_LEADER", &organization)
 	recipient := createAutomationTestAccount(t, server, "manual_owner_recipient", "USER", &organization)
 	setAutomationTestEmail(t, server, recipient, "new-profile-address@internal.test")
+	optInTeamReminder(t, server, first)
 
 	location := server.app.serviceLocation(server.ctx())
 	week := currentWeekStart(time.Now().In(location), server.app.setting(server.ctx(), "workflow.week_start", "MONDAY"))
@@ -951,9 +979,11 @@ func TestManualTeamReminderDuplicateKeepsTheFirstManualRequester(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("relay received %d messages, want 1", len(messages))
 	}
+	// The delivery went out, so the first manager's ownership survived the
+	// second manager's demotion; the mail itself names neither of them.
 	body := decodedBody(t, messages[0])
-	if !strings.Contains(body, first.username) || strings.Contains(body, duplicate.username) {
-		t.Errorf("manual reminder attribution changed after a duplicate click:\n%s", body)
+	if strings.Contains(body, first.username) || strings.Contains(body, duplicate.username) {
+		t.Errorf("manual reminder names a requester:\n%s", body)
 	}
 	if envelope := strings.Join(relay.envelopeLines(), " "); !strings.Contains(envelope, "first-durable-address@internal.test") {
 		t.Errorf("duplicate click changed the durable delivery address: %s", envelope)
