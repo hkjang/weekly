@@ -45,6 +45,8 @@ export function manualTeamReminderResultSummary(result: TeamReminderQueueResult)
       : ['새로 발송 대기열에 추가된 메일이 없습니다.']
   if (result.alreadyQueued > 0) messages.push(`${result.alreadyQueued}명은 이번 주에 이미 발송했거나 대기 중이라 중복에서 제외했습니다.`)
   if (result.skippedNoAddress > 0) messages.push(`${result.skippedNoAddress}명은 유효한 메일 주소가 없어 건너뛰었습니다.`)
+  if (result.skippedNotOptedIn > 0) messages.push(`${result.skippedNotOptedIn}명은 개인 설정에서 권고 메일 받기를 켜지 않아 보내지 않았습니다.`)
+  if (result.skippedExcluded > 0) messages.push(`${result.skippedExcluded}명은 메일 발송 제외 조직 소속이라 보내지 않았습니다.`)
   return messages.join(' ')
 }
 
@@ -56,6 +58,8 @@ export function ManualTeamReminderResult({ result }: { result: TeamReminderQueue
       <div><dt>새로 발송 대기</dt><dd>{result.queued}명</dd></div>
       <div><dt>중복 제외</dt><dd>{result.alreadyQueued}명<small>이미 발송·대기</small></dd></div>
       <div className={result.skippedNoAddress > 0 ? 'warning' : ''}><dt>주소 없음</dt><dd>{result.skippedNoAddress}명</dd></div>
+      <div><dt>수신 안 함</dt><dd>{result.skippedNotOptedIn}명<small>본인이 받기를 켜지 않음</small></dd></div>
+      <div><dt>발송 제외 조직</dt><dd>{result.skippedExcluded}명</dd></div>
     </dl>
     <p>{manualTeamReminderResultSummary(result)}</p>
   </div>
@@ -106,6 +110,7 @@ export default function ManualTeamReminder({ available, relayReady, notify }: {
     <header className="manual-reminder-head">
       <h3 id="manual-team-reminder-heading">수동 발송</h3>
       <p>자동 발송 사용 여부·요일과 독립적으로, 누르는 시점의 이번 주 미제출 팀원을 다시 확인해 발송 대기열에 추가합니다. 자동 설정 값은 바뀌지 않으며 별도 저장도 필요하지 않습니다.</p>
+      <p>메일은 개인 설정에서 <strong>작성 권고 메일 받기</strong>를 켠 팀원에게만 가고, 본문에 보낸 사람(권고자) 이름은 들어가지 않습니다.</p>
     </header>
     {!relayReady && <div className="edit-notice">관리자가 메일 서버를 준비하기 전에는 지금 발송할 수 없습니다.</div>}
     <div className="manual-reminder-actions"><Button variant="secondary" disabled={button.disabled} onClick={() => { void send() }}>

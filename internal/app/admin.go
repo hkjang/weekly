@@ -686,17 +686,19 @@ func (a *App) updateOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Name     *string `json:"name"`
-		Code     *string `json:"code"`
-		ParentID *int64  `json:"parentId"`
+		Name        *string `json:"name"`
+		Code        *string `json:"code"`
+		ParentID    *int64  `json:"parentId"`
+		MailBlocked *bool   `json:"mailBlocked"`
 	}
 	fields, ok := decodeJSONFields(w, r, &input)
 	if !ok {
 		return
 	}
 	var currentName, currentCode string
-	if err := a.db.QueryRow(r.Context(), `SELECT name,code FROM organizations WHERE id=$1`, id).
-		Scan(&currentName, &currentCode); err != nil {
+	var currentMailBlocked bool
+	if err := a.db.QueryRow(r.Context(), `SELECT name,code,mail_blocked FROM organizations WHERE id=$1`, id).
+		Scan(&currentName, &currentCode, &currentMailBlocked); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "ORGANIZATION_NOT_FOUND", "그런 조직이 없습니다.")
 			return
@@ -754,9 +756,17 @@ func (a *App) updateOrganization(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Unsent, the flag stays as it is — except that renaming an organisation
+	// to 임원실 makes it the 임원실, with the exclusion that comes with it.
+	mailBlocked := currentMailBlocked
+	if input.MailBlocked != nil {
+		mailBlocked = *input.MailBlocked
+	} else if name != currentName && defaultMailBlocked(name) {
+		mailBlocked = true
+	}
 	if _, err := a.db.Exec(r.Context(),
-		`UPDATE organizations SET name=$2,code=$3,parent_id=$4,updated_at=now() WHERE id=$1`,
-		id, name, code, parent); err != nil {
+		`UPDATE organizations SET name=$2,code=$3,parent_id=$4,mail_blocked=$5,updated_at=now() WHERE id=$1`,
+		id, name, code, parent, mailBlocked); err != nil {
 		if strings.Contains(err.Error(), "organizations_code_key") {
 			writeError(w, http.StatusConflict, "ORGANIZATION_EXISTS", "이미 있는 조직 코드입니다.")
 			return
@@ -766,8 +776,8 @@ func (a *App) updateOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, currentPrincipal(r.Context()), "organization.update", "organization", strconv.FormatInt(id, 10),
-		map[string]any{"name": name, "code": code, "parentId": parent})
-	writeData(w, 200, map[string]any{"id": id, "name": name, "code": code, "parentId": parent})
+		map[string]any{"name": name, "code": code, "parentId": parent, "mailBlocked": mailBlocked})
+	writeData(w, 200, map[string]any{"id": id, "name": name, "code": code, "parentId": parent, "mailBlocked": mailBlocked})
 }
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{2,120}$`)
@@ -1147,10 +1157,18 @@ type organizationView struct {
 	Name      string `json:"name"`
 	Code      string `json:"code"`
 	UserCount int    `json:"userCount"`
+	// MailBlocked is the organisation's own flag: nobody in it or beneath it
+	// receives mail from the service (mailexclusion.go).
+	MailBlocked bool `json:"mailBlocked"`
+	// MailBlockedByParent says an organisation above already excludes this
+	// one, so clearing its own flag would change nothing.
+	MailBlockedByParent bool `json:"mailBlockedByParent"`
 }
 
 func (a *App) adminOrganizations(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT o.id,o.parent_id,o.name,o.code,count(u.id) FROM organizations o LEFT JOIN users u ON u.organization_id=o.id GROUP BY o.id ORDER BY o.name`)
+	rows, err := a.db.Query(r.Context(), `SELECT o.id,o.parent_id,o.name,o.code,count(u.id),o.mail_blocked,
+		coalesce(organization_mail_blocked(o.parent_id),false)
+		FROM organizations o LEFT JOIN users u ON u.organization_id=o.id GROUP BY o.id ORDER BY o.name`)
 	if err != nil {
 		writeError(w, 500, "QUERY_FAILED", "조직을 조회할 수 없습니다.")
 		return
@@ -1159,7 +1177,8 @@ func (a *App) adminOrganizations(w http.ResponseWriter, r *http.Request) {
 	result := []organizationView{}
 	for rows.Next() {
 		var item organizationView
-		if err := rows.Scan(&item.ID, &item.ParentID, &item.Name, &item.Code, &item.UserCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.ParentID, &item.Name, &item.Code, &item.UserCount,
+			&item.MailBlocked, &item.MailBlockedByParent); err != nil {
 			writeError(w, 500, "QUERY_FAILED", "조직을 조회할 수 없습니다.")
 			return
 		}
@@ -1172,6 +1191,8 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Name, Code string
 		ParentID   *int64
+		// Absent means the default for the name: an 임원실 starts excluded.
+		MailBlocked *bool `json:"mailBlocked"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -1186,8 +1207,12 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "INVALID_ORGANIZATION", "조직 이름은 120자 이하로 입력하세요.")
 		return
 	}
+	mailBlocked := defaultMailBlocked(input.Name)
+	if input.MailBlocked != nil {
+		mailBlocked = *input.MailBlocked
+	}
 	var id int64
-	err := a.db.QueryRow(r.Context(), `INSERT INTO organizations(name,code,parent_id) VALUES($1,$2,$3) RETURNING id`, input.Name, input.Code, input.ParentID).Scan(&id)
+	err := a.db.QueryRow(r.Context(), `INSERT INTO organizations(name,code,parent_id,mail_blocked) VALUES($1,$2,$3,$4) RETURNING id`, input.Name, input.Code, input.ParentID, mailBlocked).Scan(&id)
 	if err != nil {
 		// Only a duplicate code is the caller's mistake. Anything else is a
 		// server fault and must not be reported as a conflict.
@@ -1204,7 +1229,7 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "DATABASE_ERROR", "조직을 만들 수 없습니다.")
 		return
 	}
-	a.audit(r, currentPrincipal(r.Context()), "organization.create", "organization", strconv.FormatInt(id, 10), map[string]any{"code": input.Code})
+	a.audit(r, currentPrincipal(r.Context()), "organization.create", "organization", strconv.FormatInt(id, 10), map[string]any{"code": input.Code, "mailBlocked": mailBlocked})
 	writeData(w, 201, map[string]int64{"id": id})
 }
 

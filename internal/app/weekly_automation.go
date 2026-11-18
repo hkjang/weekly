@@ -46,6 +46,11 @@ type teamReminderQueueResult struct {
 	Queued           int    `json:"queued"`
 	AlreadyQueued    int    `json:"alreadyQueued"`
 	SkippedNoAddress int    `json:"skippedNoAddress"`
+	// SkippedNotOptedIn is the members who have not turned the reminder on in
+	// 개인 설정. It is off until they do.
+	SkippedNotOptedIn int `json:"skippedNotOptedIn"`
+	// SkippedExcluded is the members of an organisation excluded from mail.
+	SkippedExcluded int `json:"skippedExcluded"`
 }
 
 func canScheduleTeamReminder(role string) bool {
@@ -394,10 +399,15 @@ func reminderDueAt(week time.Time, weekday string) time.Time {
 }
 
 func (a *App) queueDueTeamReminders(ctx context.Context, now, week time.Time) error {
+	// The narrowest scope first. A member covered by two leaders whose days
+	// coincide is reminded once, and that once belongs to the person they
+	// report to rather than whoever happens to have the lower id — which, on
+	// every deployment, is the administrator account.
 	rows, err := a.db.Query(ctx, `SELECT p.user_id,u.role,u.organization_id,p.team_reminder_weekday
 		FROM user_weekly_preferences p JOIN users u ON u.id=p.user_id
 		WHERE p.team_reminder_enabled=true AND u.active=true
-		  AND u.role IN ('TEAM_LEADER','ORG_MANAGER','ADMIN') ORDER BY p.user_id`)
+		  AND u.role IN ('TEAM_LEADER','ORG_MANAGER','ADMIN')
+		ORDER BY CASE u.role WHEN 'TEAM_LEADER' THEN 0 WHEN 'ORG_MANAGER' THEN 1 ELSE 2 END, p.user_id`)
 	if err != nil {
 		return err
 	}
@@ -492,15 +502,21 @@ func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week ti
 	// days. Asked as an overlap rather than as an exact week_start: see
 	// weekCoveringDays.
 	query := `SELECT u.id,u.display_name,
-		COALESCE(NULLIF(btrim(mail.address),''),btrim(coalesce(u.email,'')))
+		COALESCE(NULLIF(btrim(mail.address),''),btrim(coalesce(u.email,''))),
+		coalesce(mail.team_reminder,false), organization_mail_blocked(u.organization_id)
 		FROM users u LEFT JOIN user_mail_settings mail ON mail.user_id=u.id
 		WHERE u.active=true AND u.id<>$1
 		  AND NOT EXISTS(SELECT 1 FROM weekly_reports report
 		    WHERE report.user_id=u.id AND report.status<>'DRAFT' AND ` + weekCoveringDays("report", 2) + `)`
 	args := []any{requesterID, week}
+	nearer := "true"
 	if role != "ADMIN" {
 		args = append(args, *organizationID)
 		query += ` AND u.organization_id IN ` + orgSubtree(len(args))
+		nearer = fmt.Sprintf(`chain.depth < (SELECT min(own.depth) FROM chain own WHERE own.id=$%d)`, len(args))
+	}
+	if origin == teamReminderOriginAuto {
+		query += nearerReminderLeaderClause(nearer)
 	}
 	query += ` ORDER BY u.id`
 	rows, err := tx.Query(ctx, query, args...)
@@ -508,14 +524,16 @@ func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week ti
 		return result, err
 	}
 	type recipient struct {
-		id      int64
-		name    string
-		address string
+		id       int64
+		name     string
+		address  string
+		accepts  bool
+		excluded bool
 	}
 	recipients := []recipient{}
 	for rows.Next() {
 		var item recipient
-		if err := rows.Scan(&item.id, &item.name, &item.address); err != nil {
+		if err := rows.Scan(&item.id, &item.name, &item.address, &item.accepts, &item.excluded); err != nil {
 			rows.Close()
 			return result, err
 		}
@@ -528,6 +546,17 @@ func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week ti
 	}
 	result.Eligible = len(recipients)
 	for _, recipient := range recipients {
+		// Both outrank the requester, the schedule and the click: an
+		// organisation excluded from mail is excluded from this one, and a
+		// reminder goes only to somebody who asked to receive reminders.
+		if recipient.excluded {
+			result.SkippedExcluded++
+			continue
+		}
+		if !recipient.accepts {
+			result.SkippedNotOptedIn++
+			continue
+		}
 		if origin == teamReminderOriginManual {
 			var outcome manualTeamReminderOutcome
 			outcome, err = queueManualTeamReminderRecipient(ctx, tx, requesterID, recipient.id, week, recipient.address)
@@ -569,6 +598,38 @@ func (a *App) queueTeamReminders(ctx context.Context, requesterID int64, week ti
 			"origin", origin, "count", result.SkippedNoAddress)
 	}
 	return result, nil
+}
+
+// nearerReminderLeaderClause leaves out a member whose reminder belongs to a
+// leader nearer to them than the requester.
+//
+// Reminders are one per member per week, and the first schedule to reach a
+// member used to take them. The administrator's schedule covers everybody, so
+// a team whose leader chose Friday was reminded on the administrator's
+// Thursday instead — the administrator's choice overrode the leader's for
+// every team in the service. A schedule now reaches only the members no nearer
+// leader has a schedule for: a team leader or organisation manager whose
+// organisation sits on the member's way up the chart, strictly below the
+// requester's own (any of them, for an administrator, whose scope is not a
+// place on the chart).
+//
+// Only the automatic schedule defers. A leader who presses the button means
+// the people they pressed it for.
+//
+// farther is the SQL condition, over chain.depth, that makes a leader nearer
+// than the requester.
+func nearerReminderLeaderClause(farther string) string {
+	return ` AND NOT EXISTS (WITH RECURSIVE chain(id, depth) AS (
+			SELECT u.organization_id, 0 WHERE u.organization_id IS NOT NULL
+			UNION ALL
+			SELECT o.parent_id, chain.depth+1 FROM organizations o JOIN chain ON o.id=chain.id
+			WHERE o.parent_id IS NOT NULL AND chain.depth < ` + strconv.Itoa(orgSubtreeDepth) + `)
+		SELECT 1 FROM chain
+		JOIN users nearer ON nearer.organization_id=chain.id
+		JOIN user_weekly_preferences nearer_preference ON nearer_preference.user_id=nearer.id
+		WHERE nearer_preference.team_reminder_enabled AND nearer.active
+		  AND nearer.role IN ('TEAM_LEADER','ORG_MANAGER')
+		  AND nearer.id<>$1 AND nearer.id<>u.id AND ` + farther + `)`
 }
 
 type manualTeamReminderOutcome int
@@ -699,12 +760,21 @@ func teamReminderSubject(serviceName, week string) string {
 	return fmt.Sprintf("[%s] %s 주간보고 작성을 부탁드립니다", serviceName, week)
 }
 
-func teamReminderBody(week, recipientName, requesterName, origin string) string {
-	deliveryNote := "이 메일은 권고자가 개인 설정에서 선택한 요일에 자동으로 발송했습니다."
-	if origin == teamReminderOriginManual {
-		deliveryNote = "이 메일은 권고자가 개인 설정에서 직접 발송했습니다."
-	}
-	return fmt.Sprintf("%s님, 안녕하세요.\n\n%s 주간보고가 아직 제출되지 않았습니다.\n이번 주 업무와 다음 주 계획을 작성한 뒤 제출해 주세요.\n\n권고한 사람: %s\n\n--\n%s\n", recipientName, week, requesterName, deliveryNote)
+// teamReminderBody writes the reminder.
+//
+// It names nobody but the reader. A reminder used to end "권고한 사람: …",
+// and since the administrator's schedule covers the whole service, most of
+// them were signed by the administrator account — the mail read as the system
+// account chasing people. Who turned the schedule on or pressed the button is
+// kept on the delivery row and in the audit log, where an operator asks; the
+// member is told what is missing and how to stop these mails, which is all
+// the message is for.
+func teamReminderBody(serviceName, week, recipientName string) string {
+	return fmt.Sprintf("%s님, 안녕하세요.\n\n%s 주간보고가 아직 제출되지 않았습니다.\n"+
+		"이번 주 업무와 다음 주 계획을 작성한 뒤 제출해 주세요.\n\n"+
+		"--\n이 메일은 %s 에서 이번 주 주간보고 미제출자에게 보내는 작성 안내입니다.\n"+
+		"받지 않으려면 개인 설정 → 주간보고 메일 발송에서 '작성 권고 메일 받기'를 끄십시오.\n",
+		recipientName, week, serviceName)
 }
 
 // A claim must remain invisible to the other service replicas for longer than
@@ -743,39 +813,44 @@ func (a *App) claimNextQueuedReminder(ctx context.Context, lease time.Duration) 
 
 // reminderStillWanted is checked after claiming a row. A recipient may submit,
 // a leader may be demoted, or an organisation may move while SMTP is retrying;
-// none of those old snapshots authorises a late reminder.
-func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID int64, week time.Time, origin string) (string, string, bool) {
+// none of those old snapshots authorises a late reminder. Nor does a recipient
+// who has since turned reminders off, or whose organisation has since been
+// excluded from mail.
+func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID int64, week time.Time, origin string) (string, bool) {
 	if origin != teamReminderOriginAuto && origin != teamReminderOriginManual {
-		return "", "", false
+		return "", false
 	}
 	location := a.serviceLocation(ctx)
 	configuredStart := a.setting(ctx, "workflow.week_start", "MONDAY")
 	if currentWeekStart(time.Now().In(location), configuredStart).Format("2006-01-02") != week.Format("2006-01-02") {
-		return "", "", false
+		return "", false
 	}
-	var requesterName, recipientName, role string
+	var recipientName, role string
 	var requesterOrg, recipientOrg *int64
-	var requesterActive, recipientActive, enabled bool
-	err := a.db.QueryRow(ctx, `SELECT leader.display_name,recipient.display_name,leader.role,
+	var requesterActive, recipientActive, enabled, accepts, excluded bool
+	err := a.db.QueryRow(ctx, `SELECT recipient.display_name,leader.role,
 		leader.organization_id,recipient.organization_id,leader.active,recipient.active,
-		coalesce(preference.team_reminder_enabled,false)
+		coalesce(preference.team_reminder_enabled,false),
+		coalesce(recipient_mail.team_reminder,false),
+		organization_mail_blocked(recipient.organization_id)
 		FROM users leader JOIN users recipient ON recipient.id=$2
 		LEFT JOIN user_weekly_preferences preference ON preference.user_id=leader.id
+		LEFT JOIN user_mail_settings recipient_mail ON recipient_mail.user_id=recipient.id
 		WHERE leader.id=$1`, requesterID, recipientID).
-		Scan(&requesterName, &recipientName, &role, &requesterOrg, &recipientOrg,
-			&requesterActive, &recipientActive, &enabled)
-	if err != nil || !requesterActive || !recipientActive ||
+		Scan(&recipientName, &role, &requesterOrg, &recipientOrg,
+			&requesterActive, &recipientActive, &enabled, &accepts, &excluded)
+	if err != nil || !requesterActive || !recipientActive || !accepts || excluded ||
 		(origin == teamReminderOriginAuto && !enabled) || !canScheduleTeamReminder(role) || requesterID == recipientID {
-		return "", "", false
+		return "", false
 	}
 	if role != "ADMIN" {
 		if requesterOrg == nil || recipientOrg == nil {
-			return "", "", false
+			return "", false
 		}
 		var inScope bool
 		if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM `+orgSubtree(1)+` reachable WHERE reachable.id=$2)`,
 			*requesterOrg, *recipientOrg).Scan(&inScope); err != nil || !inScope {
-			return "", "", false
+			return "", false
 		}
 	}
 	// The same question the queue asks, asked again at the moment of sending.
@@ -783,9 +858,9 @@ func (a *App) reminderStillWanted(ctx context.Context, requesterID, recipientID 
 	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM weekly_reports report
 		WHERE report.user_id=$1 AND report.status<>'DRAFT' AND `+weekCoveringDays("report", 2)+`)`,
 		recipientID, week).Scan(&submitted); err != nil || submitted {
-		return "", "", false
+		return "", false
 	}
-	return requesterName, recipientName, true
+	return recipientName, true
 }
 
 // sendNextQueuedReminder is the reminder half of mailWorker. It mirrors the
@@ -804,7 +879,7 @@ func (a *App) sendNextQueuedReminder(ctx context.Context) bool {
 		a.logger.Error("claim queued team reminder", "error", err)
 		return false
 	}
-	requesterName, recipientName, wanted := a.reminderStillWanted(ctx, delivery.requesterID, delivery.recipientID, delivery.week, delivery.origin)
+	recipientName, wanted := a.reminderStillWanted(ctx, delivery.requesterID, delivery.recipientID, delivery.week, delivery.origin)
 	if !wanted || !validMailAddress(delivery.address) {
 		// A manual click may promote an AUTO row after this worker claimed its old
 		// snapshot. Delete only that snapshot; if the row changed origin/requester,
@@ -815,8 +890,9 @@ func (a *App) sendNextQueuedReminder(ctx context.Context) bool {
 		}
 		return true
 	}
-	subject := teamReminderSubject(a.setting(ctx, "service.name", "Weekly"), delivery.week.Format("2006-01-02"))
-	body := teamReminderBody(delivery.week.Format("2006-01-02"), recipientName, requesterName, delivery.origin)
+	serviceName := a.setting(ctx, "service.name", "Weekly")
+	subject := teamReminderSubject(serviceName, delivery.week.Format("2006-01-02"))
+	body := teamReminderBody(serviceName, delivery.week.Format("2006-01-02"), recipientName)
 	if err := a.sendMail(ctx, settings, delivery.address, subject, body); err != nil {
 		if delivery.attempts >= settings.MaxAttempts {
 			a.logger.Error("team reminder mail gave up", "delivery", delivery.id, "attempts", delivery.attempts, "error", err)

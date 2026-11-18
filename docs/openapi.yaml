@@ -1338,6 +1338,16 @@ paths:
         그렇게 선택한 주소가 유효하지 않으면 `skippedNoAddress`로 집계한다. 응답은 큐 등록
         결과이고 실제 SMTP 발송은 Worker가 비동기로 수행한다.
 
+        권고 메일은 받는 사람이 `PUT /me/mail`의 `teamReminder`를 켠 경우에만 간다(기본
+        꺼짐). 켜지 않은 사람은 `skippedNotOptedIn`, 메일 발송 제외 조직(예: 임원실)과 그
+        하위 조직 소속은 `skippedExcluded`로 집계한다. 메일 본문에는 받는 사람 이름만 있고
+        권고자(요청한 사람) 이름·직함은 넣지 않는다 — 요청자는 발송 행과 감사 로그에 남는다.
+
+        자동 발송(요일 예약)은 더 가까운 리더에게 양보한다: 받는 사람의 조직에서 위로
+        올라가는 길에 권고자 조직보다 아래에 있는 팀장·조직장이 자동 발송을 켜 두었으면 그
+        사람은 그 리더의 요일에 받는다. 관리자의 자동 발송은 리더가 예약하지 않은 사람만
+        맡는다. 이 버튼(수동 발송)은 양보하지 않는다.
+
         - 400 `INVALID_REQUEST`: 빈 JSON 객체가 아니거나 요청 본문이 없음
         - 403 `REMINDER_ROLE_REQUIRED`: 현재 활성 역할이 팀장·조직장·관리자가 아님
         - 409 `MAIL_RELAY_NOT_READY`: 사용할 수 있는 SMTP 설정이 없어 아무 행도 만들지 않음
@@ -1572,6 +1582,15 @@ paths:
                       scheduleReminder:
                         type: boolean
                         description: 업무 상황판 마감 임박 알림 수신 여부. 담당인 미완료 일정 중 마감이 5일 안으로 남은 것을 하루 한 번 남은 일수별로 묶어 보낸다.
+                      teamReminder:
+                        type: boolean
+                        description: 주간보고 작성 권고 메일 수신 여부. 기본 false — 본인이 켜기 전까지 받지 않는다.
+                      reminderAddress:
+                        type: string
+                        description: 권고 메일이 가는 주소. 저장한 address, 비어 있으면 계정 이메일. 둘 다 없으면 빈 문자열.
+                      mailBlockedOrganization:
+                        type: string
+                        description: 메일 발송 제외 조직 소속이면 가장 가까운 그 조직 이름, 아니면 빈 문자열. 값이 있으면 이 계정으로는 어떤 메일도 발송하지 않는다.
                       deliveries:
                         type: array
                         items:
@@ -1602,6 +1621,11 @@ paths:
         하루 한 통 보낸다. 시작일은 보지 않는다 — 아직 시작하지 않았는데 금요일이 마감인
         일이야말로 이 알림이 있는 이유다. 오늘 마감과 이미 지난 것은 넣지 않는다: 경고는
         닥치기 전에 와야 하고, 상황판 자신이 이미 빨간색으로 보여 준다.
+
+        `teamReminder`는 **주간보고 작성 권고 메일**을 받을지다. 기본 꺼짐이며, 받을 주소가
+        없어도 켤 수 있다(계정 이메일로 간다). 키를 보내지 않으면 저장된 값을 그대로 둔다 —
+        이 스위치를 모르는 옛 화면이 주소만 저장하면서 수신 여부를 바꾸지 않게 하기 위해서다.
+        끄면 발송 대기 중인 권고 메일도 함께 지운다.
       requestBody:
         required: true
         content:
@@ -1612,6 +1636,9 @@ paths:
                 address: { type: string }
                 onSubmit: { type: boolean }
                 scheduleReminder: { type: boolean }
+                teamReminder:
+                  type: boolean
+                  description: 생략하면 기존 값 유지. 처음 저장할 때 생략하면 false.
       responses:
         "200": { description: OK }
         "400": { $ref: "#/components/responses/Error" }
@@ -1628,6 +1655,8 @@ paths:
         하나도 없으면 첨부 없이 릴레이만 확인하는 짧은 메일을 보내고 `weekStart`는 빈 값이다.
         시험 발송은 발송 이력(`/me/mail`의 `deliveries`)에 남지 않는다. 한 사람당 30초에
         한 번이며, 그 사이의 요청은 429다.
+
+        메일 발송 제외 조직 소속이면 409 `MAIL_BLOCKED_ORGANIZATION`으로 거부한다.
       responses:
         "200":
           description: OK
@@ -1648,6 +1677,7 @@ paths:
                         type: string
                         description: 첨부한 PPTX 파일명. 첨부하지 못했으면 빈 문자열이다.
         "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
   /admin/mail/health:
@@ -2460,10 +2490,29 @@ paths:
   /admin/organizations:
     get:
       summary: 조직 목록
+      description: |
+        항목마다 `id`, `parentId`, `name`, `code`, `userCount`와 함께 `mailBlocked`(이 조직
+        자체의 메일 발송 제외 표시), `mailBlockedByParent`(상위 조직이 이미 제외라 이 조직도
+        메일을 받지 않음)를 준다.
       responses:
         "200": { $ref: "#/components/responses/Success" }
     post:
       summary: 조직 등록
+      description: |
+        본문은 `name`, `code`, `parentId`, `mailBlocked`. `mailBlocked`를 생략하면 이름으로
+        정한다 — 이름이 **임원실**(공백 무시)이면 처음부터 메일 발송 제외다. 제외 조직과 그
+        하위 조직 소속에게는 작성 권고·마감 알림·제출 사본·시험 메일을 포함해 어떤 메일도
+        보내지 않는다.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                code: { type: string }
+                parentId: { type: integer, format: int64, nullable: true }
+                mailBlocked: { type: boolean }
       responses:
         "201": { $ref: "#/components/responses/Success" }
   /admin/organizations/{id}:
@@ -2474,6 +2523,9 @@ paths:
       description: |
         보낸 키만 바꾼다. `parentId`를 보내지 않으면 상위 조직은 그대로이고,
         `null`로 보내면 최상위로 올린다 — 둘은 다른 지시이므로 구분한다.
+
+        `mailBlocked`로 메일 발송 제외를 켜고 끈다. 보내지 않으면 그대로지만, 이름을
+        **임원실**로 바꾸면 제외가 켜진다.
 
         **자기 자신이나 자기 아래 조직을 상위로 삼으려 하면 409 `ORGANIZATION_CYCLE`이다.**
         조직도가 고리가 되면 그 안의 사람들에게 팀 단위 화면이 열리지 않는다. 표를 직접
@@ -2633,7 +2685,7 @@ components:
           description: 관리자가 권고 메일에 사용할 수 있는 SMTP 설정을 저장했는지
     TeamReminderQueueResult:
       type: object
-      required: [weekStart, eligible, queued, alreadyQueued, skippedNoAddress]
+      required: [weekStart, eligible, queued, alreadyQueued, skippedNoAddress, skippedNotOptedIn, skippedExcluded]
       properties:
         weekStart:
           type: string
@@ -2642,7 +2694,7 @@ components:
         eligible:
           type: integer
           minimum: 0
-          description: 이번 요청에서 확인한 미제출 활성 사용자 수. queued + alreadyQueued + skippedNoAddress와 같음
+          description: 이번 요청에서 확인한 미제출 활성 사용자 수. queued + alreadyQueued + skippedNoAddress + skippedNotOptedIn + skippedExcluded와 같음
         queued:
           type: integer
           minimum: 0
@@ -2655,6 +2707,14 @@ components:
           type: integer
           minimum: 0
           description: 개인 설정 주소, 또는 그 값이 비었을 때 선택한 계정 이메일이 유효하지 않아 건너뛴 수
+        skippedNotOptedIn:
+          type: integer
+          minimum: 0
+          description: 개인 설정에서 작성 권고 메일 받기를 켜지 않아 보내지 않은 수
+        skippedExcluded:
+          type: integer
+          minimum: 0
+          description: 메일 발송 제외 조직(예 임원실)과 그 하위 조직 소속이라 보내지 않은 수
     TeamReminderQueueResponse:
       allOf:
         - { $ref: "#/components/schemas/Envelope" }

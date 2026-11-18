@@ -25,6 +25,7 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
   const [mailAddress, setMailAddress] = useState('')
   const [mailOn, setMailOn] = useState(false)
   const [mailDeadline, setMailDeadline] = useState(false)
+  const [mailTeamReminder, setMailTeamReminder] = useState(false)
   const [mailTesting, setMailTesting] = useState(false)
   const [weekly, setWeekly] = useState<WeeklyPreference>()
   const [autoClonePrevious, setAutoClonePrevious] = useState(false)
@@ -32,15 +33,15 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
   const [reminderWeekday, setReminderWeekday] = useState<WeekdayName>('FRIDAY')
   const loadMail = () => api<MailPreference>('/api/v1/me/mail').then(value => {
     setMail(value); setMailAddress(value.address); setMailOn(value.onSubmit)
-    setMailDeadline(value.scheduleReminder)
+    setMailDeadline(value.scheduleReminder); setMailTeamReminder(value.teamReminder)
   })
   const saveMail = async () => {
     try {
       await put('/api/v1/me/mail', {
-        address: mailAddress.trim(), onSubmit: mailOn, scheduleReminder: mailDeadline,
+        address: mailAddress.trim(), onSubmit: mailOn, scheduleReminder: mailDeadline, teamReminder: mailTeamReminder,
       })
       await loadMail()
-      notify(mailOn || mailDeadline ? '이 주소로 발송합니다.' : '메일 발송을 껐습니다.')
+      notify(mailOn || mailDeadline || mailTeamReminder ? '메일 발송 설정을 저장했습니다.' : '메일 발송을 모두 껐습니다.')
     } catch (error) { notify(errorText(error, '메일 발송 설정을 저장할 수 없습니다.'), 'error') }
   }
   // A writer who set this up wrong used to find out by not receiving anything a
@@ -86,7 +87,7 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
         <label className="toggle-row"><span><strong>지난주 보고서 전체 자동 복제</strong><small>새 주차가 시작되면 지난주 요약과 업무별 실적·계획·이슈·상위 조직 요청을 작성 중 초안으로 한 번 복제합니다. 이번 주 보고서가 이미 있으면 건너뜁니다.</small></span>
           <input type="checkbox" checked={autoClonePrevious} onChange={event => setAutoClonePrevious(event.target.checked)}/></label>
         {weekly?.reminderAvailable && <>
-          <label className="toggle-row"><span><strong>팀원 작성 권고 메일</strong><small>아직 제출하지 않은 활성 팀원에게 계정의 수신 주소로 한 주에 한 번 보냅니다.</small></span>
+          <label className="toggle-row"><span><strong>팀원 작성 권고 메일</strong><small>아직 제출하지 않은 팀원 중 개인 설정에서 <b>작성 권고 메일 받기</b>를 켠 사람에게 한 주에 한 번 보냅니다. 메일에 보낸 사람 이름은 들어가지 않으며, 더 가까운 팀장이 예약해 둔 팀원은 그 팀장의 요일에 받습니다.</small></span>
             <input type="checkbox" checked={reminderEnabled} onChange={event => setReminderEnabled(event.target.checked)}/></label>
           <div className="setting-row"><span><strong>권고 메일 발송 요일</strong><small>{weekly.timezone} 기준 오전 {weekly.reminderHour}시 이후 자동 발송</small></span>
             <select aria-label="권고 메일 발송 요일" value={reminderWeekday} disabled={!reminderEnabled} onChange={event => setReminderWeekday(event.target.value as WeekdayName)}>
@@ -108,6 +109,11 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
       {mail && !mail.relayReady && <div className="edit-notice">
         관리자가 아직 메일 서버를 설정하지 않았습니다. 지금 켜 두면 설정이 끝나는 대로 발송됩니다.
       </div>}
+      {/* Every switch below is moot while this holds, and somebody who turns
+          them on and receives nothing is owed the reason. */}
+      {mail?.mailBlockedOrganization && <div className="edit-notice">
+        소속 조직({mail.mailBlockedOrganization})이 메일 발송 제외 조직이라 이 계정으로는 어떤 메일도 발송되지 않습니다.
+      </div>}
       <div className="inline-form">
         <label>받을 주소<input type="email" value={mailAddress} placeholder="name@example.com"
           onChange={e => setMailAddress(e.target.value)}/></label>
@@ -117,6 +123,13 @@ export default function ProfilePage({ session, notify, refreshSession, mcpOAuth 
             place to type where the mail goes. */}
         <label className="toggle-row"><span><strong>마감 임박 알림 받기</strong><small>업무 상황판에서 내가 담당인 일정 중 <b>마감 5일 전부터</b> 남은 일수별로 묶어 하루 한 번 보냅니다. 시작일과는 무관하며, 체크한 일정은 빠집니다.</small></span>
           <input type="checkbox" checked={mailDeadline} onChange={e => setMailDeadline(e.target.checked)}/></label>
+        {/* Off until asked for. A reminder needs no saved address — it falls
+            back to the account address — so the line says which one it uses. */}
+        <label className="toggle-row"><span><strong>작성 권고 메일 받기</strong><small>이번 주 주간보고를 아직 제출하지 않았을 때 팀장이 예약하거나 직접 보낸 작성 권고 메일을 받습니다. 기본은 받지 않음입니다.
+          {mail && (mail.reminderAddress
+            ? <> 받는 주소: <b>{mail.reminderAddress}</b>{mail.address ? '' : ' (계정 이메일)'}</>
+            : <> <b>받을 주소가 없어</b> 켜도 발송되지 않습니다. 위에 받을 주소를 입력하세요.</>)}</small></span>
+          <input type="checkbox" checked={mailTeamReminder} onChange={e => setMailTeamReminder(e.target.checked)}/></label>
         <Button onClick={saveMail}>저장</Button>
         <Button variant="secondary" onClick={testMail} disabled={mailTesting}>{mailTesting ? '보내는 중…' : '시험 발송'}</Button>
       </div>
